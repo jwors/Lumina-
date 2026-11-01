@@ -14,6 +14,12 @@
 - 真机项（06 号复核）：10 秒规则、权限弹窗实弹、休眠恢复路径。
 - 验证：`gradle :app:testDebugUnitTest` 33/33 绿；`gradle :app:assembleDebug` BUILD SUCCESSFUL 产出 `app-debug.apk`（8.7 MB）。
 - 隐私不变：Manifest 无 INTERNET（ManifestPrivacyTest 绿）。
+- Code Review (2026-11-02) 修复（两轴共同钉死 1 个致命 + 3 个次生）：
+  1. **致命**：`readCatalog` 忘调 `ptp.open()`——首次真机连接必挂（IllegalStateException），已修：`ptp.open()` 前置于 getModel()。
+  2. **spec 决策 4 / story 17 补实现**：MTP 类设备不再是只给提示——走 `android.mtp.MtpDevice` 兜底列清单（getStorageIds→getObjectHandles→getObjectInfo，日期 epoch 秒→毫秒），屏显并记日志"走了 MTP 兜底路径"。
+  3. **spec 决策 7 / story 20 补实现**：设备/协议异常落私有目录 `filesDir/m0-probe.log`（时间戳行）。
+  4. 授权弹窗错过时界面提供"重试授权"；存储合并抽到 `ObjectCatalog.merge`；`MAX_CONTAINER_BYTES` 收敛 256MiB→4MiB（M1 随需上调）。
+  - MTP 父句柄语义（get 端 0 参数口径）真机校验证挂 06。
 
 - [ ] 状态机驱动 UI：未连接 / 请求权限 / 已连接读取中 / 列表就绪 / 断开（含原因）
 - [ ] 日期分组列表 + 头部总数/总体积统计

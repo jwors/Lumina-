@@ -10,13 +10,16 @@ import com.lumina.transport.Transport
 import java.io.IOException
 import java.nio.ByteBuffer
 
+/** USB 层可读失败（reason ∈ claim/attach/open/read/write），供 UI 人话化，不走文案匹配。 */
+class UsbTransportException(val reason: String, detailMessage: String) : IOException(detailMessage)
+
 /**
  * Transport 的真实 USB 实现（工单 04）。
  * 协议层（ptp 包）只知道缝隙契约，这里的全部职责是把它落到 USB bulk 管道上：
  * - open：认领 PTP 接口（幂等性由状态机钉死，重复 open 抛错）
  * - write/read：一次 bulk 传输一个块
  * - close：释放接口 + 关 connection（终结性同 FakeTransport）
- * IO 失败一律 IOException，带可读原因（相机休眠 → 超时，拔线 → 设备不可用）。
+ * IO 失败一律 UsbTransportException，带可读原因（相机休眠 → 超时，拔线 → 设备不可用）。
  */
 class UsbTransport(
     private val connection: UsbDeviceConnection,
@@ -39,7 +42,10 @@ class UsbTransport(
         check(phase is Phase.Dormant) { "transport already $phase" }
         // force=true：相机可能残留上一次进程的认领；M0 探针独占使用
         if (!connection.claimInterface(iface, true)) {
-            throw IOException("claimInterface failed (device may be held by system service)")
+            throw UsbTransportException(
+                "claim",
+                "claimInterface failed (device may be held by system service)",
+            )
         }
         phase = Phase.Open
     }
@@ -48,7 +54,8 @@ class UsbTransport(
         requireOpen()
         val sent = connection.bulkTransfer(bulkOut, chunk, 0, chunk.size, timeoutMs)
         if (sent < 0) {
-            throw IOException(
+            throw UsbTransportException(
+                "write",
                 "USB bulk write failed after ${timeoutMs}ms (camera asleep or unplugged?)",
             )
         }
@@ -63,7 +70,8 @@ class UsbTransport(
         val stage = ByteArray(remaining)
         val got = connection.bulkTransfer(bulkIn, stage, stage.size, timeoutMs)
         if (got < 0) {
-            throw IOException(
+            throw UsbTransportException(
+                "read",
                 "USB bulk read failed after ${timeoutMs}ms (camera asleep or unplugged?)",
             )
         }
@@ -88,7 +96,8 @@ class UsbTransport(
     companion object {
         /**
          * 从 UsbManager 视角打开一台已授权的 PTP 设备。
-         * 找不到 PTP 接口时抛 IllegalStateException（可读完整原因，含 MTP 疑似诊断）。
+         * 只认 BULK 型号端点（影像接口可能附带中断 IN 端点，code-review 抓到的坑）；
+         * 找不到时抛 IllegalStateException（含 MTP 疑似诊断）。
          */
         fun from(usbManager: UsbManager, device: UsbDevice): UsbTransport {
             val iface = (0 until device.interfaceCount)
@@ -96,22 +105,25 @@ class UsbTransport(
                 .firstOrNull { it.interfaceClass == UsbDeviceClassifier.CLASS_STILL_IMAGE }
                 ?: throw IllegalStateException(
                     "no Still-Image interface on ${device.deviceName} " +
-                        "(${device.describeInterfaces()}) — likely a file/MTP device",
+                        "(${describeInterfaces(device)}) — likely a file/MTP device",
                 )
-            val bulkIn = (0 until iface.endpointCount)
-                .map { iface.getEndpoint(it) }
-                .first { it.direction == UsbConstants.USB_DIR_IN }
-            val bulkOut = (0 until iface.endpointCount)
-                .map { iface.getEndpoint(it) }
-                .first { it.direction == UsbConstants.USB_DIR_OUT }
+            val bulk = iface.bulkEndpoints()
+            val bulkIn = bulk.first { it.direction == UsbConstants.USB_DIR_IN }
+            val bulkOut = bulk.first { it.direction == UsbConstants.USB_DIR_OUT }
             val connection = usbManager.openDevice(device)
-                ?: throw IOException("openDevice failed (not granted or unplugged?)")
+                ?: throw UsbTransportException("open", "openDevice failed (not granted or unplugged?)")
             return UsbTransport(connection, iface, bulkIn, bulkOut)
         }
 
-        private fun UsbDevice.describeInterfaces(): String =
-            (0 until interfaceCount)
-                .map { getInterface(it).interfaceClass }
+        /** 只取 BULK 型端点（影像接口可能附带中断 IN 端点）。 */
+        private fun UsbInterface.bulkEndpoints(): List<UsbEndpoint> =
+            (0 until endpointCount)
+                .map { getEndpoint(it) }
+                .filter { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK }
+
+        private fun describeInterfaces(device: UsbDevice): String =
+            (0 until device.interfaceCount)
+                .map { device.getInterface(it).interfaceClass }
                 .joinToString(prefix = "interfaceClasses=[", postfix = "]") { "0x%02X".format(it) }
     }
 }

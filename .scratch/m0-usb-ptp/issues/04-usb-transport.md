@@ -12,6 +12,7 @@
 - 验收 8 例全绿（分类 4 + 状态机 4；全套 33/33，`gradle :app:testDebugUnitTest` BUILD SUCCESSFUL）。
 - 隐私不变：无 manifest 权限新增（requestPermission 为运行时机制），ManifestPrivacyTest 继续绿。
 - 运行期 Android 胶水（claim/bulkTransfer 在 05 号接入后随 06 号真机验证）。
+- Code Review (2026-11-02) 修复：bulk 端点只按 type=BULK 挑选（影像接口可能带中断端点）；`UsbTransportException(reason)` 类型化失败原因（替代 UI 字符串匹配，防文案漂移）；授权迟到（先拔线后回答）不再崩——permissionAnswer/attach 加状态守卫；新增 retryPermission()（denied 后界面可重拉弹窗）。
 
 - [ ] UsbManager 设备发现：按设备类/接口过滤出相机类设备，暴露"未接入/已接入未授权/已授权"三态
 - [ ] USB 权限请求流：未授权时触发系统弹窗并在探针界面给出引导文案

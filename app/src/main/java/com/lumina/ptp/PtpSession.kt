@@ -106,10 +106,10 @@ class PtpSession(
         const val MAX_STORAGE_COUNT = 255
 
         /**
-         * 容器长度声明上限：M0 的数据集都在 KB 级；上限抬到 256 MiB
-         * 为 M1 文件数据阶段留余量，同时挡住相机谎报天文数字导致 OOM。
+         * 容器长度声明上限：M0 数据集全在 MB 级内；4 MiB 挡住谎报天文数字 OOM。
+         * M1 进入文件数据阶段（单张 NEF ~50MB）时按需上调并补测试。
          */
-        const val MAX_CONTAINER_BYTES = 1 shl 28
+        const val MAX_CONTAINER_BYTES = 4 shl 20
     }
 
     /** CloseSession（尽力而为）+ 关闭底层传输 */
@@ -132,8 +132,7 @@ class PtpSession(
      */
     private fun send(op: Int, params: LongArray = LongArray(0)): Container.Response {
         val myTid = tid++
-        logRequest(op, myTid, params)
-        transport.write(encodeRequest(op, myTid, params))
+        begin(op, myTid, params)
         val resp = readResponse(op, myTid)
         logResponse(op, resp)
         requireOk(resp, op, myTid)
@@ -143,13 +142,18 @@ class PtpSession(
     /** 带数据阶段事务：请求 → Data → OK Response（tid 预递增同 send）。 */
     private fun sendWithPayload(op: Int, params: LongArray = LongArray(0)): ByteArray {
         val myTid = tid++
-        logRequest(op, myTid, params)
-        transport.write(encodeRequest(op, myTid, params))
+        begin(op, myTid, params)
         val data = readData(op, myTid)
         val resp = readResponse(op, myTid)
         logResponse(op, resp)
         requireOk(resp, op, myTid)
         return data
+    }
+
+    /** 事务公共前半：日志 + 写请求。 */
+    private fun begin(op: Int, myTid: Int, params: LongArray) {
+        logRequest(op, myTid, params)
+        transport.write(encodeRequest(op, myTid, params))
     }
 
     /** 从 transport 读到一个完整容器字节（容忍底层任意分片，按前置 length 字段重组）。 */

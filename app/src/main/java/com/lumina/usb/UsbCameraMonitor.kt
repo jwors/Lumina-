@@ -59,20 +59,17 @@ class UsbCameraMonitor(
 
     private fun attach(intent: Intent) {
         val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
-        val kind = classify(device)
-        if (kind != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) {
-            // 非 PTP（MTP 疑似等）：记录最近设备供诊断展示，不驱动状态机
-            lastDevice = device
-            return
+        if (sm.currentState != UsbCameraStateMachine.State.NOT_CONNECTED) {
+            return // 重复 ATTACHED 广播：忽略，状态机不动
         }
         lastDevice = device
         sm.on(UsbCameraStateMachine.Event.ATTACHED)
+        // PTP 与 MTP 疑似都需要系统授权后才能枚举/兜底，统一走 requestPermission 流
         requestPermission(device)
     }
 
     private fun detach(intent: Intent) {
         val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
-        if (classify(device) != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) return
         lastDevice = null
         if (sm.currentState != UsbCameraStateMachine.State.NOT_CONNECTED) {
             sm.on(UsbCameraStateMachine.Event.DETACHED)
@@ -82,7 +79,8 @@ class UsbCameraMonitor(
     private fun permissionAnswer(intent: Intent) {
         val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
         val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
-        if (classify(device) != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) return
+        // 可能已拔线（先拔后答）：不改变状态机，避免 IllegalStateException 崩溃
+        if (sm.currentState != UsbCameraStateMachine.State.PENDING_PERMISSION) return
         sm.on(
             if (granted) UsbCameraStateMachine.Event.PERMISSION_GRANTED
             else UsbCameraStateMachine.Event.PERMISSION_DENIED,
@@ -94,6 +92,13 @@ class UsbCameraMonitor(
     /** 设备分类（供诊断显示）；未接入为 null。 */
     fun lastKind(): UsbDeviceClassifier.DeviceKind? =
         lastDevice?.let { classify(it) }
+
+    /** 用户点了"重试授权"：仍在待授权态且设备在手时，再次拉起系统权限弹窗。 */
+    fun retryPermission() {
+        val device = lastDevice ?: return
+        if (sm.currentState != UsbCameraStateMachine.State.PENDING_PERMISSION) return
+        runCatching { requestPermission(device) }
+    }
 
     private fun classify(device: UsbDevice): UsbDeviceClassifier.DeviceKind {
         val interfaceClasses = (0 until device.interfaceCount).map { device.getInterface(it).interfaceClass }

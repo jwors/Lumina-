@@ -51,6 +51,12 @@ class ObjectCatalog(private val session: PtpSession) {
     /** 归一化根句柄：相机可能对根目录报 0 或 0xFFFFFFFF，统一成 -1 哨兵值。 */
     companion object {
         const val PARENT_ROOT = -1L
+
+        /** 多存储分区清单合并（ProbeController 复用，避免逐次手写 reduce）。 */
+        fun merge(parts: List<CatalogSummary>): CatalogSummary = CatalogSummary(
+            files = parts.flatMap { it.files },
+            folders = parts.flatMap { it.folders },
+        )
     }
 
     fun traverse(storageId: Long): CatalogSummary {

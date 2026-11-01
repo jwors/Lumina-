@@ -3,37 +3,52 @@ package com.lumina.probe
 import android.content.Context
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.mtp.MtpDevice
 import android.os.Handler
 import android.os.Looper
+import com.lumina.ptp.CameraObject
 import com.lumina.ptp.CatalogSummary
 import com.lumina.ptp.ObjectCatalog
+import com.lumina.ptp.ObjectFormat
 import com.lumina.ptp.PtpResponseException
 import com.lumina.ptp.PtpSession
 import com.lumina.usb.UsbCameraMonitor
-import com.lumina.usb.UsbDeviceClassifier
 import com.lumina.usb.UsbCameraStateMachine
+import com.lumina.usb.UsbDeviceClassifier
 import com.lumina.usb.UsbTransport
+import com.lumina.usb.UsbTransportException
+import java.io.File
+import java.time.Instant
 import java.util.concurrent.Executors
 
 /**
- * 探针全链路控制器（工单 05）：连接监视 → 授权 → PTP 会话 → 按日期分组清单。
- * 单线程顺序驱动，UI 状态一律经主线程回调。
- * 人话状态：每种连接异常给出可读解释（相机休眠/拔线/权限/非 PTP 模式）。
+ * 探针全链路控制器（工单 05）：连接监视 → 授权 → 会话/兜底 → 按日期分组清单。
+ * 主路径 = 纯 PTP（interpret为 Still-Image 类）；系统若把相机识别为文件设备（MTP 类），
+ * 走 android.mtp.MtpDevice 兜底列清单并把"走了哪条路径"写进屏显日志（spec 决策 4 / story 17）。
+ * 设备/协议异常同步落应用私有目录 m0-probe.log（spec 决策 7 / story 20）。
  */
 class ProbeController(
     context: Context,
     private val onState: (ProbeUiState) -> Unit,
 ) {
 
-    private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    private val appContext = context.applicationContext
+    private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val mainThread = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var session: PtpSession? = null
+    private var failedSessionLog: List<String> = emptyList()
+
+    private val monitor = UsbCameraMonitor(appContext, usbManager) { monitorState, kind, device ->
+        io.execute { react(monitorState, kind, device) }
+    }
+
+    /** 用户在界面上重试授权（工单 04 验收第 2 条的交互入口）。 */
+    fun retryPermission() {
+        io.execute { monitor.retryPermission() }
+    }
 
     init {
-        UsbCameraMonitor(context, usbManager) { monitorState, kind, device ->
-            io.execute { react(monitorState, kind, device) }
-        }
         io.execute { emit(ProbeUiState("未连接 · 请插入相机")) }
     }
 
@@ -42,58 +57,63 @@ class ProbeController(
         kind: UsbDeviceClassifier.DeviceKind?,
         device: UsbDevice?,
     ) {
-        when {
-            // 非 PTP 设备插进来：给相机模式引导（工单验收第 4 条）
-            kind == UsbDeviceClassifier.DeviceKind.MTP_SUSPECT ->
+        when (state) {
+            UsbCameraStateMachine.State.NOT_CONNECTED -> teardown()
+            UsbCameraStateMachine.State.PENDING_PERMISSION ->
                 emit(
                     ProbeUiState(
-                        "检测到疑似文件设备（MTP）。请在 Z30 菜单把 USB 连接设为 PTP 后重插",
+                        "相机已插入（kind=$kind），等你在系统弹窗点\"允许\"。" +
+                            "若没有弹窗：唤醒相机屏幕后点\"重试授权\"",
+                        pendingPermission = true,
+                        logTail = emptyList(),
                     ),
                 )
-            state == UsbCameraStateMachine.State.NOT_CONNECTED -> teardown()
-            state == UsbCameraStateMachine.State.PENDING_PERMISSION ->
-                emit(
-                    ProbeUiState(
-                        "相机已插入，等你在系统弹窗点\"允许\"。" +
-                            "若没有弹窗：点按相机电源唤醒后再等几秒",
-                    ),
-                )
-            state == UsbCameraStateMachine.State.READY -> {
+            UsbCameraStateMachine.State.READY -> {
                 emit(ProbeUiState("清单读取中…", busy = true))
-                readCatalog(device)
+                when (kind) {
+                    UsbDeviceClassifier.DeviceKind.MTP_SUSPECT -> listViaMtp(device)
+                    else -> listViaPtp(device)
+                }
             }
         }
     }
 
-    private fun readCatalog(device: UsbDevice?) {
+    // ---------- 主路径：纯 PTP ----------
+
+    private fun listViaPtp(device: UsbDevice?) {
         if (device == null) {
             emit(ProbeUiState("已授权但设备不可见，请拔下重插")); return
         }
         val transport = try {
             UsbTransport.from(usbManager, device)
         } catch (e: Exception) {
-            emit(ProbeUiState("无法打开相机：${e.message}")); return
+            logFailure(listOf("transport open: ${e.message}"))
+            emit(ProbeUiState("无法打开相机：${humanize(e)}")); return
         }
         val ptp = PtpSession(transport)
         session = ptp
         try {
+            // 连接三步：transport.open + OpenSession → 型号 → 存储与清单
+            ptp.open()
             val model = ptp.getModel()
-            val summary = ptp.listStorage()
-                .map { ObjectCatalog(ptp).traverse(it.id) }
-                .reduce { acc, next -> CatalogSummary(acc.files + next.files, acc.folders + next.folders) }
+            val summary = ObjectCatalog.merge(
+                ptp.listStorage().map { ObjectCatalog(ptp).traverse(it.id) },
+            )
             emit(
                 ProbeUiState(
                     "$model · 清单就绪",
                     model = model,
                     summary = summary,
-                    logTail = ptp.log.snapshot().takeLast(8),
+                    logTail = ptp.log.snapshot().takeLast(LOG_TAIL),
                 ),
             )
         } catch (e: Exception) {
+            failedSessionLog = ptp.log.snapshot()
+            logFailure(listOf("PTP path fail: ${humanize(e)}"))
             emit(
                 ProbeUiState(
                     "读取失败：${humanize(e)}",
-                    logTail = ptp.log.snapshot().takeLast(8),
+                    logTail = failedSessionLog.takeLast(LOG_TAIL),
                 ),
             )
             runCatching { ptp.close() }
@@ -101,23 +121,95 @@ class ProbeController(
         }
     }
 
+    // ---------- 兜底：android.mtp.MtpDevice（story 17） ----------
+
+    private fun listViaMtp(device: UsbDevice?) {
+        if (device == null) {
+            emit(ProbeUiState("已授权但设备不可见，请拔下重插")); return
+        }
+        try {
+            val conn = usbManager.openDevice(device)
+                ?: throw UsbTransportException("open", "MTP openDevice failed")
+            val mtp = MtpDevice(device)
+            if (!mtp.open(conn)) {
+                throw UsbTransportException("open", "MTP openConnection failed")
+            }
+            val files = mutableListOf<CameraObject>()
+            val folders = mutableListOf<CameraObject>()
+            for (storageId in mtp.getStorageIds() ?: IntArray(0)) {
+                // MTP parent 语义（0=根/全量）真机口径挂 06 号校验
+                for (handle in mtp.getObjectHandles(storageId, -1, 0) ?: IntArray(0)) {
+                    val info = mtp.getObjectInfo(handle) ?: continue
+                    val obj = CameraObject(
+                        handle = info.objectHandle.toLong(),
+                        parent = if (info.parent == 0) ObjectCatalog.PARENT_ROOT else info.parent.toLong(),
+                        isFolder = info.format == ObjectFormat.ASSOCIATION_FOLDER,
+                        name = info.name,
+                        sizeBytes = info.compressedSizeLong,
+                        captureEpochMillis = mtpMillis(info),
+                    )
+                    if (obj.isFolder) folders.add(obj) else files.add(obj)
+                }
+            }
+            val summary = CatalogSummary(files, folders)
+            val tail = listOf(
+                "== MTP 兜底路径（story 17）==",
+                "storages=${(mtp.getStorageIds() ?: IntArray(0)).size} files=${files.size}",
+            )
+            logFailure(tail.map { "MTP path: $it" })
+            emit(
+                ProbeUiState(
+                    "${device.productName ?: "MTP 设备"} · 清单就绪（MTP 兜底）",
+                    summary = summary,
+                    logTail = tail,
+                ),
+            )
+        } catch (e: Exception) {
+            logFailure(listOf("MTP path fail: ${humanize(e)}"))
+            emit(ProbeUiState("MTP 兜底也失败：${humanize(e)}"))
+        }
+    }
+
+    /** MTP 日期是 epoch 秒（捕获优先，回退修改，0=无）。 */
+    private fun mtpMillis(info: android.mtp.MtpObjectInfo): Long? {
+        val seconds = info.dateCreated.takeIf { it != 0L } ?: info.dateModified.takeIf { it != 0L }
+        return seconds?.times(1000L)
+    }
+
+    // ---------- 状态与日志 ----------
+
     private fun teardown() {
         runCatching { session?.close() }
         session = null
         emit(ProbeUiState("未连接 · 请插入相机"))
     }
 
-    /** 运行期异常 → 人话 */
+    /** 运行期异常 → 人话（类型化，不靠截字符串）。 */
     private fun humanize(e: Exception): String = when {
         e is PtpResponseException ->
             "相机返回错误 0x%04X（会话可能已失效，重插一次再试）".format(e.code)
-        e.message?.contains("USB bulk read failed") == true -> "相机休眠或已拔出，唤醒或重插"
-        e.message?.contains("USB bulk write failed") == true -> "相机没响应写入（休眠中？）"
+        e is UsbTransportException && e.reason == "read" -> "相机休眠或已拔出，唤醒或重插"
+        e is UsbTransportException && e.reason == "write" -> "相机没响应写入（休眠中？）"
+        e is UsbTransportException && e.reason == "claim" -> "接口被系统占用：重启手机蓝牙/文件传输后再试"
         e.message?.contains("no Still-Image interface") == true -> "相机不是 PTP 模式：菜单切换 USB 连接方式"
         else -> e.message ?: e.toString()
     }
 
+    /** story 20：设备/协议异常落应用私有目录（真机现场可回溯；空列表不写）。 */
+    private fun logFailure(lines: List<String>) {
+        if (lines.isEmpty()) return
+        runCatching {
+            val file = File(appContext.filesDir, "m0-probe.log")
+            val stamp = Instant.now().toString()
+            file.appendText(lines.joinToString("") { "[$stamp] $it\n" })
+        }
+    }
+
     private fun emit(state: ProbeUiState) = mainThread.post { onState(state) }
+
+    private companion object {
+        const val LOG_TAIL = 8
+    }
 }
 
 /** 探针界面的唯一数据包。 */
@@ -128,4 +220,6 @@ data class ProbeUiState(
     val summary: CatalogSummary? = null,
     /** 环形日志尾部（从旧到新） */
     val logTail: List<String> = emptyList(),
+    /** 待授权态：界面给出"重试授权"的交互入口 */
+    val pendingPermission: Boolean = false,
 )

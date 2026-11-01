@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,11 +43,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         var state by mutableStateOf(ProbeUiState("未连接 · 请插入相机"))
-        ProbeController(this) { next -> state = next }
+        val controller = ProbeController(this) { next -> state = next }
         setContent {
             Surface(color = FilmBackground) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    ProbeScreen(state)
+                    ProbeScreen(state, controller)
                 }
             }
         }
@@ -61,7 +61,7 @@ val CreamFaint = Color(0xFFB9B3A6)
 val DividerCream = Color(0xFFE3DFD3)
 
 @Composable
-fun ProbeScreen(state: ProbeUiState) {
+fun ProbeScreen(state: ProbeUiState, controller: ProbeController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -82,6 +82,17 @@ fun ProbeScreen(state: ProbeUiState) {
             Spacer(Modifier.height(12.dp))
         }
         Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        if (state.pendingPermission) {
+            Text(
+                "重试授权",
+                fontSize = 14.sp,
+                color = InkTeal,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .clickable { controller.retryPermission() },
+            )
+        }
         state.summary?.let { summary ->
             Text(
                 "${summary.totalCount} 个对象 · ${humanBytes(summary.totalBytes)}",
@@ -157,15 +168,15 @@ private fun CameraRow(obj: CameraObject) {
     }
 }
 
-/** 人类可读体积（M0 简单四段式即可）。 */
+/** 人类可读体积（M0 简单四段式；Locale.US 钉死小数点）。 */
 internal fun humanBytes(bytes: Long): String {
     val GB = 1L shl 30
     val MB = 1L shl 20
     val KB = 1L shl 10
     return when {
-        bytes >= GB -> "%.2f GB".format(bytes.toDouble() / GB)
-        bytes >= MB -> "%.1f MB".format(bytes.toDouble() / MB)
-        bytes >= KB -> "%.0f KB".format(bytes.toDouble() / KB)
+        bytes >= GB -> String.format(java.util.Locale.US, "%.2f GB", bytes.toDouble() / GB)
+        bytes >= MB -> String.format(java.util.Locale.US, "%.1f MB", bytes.toDouble() / MB)
+        bytes >= KB -> String.format(java.util.Locale.US, "%.0f KB", bytes.toDouble() / KB)
         else -> "$bytes B"
     }
 }
