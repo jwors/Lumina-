@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumina · UI 风格选择器</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background:#141414; color:#e8e6e1; min-height:100vh;
+    background-image: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(80,70,55,.35), transparent);
+  }
+  .page { max-width:1280px; margin:0 auto; padding:48px 32px 140px; }
+  header { text-align:center; margin-bottom:12px; }
+  header .brand {
+    font-size:13px; letter-spacing:.5em; color:#8a857c; text-transform:uppercase;
+  }
+  header h1 { font-size:34px; margin-top:10px; letter-spacing:.08em; }
+  header p { color:#8a857c; margin-top:10px; font-size:14px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:28px; margin-top:48px; }
+  @media (max-width:1100px){ .cards{ grid-template-columns:1fr; max-width:420px; margin-inline:auto; } }
+
+  .card {
+    border:1px solid #2c2a26; border-radius:20px; padding:24px;
+    background:#1b1a18; cursor:pointer; position:relative;
+    transition: border-color .2s, transform .2s, box-shadow .2s;
+  }
+  .card:hover { transform: translateY(-4px); border-color:#4a463f; }
+  .card.selected {
+    border-color:#d4a24a;
+    box-shadow: 0 0 0 1px #d4a24a, 0 18px 50px -18px rgba(212,162,74,.35);
+  }
+  .card .badge {
+    position:absolute; top:-13px; right:20px; background:#d4a24a; color:#141311;
+    font-weight:700; font-size:12px; padding:4px 14px; border-radius:20px; display:none;
+  }
+  .card.selected .badge { display:block; }
+  .card h2 { font-size:20px; margin-bottom:6px; }
+  .card .tag { font-size:12px; color:#8a857c; letter-spacing:.2em; margin-bottom:8px; }
+  .card .desc { font-size:13px; color:#c9c4bb; line-height:1.7; min-height:66px; }
+  .pro { display:flex; gap:6px; flex-wrap:wrap; margin:14px 0 20px; }
+  .pro span {
+    font-size:11px; border:1px solid #3a3733; color:#a39d92; padding:3px 10px; border-radius:20px;
+  }
+
+  /* phone mockup */
+  .phone {
+    width:100%; max-width:320px; margin:0 auto; aspect-ratio:320/652;
+    border-radius:36px; overflow:hidden; position:relative;
+    border:5px solid #0a0a0a; box-shadow:0 24px 60px -20px rgba(0,0,0,.8);
+    display:flex; flex-direction:column;
+  }
+  .photos { display:grid; grid-template-columns:1fr 1fr; gap:2px; flex:1; }
+  .ph { position:relative; overflow:hidden; }
+  .ph::after { content:""; position:absolute; inset:0; background:var(--grain, none); }
+  .ph-1 { background:linear-gradient(160deg,#5a4632 0%,#8a6b42 45%,#d9c9a3 100%); }
+  .ph-2 { background:linear-gradient(200deg,#2e3d33 0%,#68754d 60%,#b9c09a 100%); }
+  .ph-3 { background:linear-gradient(120deg,#41372e 0%,#7c5a3e 55%,#e0b98a 100%); }
+  .ph-4 { background:linear-gradient(240deg,#33414d 0%,#6b7d88 55%,#c7d3d6 100%); }
+  .dawn  { background:linear-gradient(180deg,#42506b 0%,#c98960 60%,#e8b98e 100%); }
+  .night { background:linear-gradient(180deg,#11161f 0%,#26324a 60%,#7d6a55 110%); }
+  .nap   { height:52px; grid-column:1/2; display:flex; align-items:flex-end; padding:8px;
+           background:#0c0c0b; }
+  .nap b { color:#cfc9be; font-size:11px; letter-spacing:.05em; }
+
+  /* A darkroom */
+  .s-a { background:#0e0d0b; }
+  .s-a .bar { padding:18px 18px 12px; border-bottom:1px solid #262420; }
+  .s-a .bar .t { font-family:Georgia,"STZhongsong",serif; font-size:19px; color:#e8e2d6; letter-spacing:.14em; }
+  .s-a .bar .s { font-size:10px; color:#7d766a; letter-spacing:.28em; margin-top:4px; }
+  .s-a .ph::after { background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='60' height='60' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E"); }
+  .s-a .foot { background:linear-gradient(180deg,transparent,rgba(0,0,0,.85) 30%); position:absolute; bottom:0; left:0; right:0; padding:26px 16px 18px; display:flex; gap:10px; }
+  .s-a .btn { flex:1; border:1px solid #5d5342; background:transparent; color:#e4d9c3; font-size:12px; padding:13px 0; border-radius:2px; letter-spacing:.18em; text-align:center; }
+  .s-a .btn.main { background:#d4a24a; color:#171310; border-color:#d4a24a; font-weight:700; }
+
+  /* B clean tool */
+  .s-b { background:#f6f7f9; }
+  .s-b .ph::after { display:none; }
+  .s-b .bar { padding:16px 18px; background:#fff; border-bottom:1px solid #e8ebf0; }
+  .s-b .bar .t { font-size:17px; color:#14161a; font-weight:800; }
+  .s-b .bar .s { display:inline-block; margin-left:8px; font-size:10px; background:#eef3ff; color:#3d7eff; padding:2px 9px; border-radius:12px; vertical-align:2px; }
+  .s-b .foot { background:#fff; padding:14px 16px 20px; border-top:1px solid #e8ebf0; display:flex; gap:10px; }
+  .s-b .btn { flex:1; background:#f0f2f6; color:#33383f; font-size:12px; font-weight:600; padding:13px 0; border-radius:12px; text-align:center; }
+  .s-b .btn.main { background:#3d7eff; color:#fff; }
+
+  /* C zine */
+  .s-c { background:linear-gradient(160deg,#1c1030 0%,#3a1240 55%,#0f1a33 100%); }
+  .s-c .ph::after { background:repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 6px); }
+  .s-c .bar { padding:16px 18px 10px; }
+  .s-c .bar .t { font-size:22px; font-weight:900; color:#f4f0ff; letter-spacing:-.02em; text-shadow:0 0 24px rgba(255,80,190,.55); }
+  .s-c .bar .t i { font-style:normal; color:#b7ff5e; }
+  .s-c .xtag { position:absolute; top:84px; right:14px; transform:rotate(8deg); background:#ff4fbe; color:#fff; font-size:10px; font-weight:800; padding:5px 10px; border-radius:3px; z-index:2; }
+  .s-c .foot { background:rgba(10,8,24,.55); backdrop-filter:blur(14px); padding:14px 16px 20px; display:flex; gap:10px; position:absolute; bottom:0; left:0; right:0; }
+  .s-c .btn { flex:1; border:1px solid rgba(255,255,255,.28); color:#fff; font-size:12px; font-weight:700; padding:13px 0; border-radius:999px; text-align:center; }
+  .s-c .btn.main { background:linear-gradient(90deg,#ff4fbe,#6b4bff); border:none; color:#fff; }
+
+  .confirm {
+    position:fixed; bottom:0; left:0; right:0; z-index:5;
+    background:rgba(20,20,20,.92); backdrop-filter:blur(10px);
+    border-top:1px solid #2c2a26; padding:16px 32px;
+    display:flex; align-items:center; justify-content:space-between; gap:20px;
+  }
+  .confirm .msg { font-size:14px; color:#c9c4bb; }
+  .confirm .msg b { color:#d4a24a; }
+  .confirm button {
+    background:#d4a24a; color:#171310; border:none; font-weight:800; font-size:14px;
+    padding:12px 28px; border-radius:10px; cursor:pointer; letter-spacing:.05em;
+  }
+  .confirm button:disabled { background:#3a3733; color:#8a857c; cursor:not-allowed; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="brand">LUMINA · 尼康照片徒步工作台</div>
+    <h1>选择 App 的 UI 气质</h1>
+    <p>点击卡片即可预览选中态 · 下面手机的界面骨架完全相同（连接 / 导入 / 图库 / 配方），只是皮肤不同</p>
+  </header>
+
+  <div class="cards" id="cards">
+
+    <div class="card" data-choice="A">
+      <div class="badge">✔ 已选择</div>
+      <h2>A · 胶片暗房</h2>
+      <div class="tag">FILM DARKROOM</div>
+      <p class="desc">深色影调 · 衬线字标 · 胶片颗粒。照片永远是主角，界面退到幕后。徒步夜晚看屏不刺眼，最经典的摄影气质。</p>
+      <div class="pro"><span>耐看</span><span>户外友好</span><span>专业感</span><span>颗粒质感</span></div>
+      <div class="phone s-a">
+        <div class="bar"><div class="t">LUMINA</div><div class="s">Z30 · 连接中 · 24 张</div></div>
+        <div class="photos">
+          <div class="ph ph-1"></div><div class="ph ph-2"></div><div class="ph ph-3"></div><div class="ph ph-4"></div>
+          <div class="nap"><b>10.26 · 徒步 · 8 张</b></div>
+        </div>
+        <div class="foot"><div class="btn">全选</div><div class="btn main">导入 24 张</div></div>
+      </div>
+    </div>
+
+    <div class="card" data-choice="B">
+      <div class="badge">✔ 已选择</div>
+      <h2>B · 清爽工具</h2>
+      <div class="tag">CLEAN TOOL</div>
+      <p class="desc">明亮留白 · 直角网格 · 效率感。像 Notion 那样把事情说话清楚，信息密度最高，白天户外强光下可读性最好。</p>
+      <div class="pro"><span>信息清晰</span><span>强光可读</span><span>现代</span><span>无冗饰</span></div>
+      <div class="phone s-b">
+        <div class="bar"><b class="t">Lumina</b><span class="s">已连接 Z30</span></div>
+        <div class="photos">
+          <div class="ph ph-1"></div><div class="ph ph-2"></div><div class="ph ph-3"></div><div class="ph ph-4"></div>
+          <div class="nap" style="background:#fff"><b style="color:#6b7280">10.26 · 8 张已选</b></div>
+        </div>
+        <div class="foot"><div class="btn">筛选</div><div class="btn main">导入所选</div></div>
+      </div>
+    </div>
+
+    <div class="card" data-choice="C">
+      <div class="badge">✔ 已选择</div>
+      <h2>C · 潮玩 Zine</h2>
+      <div class="tag">GLASSMORPHIC ZINE</div>
+      <p class="desc">玻璃拟态 · 撞色贴纸 · 大字报基因。和你的 zine-poster 生成风格一脉相承，最有个性和"发圈辨识度"，也最挑战耐看度。</p>
+      <div class="pro"><span>个性强</span><span>社交冷感</span><span>玻璃拟态</span><span>潮酷</span></div>
+      <div class="phone s-c">
+        <div class="bar"><div class="t">Lumi<i>na</i></div></div>
+        <div class="xtag">Z30 ✓</div>
+        <div class="photos">
+          <div class="ph ph-1"></div><div class="ph ph-2"></div><div class="ph ph-3"></div><div class="ph ph-4"></div>
+          <div class="nap" style="background:rgba(10,8,24,.6)"><b style="color:#e9deff">10.26 · 8</b></div>
+        </div>
+        <div class="foot"><div class="btn">全选</div><div class="btn main">导入</div></div>
+      </div>
+    </div>
+
+    <div class="card" data-choice="D">
+      <div class="badge">✔ 已选择</div>
+      <h2>D · iOS 原生</h2>
+      <div class="tag">iOS NATIVE</div>
+      <p class="desc">毛玻璃悬浮栏 · 系统相册式网格 · 大标题。手机里最"无陌生感"的皮肤：控件不像任何系统里的东西，上手成本为零，通透耐看。</p>
+      <div class="pro"><span>零学习成本</span><span>毛玻璃</span><span>系统相册感</span><span>圆润</span></div>
+      <div class="phone s-a">
+        <div class="bar" style="border-bottom:none">
+          <div class="t" style="font-family:system-ui,sans-serif;font-weight:700;letter-spacing:0;font-size:22px;color:#fff">图库</div>
+          <div class="s" style="color:#9b9ba1;letter-spacing:0;font-size:11px;margin-top:2px">Lumina · Z30 已连接</div>
+        </div>
+        <div class="photos" style="gap:1px;">
+          <div class="ph ph-1" style="filter:saturate(1.05)"></div><div class="ph ph-2" style="filter:saturate(1.05)"></div>
+          <div class="ph ph-3" style="filter:saturate(1.05)"></div><div class="ph ph-4" style="filter:saturate(1.05)"></div>
+          <div class="nap" style="background:rgba(22,22,24,.75);backdrop-filter:blur(18px)" ><b style="color:#e5e5e7">10月26日 · 8 张</b></div>
+        </div>
+        <div class="foot" style="background:rgba(28,28,30,.72);backdrop-filter:blur(20px);position:absolute;bottom:0;left:0;right:0;padding:16px 18px 20px;display:flex;gap:10px">
+          <div class="btn" style="flex:1;background:rgba(120,120,128,.36);color:#fff;font-size:13px;font-weight:600;padding:13px 0;border-radius:14px;text-align:center">全选</div>
+          <div class="btn main" style="flex:1;background:#0a84ff;color:#fff;font-size:13px;font-weight:700;padding:13px 0;border-radius:14px;text-align:center">导入 24 张</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-choice="E">
+      <div class="badge">✔ 已选择</div>
+      <h2>E · Aspen 旅拍风</h2>
+      <div class="tag">ASPEN TRAVEL STYLE</div>
+      <p class="desc">冰雪蓝底 + 光斑空气感 · 大圆角白卡浮起 · 信息胶囊悬浮照片上 · 蓝色胶囊主按钮。Aspen 的度假松弛感 + 照片为主角，明快、亲切、有故事感。</p>
+      <div class="pro"><span>松弛感</span><span>照片主角</span><span>空气感</span><span>大圆角</span></div>
+      <div class="phone" style="background:linear-gradient(180deg,#cfe0fa 0%,#e6eefc 40%,#dbe7fb 100%);position:relative">
+        <div style="position:absolute;inset:0;background:
+          radial-gradient(circle 60px at 82% 12%, rgba(255,255,255,.5), transparent 70%),
+          radial-gradient(circle 40px at 12% 30%, rgba(255,255,255,.45), transparent 70%),
+          radial-gradient(circle 80px at 60% 75%, rgba(255,255,255,.35), transparent 70%);pointer-events:none"></div>
+        <div style="padding:18px 18px 10px;position:relative">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="color:#93a7c8;font-size:12px">Lumina · 图库</div>
+            <div style="background:#fff;color:#3d7eff;font-size:11px;font-weight:600;padding:5px 12px;border-radius:999px;box-shadow:0 4px 14px rgba(61,126,255,.18)">⛰ Z30 已连接</div>
+          </div>
+          <div style="color:#1a2436;font-size:26px;font-weight:700;margin-top:6px">10月26日 · 徒步</div>
+        </div>
+        <div style="padding:8px 18px 12px;display:flex;gap:8px;position:relative">
+          <div style="background:#3d7eff;color:#fff;font-size:11px;font-weight:600;padding:7px 14px;border-radius:999px">日期</div>
+          <div style="background:rgba(255,255,255,.75);color:#5a6b8a;font-size:11px;padding:7px 14px;border-radius:999px">滤镜</div>
+          <div style="background:rgba(255,255,255,.75);color:#5a6b8a;font-size:11px;padding:7px 14px;border-radius:999px">Skill</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:2px 18px;position:relative">
+          <div style="position:relative;aspect-ratio:3/4;border-radius:18px;overflow:hidden;box-shadow:0 10px 26px rgba(35,60,110,.18)">
+            <div class="ph dawn" style="position:absolute;inset:0"></div>
+            <div style="position:absolute;left:8px;bottom:8px;background:rgba(255,255,255,.92);border-radius:999px;padding:4px 10px;font-size:10px;color:#26324a;font-weight:600">☁ 山脊日出 · RAW</div>
+          </div>
+          <div style="position:relative;aspect-ratio:3/4;border-radius:18px;overflow:hidden;box-shadow:0 10px 26px rgba(35,60,110,.18)">
+            <div class="ph ph-2" style="position:absolute;inset:0"></div>
+            <div style="position:absolute;left:8px;bottom:8px;background:rgba(255,255,255,.92);border-radius:999px;padding:4px 10px;font-size:10px;color:#26324a;font-weight:600">🌲 垭口 · 8 张</div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:14px 18px 20px;background:linear-gradient(180deg,transparent,rgba(230,238,252,.9) 45%)">
+          <div style="background:#3d7eff;color:#fff;font-size:13px;font-weight:700;text-align:center;padding:14px 0;border-radius:16px;box-shadow:0 10px 24px rgba(61,126,255,.4)">导入所选 24 张 →</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-choice="F">
+      <div class="badge">✔ 已选择</div>
+      <h2>F · Grain 胶片奶绿</h2>
+      <div class="tag">FILM SAGE EDITORIAL</div>
+      <p class="desc">森绿氛围底 + 奶油卡面 · 编辑感衬线大标题 · 森绿胶囊 CTA · 绿色对勾选中态。Grain 式的安静胶片气质——像在暗房里喝茶选片。</p>
+      <div class="pro"><span>编辑感</span><span>胶片气质</span><span>奶油×森绿</span><span>安静克制</span></div>
+      <div class="phone" style="background:#f4f2ea;color:#20251f;position:relative">
+        <div style="padding:16px 18px 8px;display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:8px;background:#3a5240;display:flex;align-items:center;justify-content:center;color:#e9efe6;font-size:13px">✦</div>
+            <b style="font-size:14px">Grain</b>
+          </div>
+          <div style="width:26px;height:26px;border-radius:999px;background:#3a5240;color:#e9efe6;font-size:9px;display:flex;align-items:center;justify-content:center">LN</div>
+        </div>
+        <div style="padding:10px 18px 4px">
+          <div style="font-size:9px;letter-spacing:.28em;color:#7d8779;font-weight:700">NEW IMPORT</div>
+          <div style="font-family:Georgia,'STZhongsong',serif;font-size:24px;margin-top:3px">Add your photos</div>
+          <div style="font-size:11px;color:#8d9689;margin-top:3px">从 Z30 选择要留下的瞬间。</div>
+        </div>
+        <div style="margin:10px 18px;background:#fbfaf5;border:1px solid #e3e0d2;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:10px">
+          <div style="width:34px;height:34px;border-radius:10px;background:#e4ead9;display:flex;align-items:center;justify-content:center">🖼</div>
+          <div style="flex:1"><b style="font-size:12px">连接相机 Z30</b><div style="font-size:10px;color:#8d9689">USB · PTP 已就绪</div></div>
+          <div style="width:28px;height:28px;border-radius:999px;background:#3a5240;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px">+</div>
+        </div>
+        <div style="padding:6px 18px;display:flex;justify-content:space-between;align-items:baseline">
+          <b style="font-size:12px">Selected <span style="color:#8d9689;font-weight:400">6</span></b>
+          <span style="font-size:10px;color:#8d9689;font-weight:600">Deselect all</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:4px 18px">
+          <div style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden;background:#e8e6da"></div>
+          <div class="ph dawn" style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden"><div style="position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:999px;background:#3a5240;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">✓</div></div>
+          <div class="ph ph-1" style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden"><div style="position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:999px;background:#3a5240;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">✓</div></div>
+          <div class="ph ph-4" style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden"><div style="position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:999px;background:#3a5240;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">✓</div></div>
+          <div class="ph ph-2" style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden"><div style="position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:999px;background:#3a5240;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">✓</div></div>
+          <div class="ph night" style="position:relative;aspect-ratio:1/1.15;border-radius:10px;overflow:hidden"><div style="position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:999px;background:#3a5240;color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center">✓</div></div>
+        </div>
+        <div style="position:absolute;bottom:0;left:0;right:0;background:#f4f2ea;padding:10px 18px 16px;border-top:1px solid #e8e5d8">
+          <div style="font-size:9px;letter-spacing:.28em;color:#7d8779;font-weight:700;margin-bottom:6px">IMPORT TO</div>
+          <div style="display:flex;align-items:center;gap:8px;border:1px solid #e3e0d2;border-radius:12px;padding:10px 12px;margin-bottom:10px">
+            <div style="width:26px;height:26px;border-radius:8px;background:#e4ead9;display:flex;align-items:center;justify-content:center;font-size:11px">🏔</div>
+            <b style="font-size:12px;flex:1">徒步 · 10.26</b>
+            <span style="color:#8d9689;font-size:11px">⌄</span>
+          </div>
+          <div style="background:#3a5240;color:#f2f4ee;font-size:13px;font-weight:700;text-align:center;padding:13px 0;border-radius:999px">导入 6 张 →</div>
+          <div style="display:flex;justify-content:space-around;margin-top:10px;font-size:8px;color:#8d9689;text-align:center">
+            <div style="opacity:.55">▦<br>Library</div>
+            <div style="opacity:.55">☰<br>Albums</div>
+            <div style="border-top:2px solid #3a5240;margin-top:-4px;padding-top:2px;color:#20251f"><b style="font-size:10px">↤</b><br><b>Import</b></div>
+            <div style="opacity:.55">◎<br>Settings</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="confirm">
+    <div class="msg" id="msg">尚未选择 · 点击上方任意卡片</div>
+    <button id="ok" disabled>确认这个风格 →</button>
+  </div>
+</div>
+
+<script>
+  let current = null;
+  const ok = document.getElementById('ok'), msg = document.getElementById('msg');
+  document.querySelectorAll('.card').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.card').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected'); current = c.dataset.choice;
+      ok.disabled = false;
+      msg.innerHTML = '当前选择：<b>'+current+'</b> —— 点击右侧按钮完成，然后在会话里回复 <b>23 '+current+'</b>';
+    });
+  });
+  ok.addEventListener('click', () => {
+    alert('已选定风格 '+current+'。回到会话回复：23 '+current);
+  });
+</script>
+</body>
+</html>

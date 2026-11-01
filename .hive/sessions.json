@@ -1,0 +1,14 @@
+{
+  "sessions": [
+    {
+      "sessionId": "ses_e6a65010dffeS0Qd9qw1olo5Oa",
+      "startedAt": "2026-11-01T05:35:25.558Z",
+      "lastActiveAt": "2026-11-01T05:35:46.898Z",
+      "agent": "hive-master",
+      "sessionKind": "primary",
+      "baseAgent": "hive-master",
+      "directivePrompt": "hello",
+      "replayDirectivePending": false
+    }
+  ]
+}
