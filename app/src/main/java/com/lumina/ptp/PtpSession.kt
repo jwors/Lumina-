@@ -66,6 +66,9 @@ class PtpSession(
         val data = sendWithPayload(OpCode.GET_STORAGE_IDS)
         val r = MtpReader(data)
         val count = r.u32().toInt()
+        check(count in 0..MAX_STORAGE_COUNT) {
+            "storage count $count out of sane range (max $MAX_STORAGE_COUNT)"
+        }
         return List(count) { Storage(r.u32()) }
     }
 
@@ -98,6 +101,15 @@ class PtpSession(
 
         /** 单次 GetObjectHandles 允许的最大对象数（远超一张 SD 卡的现实容量）。 */
         const val MAX_OBJECT_COUNT = 1 shl 20
+
+        /** 单次 GetStorageIDs 允许的存储分区数上限。 */
+        const val MAX_STORAGE_COUNT = 255
+
+        /**
+         * 容器长度声明上限：M0 的数据集都在 KB 级；上限抬到 256 MiB
+         * 为 M1 文件数据阶段留余量，同时挡住相机谎报天文数字导致 OOM。
+         */
+        const val MAX_CONTAINER_BYTES = 1 shl 28
     }
 
     /** CloseSession（尽力而为）+ 关闭底层传输 */
@@ -113,25 +125,30 @@ class PtpSession(
         transport.close()
     }
 
+    /**
+     * 无数据阶段事务：请求 → Response。
+     * tid 在事务发起前预递增：事务一旦发起即被消费，失败后不重用（PTP 事务号唯一性）。
+     * 响应行先于 OK 校验写入日志——失败出场也要留迹（03 号日志为排障服务）。
+     */
     private fun send(op: Int, params: LongArray = LongArray(0)): Container.Response {
-        logRequest(op, params)
-        transport.write(encodeRequest(op, tid, params))
-        val resp = readResponse(op)
-        requireOk(resp, op)
+        val myTid = tid++
+        logRequest(op, myTid, params)
+        transport.write(encodeRequest(op, myTid, params))
+        val resp = readResponse(op, myTid)
         logResponse(op, resp)
-        tid++
+        requireOk(resp, op, myTid)
         return resp
     }
 
-    /** 带数据阶段事务：请求 → Data → OK Response */
+    /** 带数据阶段事务：请求 → Data → OK Response（tid 预递增同 send）。 */
     private fun sendWithPayload(op: Int, params: LongArray = LongArray(0)): ByteArray {
-        logRequest(op, params)
-        transport.write(encodeRequest(op, tid, params))
-        val data = readData(op)
-        val resp = readResponse(op)
-        requireOk(resp, op)
+        val myTid = tid++
+        logRequest(op, myTid, params)
+        transport.write(encodeRequest(op, myTid, params))
+        val data = readData(op, myTid)
+        val resp = readResponse(op, myTid)
         logResponse(op, resp)
-        tid++
+        requireOk(resp, op, myTid)
         return data
     }
 
@@ -141,7 +158,9 @@ class PtpSession(
         fill(head, 12, "header")
         head.flip()
         val fullLength = head.int
-        check(fullLength >= 12) { "container length $fullLength < 12" }
+        check(fullLength in 12..MAX_CONTAINER_BYTES) {
+            "container length $fullLength outside sane range (12..$MAX_CONTAINER_BYTES)"
+        }
         val body = ByteBuffer.allocate(fullLength - 12).order(ByteOrder.LITTLE_ENDIAN)
         if (fullLength > 12) fill(body, fullLength - 12, "body")
         val full = ByteBuffer.allocate(fullLength).order(ByteOrder.LITTLE_ENDIAN)
@@ -162,7 +181,7 @@ class PtpSession(
         }
     }
 
-    private fun readResponse(op: Int): Container.Response {
+    private fun readResponse(op: Int, tid: Int): Container.Response {
         val bytes = readContainerBytes()
         return when (val c = parseContainer(bytes)) {
             is Container.Response -> c
@@ -172,7 +191,7 @@ class PtpSession(
         }
     }
 
-    private fun readData(op: Int): ByteArray {
+    private fun readData(op: Int, tid: Int): ByteArray {
         val bytes = readContainerBytes()
         return when (val c = parseContainer(bytes)) {
             is Container.Data -> {
@@ -185,7 +204,10 @@ class PtpSession(
                 c.payload
             }
             is Container.Response -> {
-                // 响应先到 = 无数据阶段：只可能是错误码场合
+                // 响应先到 = 无数据阶段：tid 对称校验后按错误码出场
+                check(c.tid == tid) {
+                    "transaction id mismatch: got ${c.tid}, expected $tid"
+                }
                 if (c.responseCode != RespCode.OK) throw PtpResponseException(c.responseCode, op)
                 throw IllegalArgumentException(
                     "expected data for 0x%04X, got response".format(op),
@@ -194,15 +216,19 @@ class PtpSession(
         }
     }
 
-    private fun requireOk(resp: Container.Response, op: Int) {
+    private fun requireOk(resp: Container.Response, op: Int, tid: Int) {
         check(resp.tid == tid) { "transaction id mismatch: got ${resp.tid}, expected $tid" }
         if (resp.responseCode != RespCode.OK) throw PtpResponseException(resp.responseCode, op)
     }
 
     // ---------- 环形日志 ----------
 
-    private fun logRequest(op: Int, params: LongArray) {
-        log.log("→ ${OpName.name(op)} tid=$tid${if (params.isEmpty()) "" else " params=${params.joinToString(" ") { "0x%X".format(it) }}"}")
+    private fun logRequest(op: Int, myTid: Int, params: LongArray) {
+        log.log(
+            "→ ${OpName.name(op)} tid=$myTid" +
+                if (params.isEmpty()) ""
+                else " params=${params.joinToString(" ") { "0x%X".format(it) }}",
+        )
     }
 
     private fun logResponse(op: Int, resp: Container.Response) {
@@ -223,7 +249,6 @@ object OpName {
         OpCode.GET_STORAGE_IDS -> "GetStorageIDs"
         OpCode.GET_OBJECT_HANDLES -> "GetObjectHandles"
         OpCode.GET_OBJECT_INFO -> "GetObjectInfo"
-        OpCode.GET_PARTIAL_OBJECT -> "GetPartialObject"
         else -> "Op0x%04X".format(code)
     }
 }

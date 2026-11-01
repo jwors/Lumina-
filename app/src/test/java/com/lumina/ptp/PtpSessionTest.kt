@@ -1,10 +1,10 @@
 package com.lumina.ptp
 
+import com.lumina.ptp.FakeCamera.container
+import com.lumina.ptp.FakeCamera.dataPack
+import com.lumina.ptp.FakeCamera.deviceInfo
+import com.lumina.ptp.FakeCamera.resp
 import com.lumina.transport.FakeTransport
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -13,63 +13,9 @@ import org.junit.Test
 /**
  * 02 号工单验收：协议引擎对"伪相机字节流"的行为钉死——
  * 请求字节形状、交易号递增、状态机推进、错误响应、容器分片重组。
+ * 字节构建器统一来自 FakeCamera（真机口径，含字符串终结 NUL）。
  */
 class PtpSessionTest {
-
-    // ---------- 字节构建器（与主代码独立，互为对照） ----------
-
-    private fun bb(n: Int): ByteBuffer = ByteBuffer.allocate(n).order(ByteOrder.LITTLE_ENDIAN)
-
-    private fun u16(v: Int): ByteArray = bb(2).putShort(v.toShort()).array()
-
-    private fun u32(v: Long): ByteArray = bb(4).putInt(v.toInt()).array()
-
-    private fun container(
-        type: Int,
-        code: Int,
-        tid: Int,
-        payload: ByteArray = ByteArray(0),
-    ): ByteArray = u32((12 + payload.size).toLong()) +
-        u16(type) + u16(code) + u32(tid.toLong()) + payload
-
-    private fun resp(code: Int, tid: Int): ByteArray =
-        container(ContainerType.RESPONSE, code, tid)
-
-    private fun dataPack(code: Int, tid: Int, payload: ByteArray): ByteArray =
-        container(ContainerType.DATA, code, tid, payload)
-
-    private fun mtpString(s: String): ByteArray {
-        if (s.isEmpty()) return byteArrayOf(0)
-        val chars = s.toByteArray(StandardCharsets.UTF_16LE)
-        return byteArrayOf((chars.size / 2).toByte()) + chars
-    }
-
-    private fun u16ArrayOf(vararg codes: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(u32(codes.size.toLong()))
-        for (c in codes) out.write(u16(c))
-        return out.toByteArray()
-    }
-
-    /** DeviceInfo 数据集（M0 只关心 Model 字段） */
-    private fun deviceInfo(model: String): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(u16(0x0100))                  // StandardVersion
-        out.write(u32(6L))                      // VendorExtensionID (MTP)
-        out.write(u16(0x0100))                  // VendorExtensionVersion
-        out.write(mtpString("microsoft.com/1.0")) // VendorExtensionDesc
-        out.write(u16(0))                       // FunctionalMode
-        out.write(u16ArrayOf(0x1001, 0x1002))   // Operationcodes
-        out.write(u16ArrayOf())                 // Eventcodes
-        out.write(u16ArrayOf())                 // DevicePropcodes
-        out.write(u16ArrayOf())                 // CaptureFormats
-        out.write(u16ArrayOf(0x3801))           // ImageFormats (EXIF/JPEG)
-        out.write(mtpString("Nikon"))           // Manufacturer
-        out.write(mtpString(model))             // Model
-        out.write(mtpString("1.00"))            // DeviceVersion
-        out.write(mtpString(""))                // SerialNumber
-        return out.toByteArray()
-    }
 
     // ---------- 行为测试 ----------
 
@@ -87,11 +33,14 @@ class PtpSessionTest {
 
     @Test
     fun `open with error response throws and stays Closed`() {
-        val t = FakeTransport(listOf(resp(0x2003, tid = 1)))
+        val t = FakeTransport(listOf(resp(RespCode.SESSION_NOT_OPEN, tid = 1)))
         val s = PtpSession(t)
         val ex = assertThrows(PtpResponseException::class.java) { s.open() }
-        assertEquals(0x2003.toLong(), ex.code.toLong())
+        assertEquals(RespCode.SESSION_NOT_OPEN.toLong(), ex.code.toLong())
         assertEquals(PtpSession.State.Closed, s.currentState)
+        // 失败出场也要留迹：日志里应有 ERR 行（code-review Spec 轴 finding）
+        assertEquals(2, s.log.snapshot().size)
+        assertEquals(true, s.log.snapshot()[1].contains("ERR"))
     }
 
     @Test
@@ -116,7 +65,8 @@ class PtpSessionTest {
 
     @Test
     fun `list storage returns storage ids`() {
-        val storageIds = u32(2) + u32(1) + u32(0x00010001)
+        // u32Array 自带 uint32 计数头：count=2 + [1, 0x00010001]
+        val storageIds = FakeCamera.u32Array(1, 0x00010001)
         val t = FakeTransport(
             listOf(
                 resp(RespCode.OK, tid = 1),
@@ -167,5 +117,48 @@ class PtpSessionTest {
             t.observedWrites()[1],
         )
         assertThrows(IllegalStateException::class.java) { s.open() }
+    }
+
+    // ---------- code-review 修复的回归测试 ----------
+
+    @Test
+    fun `failed transaction still consumes its transaction id`() {
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, tid = 1),                    // open 成功
+                resp(RespCode.SESSION_NOT_OPEN, tid = 2),      // getModel 的响应收到错误
+                resp(RespCode.OK, tid = 3),                    // close 用 tid=3 发请求
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        assertThrows(PtpResponseException::class.java) { s.getModel() }
+        s.close() // CloseSession tid=3（失败不重用 tid）
+        assertArrayEquals(
+            encodeRequest(OpCode.CLOSE_SESSION, 3),
+            t.observedWrites()[2],
+        )
+    }
+
+    @Test
+    fun `hostile container length claim is rejected without allocation`() {
+        val opData = container(ContainerType.DATA, OpCode.GET_DEVICE_INFO, 2, byteArrayOf())
+        // 篡改长度字段为天文数字
+        opData[0] = 0x7F.toByte(); opData[1] = 0x7F.toByte(); opData[2] = 0x7F.toByte(); opData[3] = 0x7F.toByte()
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, tid = 1),
+                opData, // 声明 ~21 亿字节
+                resp(RespCode.OK, tid = 2),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        assertOverridesMax(s)
+    }
+
+    private fun assertOverridesMax(s: PtpSession) {
+        val ex = assertThrows(IllegalStateException::class.java) { s.getModel() }
+        assertEquals(true, ex.message!!.contains("sane range"))
     }
 }

@@ -38,6 +38,13 @@ class MtpReader(private val bytes: ByteArray) {
     /** 代码类数组：uint32 数量 + 数量个 uint16（操作/事件/设备属性列表共用） */
     fun u16Array(): List<Int> {
         val count = u32().toInt()
+        // 相机谎报天文数字时第一时间拒绝，避免按错误计数分配集合
+        check(count in 0..MAX_ARRAY_COUNT) { "code-array count $count out of sane range (max $MAX_ARRAY_COUNT)" }
         return List(count) { u16() }
+    }
+
+    companion object {
+        /** 任意代码数组（DevicePropcodes 等）的合理上限。 */
+        const val MAX_ARRAY_COUNT = 1 shl 16
     }
 }

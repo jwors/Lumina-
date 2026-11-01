@@ -18,6 +18,4 @@ class RingLog(private val capacity: Int = 200) {
     fun snapshot(): List<String> = lines.toList()
 
     val size: Int get() = lines.size
-
-    fun clear() = lines.clear()
 }

@@ -1,11 +1,11 @@
 package com.lumina.ptp
 
+import com.lumina.ptp.FakeCamera.dataPack
+import com.lumina.ptp.FakeCamera.resp
+import com.lumina.ptp.FakeCamera.u16
+import com.lumina.ptp.FakeCamera.u32
 import com.lumina.transport.FakeTransport
-import java.io.ByteArrayOutputStream
 import java.lang.Math.floorDiv
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import org.junit.Assert.assertArrayEquals
@@ -17,90 +17,36 @@ import org.junit.Test
 /**
  * 03 号工单验收：扁平枚举 + ObjectInfo 建树 + 日期分组 + 环形日志。
  * 伪相机脚本：OpenSession → GetObjectHandles(PARENT_ALL) → 逐句柄 GetObjectInfo。
+ * 字节构建器统一来自 FakeCamera。
  */
 class ObjectCatalogTest {
 
-    // ---------- 伪相机字节构建器 ----------
-
-    private fun bb(n: Int) = ByteBuffer.allocate(n).order(ByteOrder.LITTLE_ENDIAN)
-    private fun u16(v: Int): ByteArray = bb(2).putShort(v.toShort()).array()
-    private fun u32(v: Long): ByteArray = bb(4).putInt(v.toInt()).array()
-    private fun container(type: Int, code: Int, tid: Int, payload: ByteArray = ByteArray(0)): ByteArray =
-        u32((12 + payload.size).toLong()) + u16(type) + u16(code) + u32(tid.toLong()) + payload
-    private fun resp(code: Int, tid: Int): ByteArray = container(ContainerType.RESPONSE, code, tid)
-    private fun dataPack(code: Int, tid: Int, payload: ByteArray): ByteArray =
-        container(ContainerType.DATA, code, tid, payload)
-    private fun mtpString(s: String): ByteArray {
-        if (s.isEmpty()) return byteArrayOf(0)
-        val chars = s.toByteArray(StandardCharsets.UTF_16LE)
-        // PTP string：u8 长度含终结 NUL，字符 UTF-16LE，末尾补 NUL
-        return byteArrayOf(((chars.size / 2) + 1).toByte()) + chars + byteArrayOf(0, 0)
-    }
-
-    /** ObjectInfo 数据集（gphoto2 ptp_unpack_OI 线格式） */
-    private fun oiPack(
-        name: String,
-        format: Int = 0,
-        size: Long = 0,
-        parent: Long = 0,
-        assocType: Int = 0,
-        capture: String = "",
-        modDate: String = "",
-    ): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(u32(0x00010001))            // StorageID
-        out.write(u16(format))                // ObjectFormat
-        out.write(u16(0))                     // ProtectionStatus
-        out.write(u32(size))                  // ObjectSize
-        out.write(u16(0))                     // ThumbFormat
-        out.write(u32(0))                     // ThumbSize
-        out.write(u32(0)); out.write(u32(0))  // ThumbPixWidth/Height
-        out.write(u32(0)); out.write(u32(0))  // ImagePixWidth/Height
-        out.write(u32(0))                     // ImageBitDepth
-        out.write(u32(parent))                // ParentObject
-        out.write(u16(assocType))             // AssociationType
-        out.write(u32(0))                     // AssociationDesc
-        out.write(u32(0))                     // SequenceNumber
-        out.write(mtpString(name))            // Filename
-        out.write(mtpString(capture))         // CaptureDate
-        out.write(mtpString(modDate))         // ModificationDate
-        return out.toByteArray()
-    }
-
-    private fun handlesPack(vararg handles: Long): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(u32(handles.size.toLong()))
-        for (h in handles) out.write(u32(h))
-        return out.toByteArray()
-    }
-
     private val STORAGE = 0x00010001L
+
+    private fun handlesPack(vararg handles: Long) = FakeCamera.u32Array(*handles)
 
     /** 标准脚本：3 对象（DCIM 目录、JPG、MP4） */
     private fun camera(): FakeTransport = FakeTransport(
         listOf(
-            resp(RespCode.OK, 1),                                  // OpenSession
-            // GetObjectHandles(parent=PARENT_ALL)：3 个句柄
+            resp(RespCode.OK, 1),                                            // OpenSession
             dataPack(OpCode.GET_OBJECT_HANDLES, 2, handlesPack(100, 200, 300)),
             resp(RespCode.OK, 2),
-            // ObjectInfo #100：DCIM 目录
-            dataPack(
+            dataPack(                                                        // #100：DCIM 目录
                 OpCode.GET_OBJECT_INFO, 3,
-                oiPack("DCIM", assocType = ASSOC_TYPE_FOLDER, modDate = "20261031T100000"),
+                FakeCamera.objectInfo("DCIM", assocType = ASSOC_TYPE_FOLDER,
+                    modificationDate = "20261031T100000"),
             ),
             resp(RespCode.OK, 3),
-            // ObjectInfo #200：JPG（capture date）
-            dataPack(
+            dataPack(                                                        // #200：JPG
                 OpCode.GET_OBJECT_INFO, 4,
-                oiPack("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG, size = 12_345,
-                    parent = 100, capture = "20261030T081530"),
+                FakeCamera.objectInfo("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG,
+                    size = 12_345, parent = 100, captureDate = "20261030T081530"),
             ),
             resp(RespCode.OK, 4),
-            // ObjectInfo #300：MP4（只有 mod date；体积用满 unsigned u32）
-            dataPack(
+            dataPack(                                                        // #300：MP4（体积满 u32）
                 OpCode.GET_OBJECT_INFO, 5,
-                oiPack("MOV_N0380.MP4", size = 0xFFFFFFF0, parent = 100,
-                    modDate = "20261031T080000"),
+                FakeCamera.objectInfo("MOV_N0380.MP4", size = 0xFFFFFFF0, parent = 100,
+                    modificationDate = "20261031T080000"),
             ),
             resp(RespCode.OK, 5),
         ),
@@ -123,7 +69,6 @@ class ObjectCatalogTest {
             encodeRequest(OpCode.GET_OBJECT_HANDLES, 2, longArrayOf(STORAGE, 0, PtpSession.PARENT_ALL)),
             t.observedWrites()[1],
         )
-        // 逐句柄 GetObjectInfo：tid 3/4/5 三个事务，各带一句柄参数
         assertArrayEquals(
             encodeRequest(OpCode.GET_OBJECT_INFO, 3, longArrayOf(100)),
             t.observedWrites()[2],
@@ -160,20 +105,17 @@ class ObjectCatalogTest {
     }
 
     @Test
-    fun `summary aggregates count bytes and date groups`() {
+    fun `summary aggregates count bytes and date groups newest first`() {
         val (s, _) = session()
         val summary = ObjectCatalog(s).traverse(STORAGE)
-        assertEquals(3, summary.totalCount) // 2 文件 + 1 目录
+        assertEquals(3, summary.totalCount)
         assertEquals(12_345L + 0xFFFFFFF0L, summary.totalBytes)
         val groups = summary.byDate
-        assertEquals(2, groups.size) // Oct31（MP4）在前，Oct30（JPG）在后
+        assertEquals(2, groups.size) // Oct31（MP4）在前（新），Oct30（JPG）在后
         assertEquals(setOf("MOV_N0380.MP4"), groups[0].objects.map { it.name }.toSet())
         assertEquals(setOf("DSC_N0379.JPG"), groups[1].objects.map { it.name }.toSet())
         val jpg = summary.files.first { it.handle == 200L }
-        assertEquals(
-            floorDiv(jpg.captureEpochMillis!!, 86_400_000L),
-            groups[1].day,
-        )
+        assertEquals(floorDiv(jpg.captureEpochMillis!!, 86_400_000L), groups[1].day)
     }
 
     @Test
@@ -217,7 +159,7 @@ class ObjectCatalogTest {
                 resp(RespCode.OK, 2),
                 dataPack(
                     OpCode.GET_OBJECT_INFO, 3,
-                    oiPack("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG, size = 1),
+                    FakeCamera.objectInfo("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG, size = 1),
                 ),
                 resp(RespCode.OK, 3),
                 // 若不查重，这里需要第二个 info 响应 —— 不提供，脚本耗尽即失败
@@ -227,6 +169,30 @@ class ObjectCatalogTest {
         s.open()
         val summary = ObjectCatalog(s).traverse(STORAGE)
         assertEquals(1, summary.files.size)
+    }
+
+    @Test
+    fun `long filename and non-standard format pass through unharmed`() {
+        val longName = "DSC_N0379_20261031_ levy-onthe-sky-超长文件名" + "x".repeat(200) + ".NEF"
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_OBJECT_HANDLES, 2, handlesPack(400)),
+                resp(RespCode.OK, 2),
+                dataPack(
+                    OpCode.GET_OBJECT_INFO, 3,
+                    FakeCamera.objectInfo(longName, format = 0x3000, size = 45_000_000),
+                ),
+                resp(RespCode.OK, 3),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        val summary = ObjectCatalog(s).traverse(STORAGE)
+        assertEquals(1, summary.files.size)
+        val nef = summary.files[0]
+        assertEquals(longName, nef.name)
+        assertEquals(45_000_000L, nef.sizeBytes)
     }
 
     @Test
@@ -242,5 +208,29 @@ class ObjectCatalogTest {
         assertTrue(snap[1].contains("→ GetObjectInfo"))
         assertTrue(snap[2].contains("← GetObjectInfo"))
         assertTrue(snap[2].contains("OK"))
+    }
+
+    // DeviceInfo 代码数组解析链也放本处的回归保险（MtpReader.u16Array 上限防御）：
+    @Test
+    fun `device info absurd code array count is rejected`() {
+        val raw = ArrayList<Byte>()
+        raw.addAll(FakeCamera.u16(0x0100).toList())
+        raw.addAll(FakeCamera.u32(6L).toList())
+        raw.addAll(FakeCamera.u16(0x0100).toList())
+        raw.addAll(FakeCamera.mtpString("microsoft.com/1.0").toList())
+        raw.addAll(FakeCamera.u16(0).toList())
+        // Operationcodes 数组谎报 count = 0x20000000
+        raw.addAll(u32(0x20000000).toList())
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_DEVICE_INFO, 2, raw.toByteArray()),
+                resp(RespCode.OK, 2),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        val ex = assertThrows(IllegalStateException::class.java) { s.getModel() }
+        assertTrue(ex.message!!.contains("sane range"))
     }
 }
