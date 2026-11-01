@@ -12,7 +12,11 @@ data class Storage(val id: Long)
  * 状态推进只允许 Closed -> Open -> Ready -> Closed，非法操作序显式抛错。
  * 每个事务的请求字节经 Transport 留存，供单测对照（02 验收第一条）。
  */
-class PtpSession(private val transport: Transport) {
+class PtpSession(
+    private val transport: Transport,
+    /** 环形会话日志（03 号）：请求/响应各记一行，供探针 UI 显示。 */
+    val log: RingLog = RingLog(),
+) {
 
     sealed interface State {
         data object Closed : State
@@ -65,6 +69,37 @@ class PtpSession(private val transport: Transport) {
         return List(count) { Storage(r.u32()) }
     }
 
+    /** GetObjectHandles (0x1007)：parent = PARENT_ALL 时全量枚举。 */
+    fun getObjectHandles(storageId: Long, format: Int = 0, parent: Long = PARENT_ALL): List<Long> {
+        check(state == State.Open || state == State.Ready) {
+            "getObjectHandles requires session, state=$state"
+        }
+        val data = sendWithPayload(OpCode.GET_OBJECT_HANDLES, longArrayOf(storageId, format.toLong(), parent))
+        val r = MtpReader(data)
+        val count = r.u32().toInt()
+        // 相机谎报天文数字时第一时间拒绝，避免按错误计数分配集合（03 号验收边界）
+        check(count in 0..MAX_OBJECT_COUNT) { "object count $count out of sane range (max $MAX_OBJECT_COUNT)" }
+        return List(count) { r.u32() }
+    }
+
+    /** GetObjectInfo (0x1008)：单个对象的数据集解析。 */
+    fun getObjectInfo(handle: Long): ObjectInfo {
+        check(state == State.Open || state == State.Ready) { "getObjectInfo requires session, state=$state" }
+        val data = sendWithPayload(OpCode.GET_OBJECT_INFO, longArrayOf(handle))
+        return parseObjectInfo(data)
+    }
+
+    /**
+     * MTP/PTP 约定：GetObjectHandles 的 parent 参数 0xFFFFFFFF = 枚举全部对象。
+     * （PTP 规格语义；真机若只回根列表，改用逐父遍历，挂 05/06 号校验。）
+     */
+    companion object {
+        const val PARENT_ALL = 0xFFFFFFFFL
+
+        /** 单次 GetObjectHandles 允许的最大对象数（远超一张 SD 卡的现实容量）。 */
+        const val MAX_OBJECT_COUNT = 1 shl 20
+    }
+
     /** CloseSession（尽力而为）+ 关闭底层传输 */
     fun close() {
         if (state != State.Closed) {
@@ -78,21 +113,24 @@ class PtpSession(private val transport: Transport) {
         transport.close()
     }
 
-    /** 无数据阶段事务：请求 → Response；tid 与响应码都在 tid 递增前校验。 */
     private fun send(op: Int, params: LongArray = LongArray(0)): Container.Response {
+        logRequest(op, params)
         transport.write(encodeRequest(op, tid, params))
         val resp = readResponse(op)
         requireOk(resp, op)
+        logResponse(op, resp)
         tid++
         return resp
     }
 
     /** 带数据阶段事务：请求 → Data → OK Response */
-    private fun sendWithPayload(op: Int): ByteArray {
-        transport.write(encodeRequest(op, tid))
+    private fun sendWithPayload(op: Int, params: LongArray = LongArray(0)): ByteArray {
+        logRequest(op, params)
+        transport.write(encodeRequest(op, tid, params))
         val data = readData(op)
         val resp = readResponse(op)
         requireOk(resp, op)
+        logResponse(op, resp)
         tid++
         return data
     }
@@ -159,5 +197,33 @@ class PtpSession(private val transport: Transport) {
     private fun requireOk(resp: Container.Response, op: Int) {
         check(resp.tid == tid) { "transaction id mismatch: got ${resp.tid}, expected $tid" }
         if (resp.responseCode != RespCode.OK) throw PtpResponseException(resp.responseCode, op)
+    }
+
+    // ---------- 环形日志 ----------
+
+    private fun logRequest(op: Int, params: LongArray) {
+        log.log("→ ${OpName.name(op)} tid=$tid${if (params.isEmpty()) "" else " params=${params.joinToString(" ") { "0x%X".format(it) }}"}")
+    }
+
+    private fun logResponse(op: Int, resp: Container.Response) {
+        val code = "%s 0x%04X".format(
+            if (resp.responseCode == RespCode.OK) "OK" else "ERR",
+            resp.responseCode,
+        )
+        log.log("← ${OpName.name(op)} tid=${resp.tid} $code")
+    }
+}
+
+/** 操作码 → 可读名（仅日志显示用）。 */
+object OpName {
+    fun name(code: Int): String = when (code) {
+        OpCode.GET_DEVICE_INFO -> "GetDeviceInfo"
+        OpCode.OPEN_SESSION -> "OpenSession"
+        OpCode.CLOSE_SESSION -> "CloseSession"
+        OpCode.GET_STORAGE_IDS -> "GetStorageIDs"
+        OpCode.GET_OBJECT_HANDLES -> "GetObjectHandles"
+        OpCode.GET_OBJECT_INFO -> "GetObjectInfo"
+        OpCode.GET_PARTIAL_OBJECT -> "GetPartialObject"
+        else -> "Op0x%04X".format(code)
     }
 }
