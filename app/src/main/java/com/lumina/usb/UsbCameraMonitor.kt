@@ -10,55 +10,31 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 
 /**
- * Android 侧接线（工单 04）：把 UsbManager 广播适配到 [UsbCameraStateMachine]。
- * 职责：
- * - ATTACHED：设备分类（PTP 才走主路径；MTP 疑似上报诊断，不触发会话）
- * - USB 权限弹窗（运行时权限，无需 manifest 权限——探针保持无联网/无敏感权限）
- * - DETACHED：状态归零；重插自动重新走 attach 流程
+ * Android 侧接线（工单 04/05）：把 UsbManager 广播适配到 [UsbCameraStateMachine]。
+ * 回调参数携带最近一次接入的 [UsbDevice]（授权后就靠它开 UsbTransport）。
+ * 隐私：USB host 模式 + requestPermission 运行时机制，无需任何 manifest 权限。
  */
 class UsbCameraMonitor(
     private val context: Context,
     private val usbManager: UsbManager,
-    /** 每次状态变化回调；kind 为最近一次接入设备的分类（未接入时 null） */
-    private val onChange: (state: UsbCameraStateMachine.State, kind: UsbDeviceClassifier.DeviceKind?) -> Unit,
+    /** (状态, 设备分类, 设备)；未接入时后两者为 null */
+    private val onChange: (
+        state: UsbCameraStateMachine.State,
+        kind: UsbDeviceClassifier.DeviceKind?,
+        device: UsbDevice?,
+    ) -> Unit,
 ) {
 
     private val sm = UsbCameraStateMachine()
-    private var lastKind: UsbDeviceClassifier.DeviceKind? = null
+    private var lastDevice: UsbDevice? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             when (intent.action) {
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
-                    val kind = classify(device)
-                    lastKind = kind
-                    if (kind != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) {
-                        // 非 PTP（含 MTP 疑似）：记录诊断、不驱动状态机（不阻塞 PTP 主路径）
-                        return
-                    }
-                    sm.on(UsbCameraStateMachine.Event.ATTACHED)
-                    requestPermission(device)
-                }
-                ACTION_PERMISSION -> {
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
-                    val kind = device?.let { classify(it) }
-                    if (kind != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) return
-                    sm.on(
-                        if (granted) UsbCameraStateMachine.Event.PERMISSION_GRANTED
-                        else UsbCameraStateMachine.Event.PERMISSION_DENIED,
-                    )
-                }
-                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
-                    if (classify(device) == UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) {
-                        lastKind = null
-                        sm.on(UsbCameraStateMachine.Event.DETACHED)
-                    }
-                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> onAction { attach(intent) }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> onAction { detach(intent) }
+                ACTION_PERMISSION -> onAction { permissionAnswer(intent) }
             }
-            publish()
         }
     }
 
@@ -72,11 +48,53 @@ class UsbCameraMonitor(
         publish()
     }
 
+    /** 广播里 Parcelable 异常不影响探针存活：所有分支包一层兜底 */
+    private fun onAction(block: () -> Unit) {
+        try {
+            block()
+        } finally {
+            publish()
+        }
+    }
+
+    private fun attach(intent: Intent) {
+        val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
+        val kind = classify(device)
+        if (kind != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) {
+            // 非 PTP（MTP 疑似等）：记录最近设备供诊断展示，不驱动状态机
+            lastDevice = device
+            return
+        }
+        lastDevice = device
+        sm.on(UsbCameraStateMachine.Event.ATTACHED)
+        requestPermission(device)
+    }
+
+    private fun detach(intent: Intent) {
+        val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
+        if (classify(device) != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) return
+        lastDevice = null
+        if (sm.currentState != UsbCameraStateMachine.State.NOT_CONNECTED) {
+            sm.on(UsbCameraStateMachine.Event.DETACHED)
+        }
+    }
+
+    private fun permissionAnswer(intent: Intent) {
+        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+        val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
+        if (classify(device) != UsbDeviceClassifier.DeviceKind.STILL_IMAGE_PTP) return
+        sm.on(
+            if (granted) UsbCameraStateMachine.Event.PERMISSION_GRANTED
+            else UsbCameraStateMachine.Event.PERMISSION_DENIED,
+        )
+    }
+
     fun currentState(): UsbCameraStateMachine.State = sm.currentState
 
-    fun lastKind(): UsbDeviceClassifier.DeviceKind? = lastKind
+    /** 设备分类（供诊断显示）；未接入为 null。 */
+    fun lastKind(): UsbDeviceClassifier.DeviceKind? =
+        lastDevice?.let { classify(it) }
 
-    /** 分类已接入设备（供探针界面诊断显示）。 */
     private fun classify(device: UsbDevice): UsbDeviceClassifier.DeviceKind {
         val interfaceClasses = (0 until device.interfaceCount).map { device.getInterface(it).interfaceClass }
         return UsbDeviceClassifier.classify(device.deviceClass, interfaceClasses)
@@ -97,7 +115,9 @@ class UsbCameraMonitor(
         usbManager.requestPermission(device, intent)
     }
 
-    private fun publish() = onChange(sm.currentState, lastKind)
+    private fun publish() {
+        onChange(sm.currentState, lastKind(), lastDevice)
+    }
 
     companion object {
         /** 私有权限应答 action（显式 setPackage 防域外劫持） */
