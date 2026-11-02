@@ -1,26 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 920" width="720" height="920" role="img" aria-label="Lumina vertical lockup">
-  <!-- 垂直锁印：记号在上，字标在下（奶油圆角底）
-       鼠尾草 #767F72 · 墨绿 #20251F · 暖金 #D9A54A -->
+  <!-- 垂直锁印：抽象记号在上，手绘几何单线字标在下
+       记号线条 = 字标线条（同一 brand stroke 语言，无字体依赖/煎版权） -->
   <rect width="720" height="920" rx="96" fill="#F4F2EA"/>
 
-  <!-- 记号（等比缩放）：圆心 (360,320) 半径 150 -->
-  <g transform="translate(104,86)">
-    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round"/>
-    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"
-          fill="none" stroke="#20251F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="256" cy="152" r="16" fill="#D9A54A"/>
+  <!-- 记号 -->
+  <g transform="translate(104,56)">
+    <path d="M386 193 A 150 150 0 1 1 126 193" fill="none" stroke="#767F72" stroke-width="17" stroke-linecap="round"/>
+    <path d="M126 193 A 150 150 0 0 1 386 193" fill="none" stroke="#D9A54A" stroke-width="17" stroke-linecap="round"/>
+    <path d="M110 238 L 256 148 L 402 238" fill="none" stroke="#20251F" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- 分隔细线（奶油深一档） -->
-  <line x1="286" y1="520" x2="434" y2="520" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+  <!-- 分隔细线 -->
+  <line x1="300" y1="548" x2="420" y2="548" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
 
-  <!-- 字标 -->
-  <text x="360" y="664" text-anchor="middle" fill="#20251F"
-        font-family="Georgia, 'Times New Roman', 'Songti SC', serif"
-        font-size="104" letter-spacing="6">Lumina</text>
-
-  <!-- 副标 -->
-  <text x="360" y="722" text-anchor="middle" fill="#767F72"
-        font-family="Georgia, 'Times New Roman', serif"
-        font-size="26" letter-spacing="12">FILM · WALK · GAIN</text>
+  <!-- 字标 lumina：几何单线小写，轨道圆 + 直杆；i 点 = 唯一暖金（与记号的日同色） -->
+  <g transform="translate(-46,60)" fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+    <!-- l -->
+    <path d="M84 528 V700"/>
+    <!-- u -->
+    <path d="M134 588 L134 662 A38 38 0 0 0 210 662 L210 588"/>
+    <!-- m -->
+    <path d="M250 700 V626 A40 40 0 0 1 330 626 V700 M330 626 A40 40 0 0 1 410 626 V700"/>
+    <!-- i（tittle 暖金另行绘制） -->
+    <path d="M470 588 V700"/>
+    <!-- n -->
+    <path d="M530 700 V626 A40 40 0 0 1 610 626 V700"/>
+    <!-- a：单层圈 + 右直杆 -->
+    <circle cx="672" cy="644" r="56"/>
+    <path d="M728 588 V700"/>
+  </g>
+  <circle cx="424" cy="612" r="11" fill="#D9A54A"/>
 </svg>
