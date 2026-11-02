@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- F·Grain 奶油底（启动图标背景） -->
+    <color name="launcher_background">#F4F2EA</color>
+</resources>
