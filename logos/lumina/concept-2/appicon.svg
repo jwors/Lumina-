@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+  <title id="title">Lumina App Icon — Concept 2</title>
+  <desc id="desc">青绿底白色相机，镜头里是一轮从地平线升起的太阳——Lumina 的"光"与自然感。</desc>
+  <!-- App 图标底 -->
+  <rect width="120" height="120" rx="27" fill="#14B8A6"/>
+  <g id="camera" fill="#FFFFFF">
+    <!-- 取景器凸起 -->
+    <path d="M46 40 v-4 a6 6 0 0 1 6-6 h16 a6 6 0 0 1 6 6 v4 z"/>
+    <!-- 机身 -->
+    <rect x="22" y="40" width="76" height="50" rx="14"/>
+  </g>
+  <g id="sunrise">
+    <!-- 镜头（镂空） -->
+    <circle cx="60" cy="65" r="14" fill="#14B8A6"/>
+    <!-- 半轮太阳 -->
+    <path d="M53 65 a7 7 0 0 1 14 0 z" fill="#FFFFFF"/>
+    <!-- 地平线 -->
+    <rect x="50" y="70" width="20" height="2.5" rx="1.25" fill="#FFFFFF"/>
+  </g>
+  <circle cx="86" cy="49" r="3" fill="#99F6E4"/>
+</svg>

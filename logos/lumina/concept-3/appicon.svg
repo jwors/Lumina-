@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+  <title id="title">Lumina App Icon — Concept 3</title>
+  <desc id="desc">深青底，白色取景框四角与镜头，中心光核为薄荷色。</desc>
+  <!-- App 图标底 -->
+  <rect width="120" height="120" rx="27" fill="#0D9488"/>
+  <g id="frame" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M36 24 h-8 a4 4 0 0 0 -4 4 v8"/>
+    <path d="M84 24 h8 a4 4 0 0 1 4 4 v8"/>
+    <path d="M36 96 h-8 a4 4 0 0 1 -4 -4 v-8"/>
+    <path d="M84 96 h8 a4 4 0 0 0 4 -4 v-8"/>
+  </g>
+  <g id="lens">
+    <circle cx="60" cy="60" r="16" fill="none" stroke="#FFFFFF" stroke-width="5"/>
+    <circle cx="60" cy="60" r="7" fill="#99F6E4"/>
+  </g>
+</svg>
