@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina mark B: 35mm film frame">
+  <!-- 备选 B：35mm 胶片帧（冲孔 + 框内山脊日出）
+       鼠尾草 #767F72 · 墨绿 #20251F · 暖金 #D9A54A -->
+  <g fill="none" stroke="#767F72" stroke-width="10">
+    <rect x="60" y="224" width="392" height="88" rx="18"/>
+  </g>
+  <!-- 胶片冲孔：上下各六格，淡鼠尾草 -->
+  <g fill="#767F72" opacity="0.45">
+    <!-- 上排 -->
+    <rect x="88"  y="196" width="26" height="18" rx="6"/>
+    <rect x="140" y="196" width="26" height="18" rx="6"/>
+    <rect x="192" y="196" width="26" height="18" rx="6"/>
+    <rect x="244" y="196" width="26" height="18" rx="6"/>
+    <rect x="296" y="196" width="26" height="18" rx="6"/>
+    <rect x="348" y="196" width="26" height="18" rx="6"/>
+    <rect x="400" y="196" width="26" height="18" rx="6"/>
+    <!-- 下排 -->
+    <rect x="88"  y="322" width="26" height="18" rx="6"/>
+    <rect x="140" y="322" width="26" height="18" rx="6"/>
+    <rect x="192" y="322" width="26" height="18" rx="6"/>
+    <rect x="244" y="322" width="26" height="18" rx="6"/>
+    <rect x="296" y="322" width="26" height="18" rx="6"/>
+    <rect x="348" y="322" width="26" height="18" rx="6"/>
+    <rect x="400" y="322" width="26" height="18" rx="6"/>
+  </g>
+  <!-- 框内：一线山脊（墨绿）+ 一粒日出（暖金） -->
+  <path d="M150 296 L206 262 L256 288 L318 256 L362 296" fill="none" stroke="#20251F" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="286" cy="252" r="11" fill="#D9A54A"/>
+</svg>
