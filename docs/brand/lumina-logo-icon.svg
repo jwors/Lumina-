@@ -1,31 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina icon">
-  <!-- Lumina · F·Grain 主题 App 图标：奶油底 + 鼠尾草单线 + 墨绿点缀 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina app icon">
+  <!-- App 图标：奶油圆角方 + Lumina 记号（同基准 geometry，等价缩放） -->
   <rect width="512" height="512" rx="112" fill="#F4F2EA"/>
-
-  <!-- 机身：Z30 剪影的单线条抽象 -->
-  <g fill="none" stroke="#767F72" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M116 196 h82 l26 -34 h84 l26 34 h62 a20 20 0 0 1 20 20 v120 a20 20 0 0 1 -20 20 H116 a20 20 0 0 1 -20 -20 V216 a20 20 0 0 1 20 -20 z"/>
-    <!-- 镜头 -->
-    <circle cx="256" cy="272" r="62"/>
-    <circle cx="256" cy="272" r="36"/>
-    <!-- 光圈开启张力：三片弧线 -->
-    <path d="M256 240 a32 32 0 0 1 27 17"/>
+  <g fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" transform="translate(0,14)">
+    <path d="M356 160 A 150 150 0 1 1 300 124"/>
+    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"/>
   </g>
-
-  <!-- 透过镜头的光：星芒四线 + 光点（墨绿） -->
-  <g stroke="#767F72" stroke-width="8" stroke-linecap="round">
-    <line x1="256" y1="120" x2="256" y2="96"/>
-    <line x1="196" y1="136" x2="182" y2="116"/>
-    <line x1="316" y1="136" x2="330" y2="116"/>
-    <line x1="164" y1="180" x2="142" y2="168"/>
-    <line x1="348" y1="180" x2="370" y2="168"/>
-  </g>
-  <circle cx="256" cy="88" r="7" fill="#20251F"/>
-  <circle cx="176" cy="102" r="4" fill="#20251F" opacity="0.55"/>
-  <circle cx="336" cy="102" r="4" fill="#20251F" opacity="0.55"/>
-
-  <!-- 山脊线：徒步的一笔 -->
-  <g fill="none" stroke="#767F72" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M118 428 L188 396 L236 416 L312 388 L394 428"/>
-  </g>
+  <circle cx="344" cy="126" r="11" fill="#20251F"/>
 </svg>

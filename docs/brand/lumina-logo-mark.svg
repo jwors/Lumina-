@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina mark">
+  <!-- Lumina 品牌记号（纯图形，无文字）
+       = 取景圆 + 圆内山脊 + 右上一道缺口外的一粒光
+       素材色 = F·Grain：鼠尾草单线 #767F72 / 墨绿光点 #20251F -->
+  <g fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 取景圆：右上开口，走一整圈 -->
+    <path d="M356 160 A 150 150 0 1 1 300 124"/>
+    <!-- 山脊：两端搭在圆周上（山即镜中山） -->
+    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"/>
+  </g>
+  <!-- 缺口处的一粒光 = Lumina -->
+  <circle cx="344" cy="112" r="11" fill="#20251F"/>
+</svg>
