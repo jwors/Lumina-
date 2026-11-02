@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 920" width="720" height="920" role="img" aria-labelledby="t d">
+  <title id="t">Lumina 垂直锁印 · 概念1 黄金时刻</title>
+  <desc id="d">记号在上，几何单线字标在下</desc>
+  <rect width="720" height="920" rx="96" fill="#F4F2EA"/>
+  <g transform="translate(104,56)">
+    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="15" stroke-linecap="round"/>
+    <line x1="115" y1="319" x2="386" y2="193" stroke="#D9A54A" stroke-width="15" stroke-linecap="round"/>
+    <circle cx="213" cy="264" r="13" fill="#20251F"/>
+  </g>
+  <line x1="300" y1="500" x2="420" y2="500" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+  <g transform="translate(-46,60)" fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M84 528 V700"/>
+    <path d="M134 588 L134 662 A38 38 0 0 0 210 662 L210 588"/>
+    <path d="M250 700 V626 A40 40 0 0 1 330 626 V700 M330 626 A40 40 0 0 1 410 626 V700"/>
+    <path d="M470 588 V700"/>
+    <path d="M530 700 V626 A40 40 0 0 1 610 626 V700"/>
+    <circle cx="672" cy="644" r="56"/>
+    <path d="M728 588 V700"/>
+  </g>
+  <circle cx="424" cy="612" r="11" fill="#D9A54A"/>
+</svg>

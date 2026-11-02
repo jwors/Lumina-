@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="t2 d2">
+  <title id="t2">Lumina · 光圈</title>
+  <desc id="d2">六片快门叶片绕心成风轮，右上暖金一片是光进入时的那叶</desc>
+  <!-- Concept 2: Iris — 外环 + 六叶风轮光圈（右上暖金叶） -->
+  <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="13" stroke-linecap="round"/>
+  <g fill="none" stroke-linecap="round">
+    <g stroke="#20251F" stroke-width="17">
+      <g>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(60 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(120 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(180 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(240 256 268)"/>
+      </g>
+    </g>
+    <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(300 256 268)" stroke="#D9A54A" stroke-width="17"/>
+  </g>
+</svg>

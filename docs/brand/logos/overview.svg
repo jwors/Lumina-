@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1960 1300" width="1960" height="1300" role="img" aria-labelledby="t d">
+  <title id="t">Lumina LOGO 三概念总览</title>
+  <desc id="d">三个概念：黄金时刻 / 光圈 / 胶片帧；每列上方为纯图标，下方为垂直锁印</desc>
+  <rect width="1960" height="1300" fill="#F4F2EA"/>
+
+  <!-- 概念1 图标 (缩放 0.86，置于 40) -->
+  <g transform="translate(40,20) scale(0.86)">
+    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="15" stroke-linecap="round"/>
+    <line x1="115" y1="319" x2="386" y2="193" stroke="#D9A54A" stroke-width="15" stroke-linecap="round"/>
+    <circle cx="213" cy="264" r="13" fill="#20251F"/>
+  </g>
+  <text x="260" y="590" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#20251F">概念1 · 黄金时刻</text>
+  <!-- 概念1 垂直锁印 (缩放 0.62) -->
+  <g transform="translate(24,620) scale(0.62)" opacity="1">
+    <rect width="720" height="920" rx="96" fill="#FAF8F2"/>
+    <g transform="translate(104,56)">
+      <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="15" stroke-linecap="round"/>
+      <line x1="115" y1="319" x2="386" y2="193" stroke="#D9A54A" stroke-width="15" stroke-linecap="round"/>
+      <circle cx="213" cy="264" r="13" fill="#20251F"/>
+    </g>
+    <line x1="300" y1="500" x2="420" y2="500" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+    <g transform="translate(-46,60)" fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M84 528 V700"/>
+      <path d="M134 588 L134 662 A38 38 0 0 0 210 662 L210 588"/>
+      <path d="M250 700 V626 A40 40 0 0 1 330 626 V700 M330 626 A40 40 0 0 1 410 626 V700"/>
+      <path d="M470 588 V700"/>
+      <path d="M530 700 V626 A40 40 0 0 1 610 626 V700"/>
+      <circle cx="672" cy="644" r="56"/>
+      <path d="M728 588 V700"/>
+    </g>
+    <circle cx="424" cy="612" r="11" fill="#D9A54A"/>
+  </g>
+
+  <!-- 概念2 图标 -->
+  <g transform="translate(700,20) scale(0.86)">
+    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="13" stroke-linecap="round"/>
+    <g fill="none" stroke-linecap="round">
+      <g stroke="#20251F" stroke-width="17">
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(60 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(120 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(180 256 268)"/>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(240 256 268)"/>
+      </g>
+      <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(300 256 268)" stroke="#D9A54A" stroke-width="17"/>
+    </g>
+  </g>
+  <text x="920" y="590" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#20251F">概念2 · 光圈</text>
+  <g transform="translate(684,620) scale(0.62)">
+    <rect width="720" height="920" rx="96" fill="#FAF8F2"/>
+    <g transform="translate(104,56)">
+      <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="13" stroke-linecap="round"/>
+      <g fill="none" stroke-linecap="round">
+        <g stroke="#20251F" stroke-width="17">
+          <line x1="372.9" y1="251.6" x2="309.6" y2="162.9"/>
+          <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(60 256 268)"/>
+          <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(120 256 268)"/>
+          <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(180 256 268)"/>
+          <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(240 256 268)"/>
+        </g>
+        <line x1="372.9" y1="251.6" x2="309.6" y2="162.9" transform="rotate(300 256 268)" stroke="#D9A54A" stroke-width="17"/>
+      </g>
+    </g>
+    <line x1="300" y1="500" x2="420" y2="500" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+    <g transform="translate(-46,60)" fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M84 528 V700"/>
+      <path d="M134 588 L134 662 A38 38 0 0 0 210 662 L210 588"/>
+      <path d="M250 700 V626 A40 40 0 0 1 330 626 V700 M330 626 A40 40 0 0 1 410 626 V700"/>
+      <path d="M470 588 V700"/>
+      <path d="M530 700 V626 A40 40 0 0 1 610 626 V700"/>
+      <circle cx="672" cy="644" r="56"/>
+      <path d="M728 588 V700"/>
+    </g>
+    <circle cx="424" cy="612" r="11" fill="#D9A54A"/>
+  </g>
+
+  <!-- 概念3 图标 -->
+  <g transform="translate(1360,20) scale(0.86)">
+    <g fill="none" stroke="#767F72" stroke-width="11">
+      <rect x="60" y="224" width="392" height="88" rx="16"/>
+    </g>
+    <g fill="#767F72" opacity="0.4">
+      <rect x="88"  y="198" width="26" height="16" rx="6"/><rect x="140" y="198" width="26" height="16" rx="6"/>
+      <rect x="192" y="198" width="26" height="16" rx="6"/><rect x="244" y="198" width="26" height="16" rx="6"/>
+      <rect x="296" y="198" width="26" height="16" rx="6"/><rect x="348" y="198" width="26" height="16" rx="6"/>
+      <rect x="400" y="198" width="26" height="16" rx="6"/>
+      <rect x="88"  y="322" width="26" height="16" rx="6"/><rect x="140" y="322" width="26" height="16" rx="6"/>
+      <rect x="192" y="322" width="26" height="16" rx="6"/><rect x="244" y="322" width="26" height="16" rx="6"/>
+      <rect x="296" y="322" width="26" height="16" rx="6"/><rect x="348" y="322" width="26" height="16" rx="6"/>
+      <rect x="400" y="322" width="26" height="16" rx="6"/>
+    </g>
+    <path d="M150 296 L206 262 L256 288 L318 256 L362 296" fill="none" stroke="#20251F" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="286" cy="252" r="11" fill="#D9A54A"/>
+  </g>
+  <text x="1580" y="590" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="#20251F">概念3 · 胶片帧</text>
+  <g transform="translate(1344,620) scale(0.62)">
+    <rect width="720" height="920" rx="96" fill="#FAF8F2"/>
+    <g transform="translate(104,128)">
+      <g fill="none" stroke="#767F72" stroke-width="11">
+        <rect x="60" y="224" width="392" height="88" rx="16"/>
+      </g>
+      <g fill="#767F72" opacity="0.4">
+        <rect x="88"  y="198" width="26" height="16" rx="6"/><rect x="140" y="198" width="26" height="16" rx="6"/>
+        <rect x="192" y="198" width="26" height="16" rx="6"/><rect x="244" y="198" width="26" height="16" rx="6"/>
+        <rect x="296" y="198" width="26" height="16" rx="6"/><rect x="348" y="198" width="26" height="16" rx="6"/>
+        <rect x="400" y="198" width="26" height="16" rx="6"/>
+        <rect x="88"  y="322" width="26" height="16" rx="6"/><rect x="140" y="322" width="26" height="16" rx="6"/>
+        <rect x="192" y="322" width="26" height="16" rx="6"/><rect x="244" y="322" width="26" height="16" rx="6"/>
+        <rect x="296" y="322" width="26" height="16" rx="6"/><rect x="348" y="322" width="26" height="16" rx="6"/>
+        <rect x="400" y="322" width="26" height="16" rx="6"/>
+      </g>
+      <path d="M150 296 L206 262 L256 288 L318 256 L362 296" fill="none" stroke="#20251F" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="286" cy="252" r="11" fill="#D9A54A"/>
+    </g>
+    <line x1="300" y1="500" x2="420" y2="500" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+    <g transform="translate(-46,60)" fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M84 528 V700"/>
+      <path d="M134 588 L134 662 A38 38 0 0 0 210 662 L210 588"/>
+      <path d="M250 700 V626 A40 40 0 0 1 330 626 V700 M330 626 A40 40 0 0 1 410 626 V700"/>
+      <path d="M470 588 V700"/>
+      <path d="M530 700 V626 A40 40 0 0 1 610 626 V700"/>
+      <circle cx="672" cy="644" r="56"/>
+      <path d="M728 588 V700"/>
+    </g>
+    <circle cx="424" cy="612" r="11" fill="#D9A54A"/>
+  </g>
+</svg>
