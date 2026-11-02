@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 920" width="720" height="920" role="img" aria-label="Lumina vertical lockup">
+  <!-- 垂直锁印：记号在上，字标在下（奶油圆角底）
+       鼠尾草 #767F72 · 墨绿 #20251F · 暖金 #D9A54A -->
+  <rect width="720" height="920" rx="96" fill="#F4F2EA"/>
+
+  <!-- 记号（等比缩放）：圆心 (360,320) 半径 150 -->
+  <g transform="translate(104,86)">
+    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round"/>
+    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"
+          fill="none" stroke="#20251F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="256" cy="152" r="16" fill="#D9A54A"/>
+  </g>
+
+  <!-- 分隔细线（奶油深一档） -->
+  <line x1="286" y1="520" x2="434" y2="520" stroke="#B9B3A6" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- 字标 -->
+  <text x="360" y="664" text-anchor="middle" fill="#20251F"
+        font-family="Georgia, 'Times New Roman', 'Songti SC', serif"
+        font-size="104" letter-spacing="6">Lumina</text>
+
+  <!-- 副标 -->
+  <text x="360" y="722" text-anchor="middle" fill="#767F72"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="26" letter-spacing="12">FILM · WALK · GAIN</text>
+</svg>
