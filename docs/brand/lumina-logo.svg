@@ -1,22 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="80 60 940 210" width="940" height="210" role="img" aria-labelledby="t d">
-  <title id="t">Lumina 字标</title>
-  <desc id="d">L = 取景器裁切角；umina 几何单线小写；i 点 = 唯一暖金。透明底，任意介质可用</desc>
-  <!-- Lumina 词标：单线几何（墨绿 #20251F）+ 暖金 i 点 #D9A54A -->
-  <g fill="none" stroke="#20251F" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
-    <!-- L：取景框裁切角（竖 + 底脚 + 上翘小钩） -->
+  <title id="t">Lumina 字标（白底黑字）</title>
+  <desc id="d">纯黑白单色版：白底、黑色单线字标，i 点同为黑色</desc>
+  <!-- 白底 -->
+  <rect x="55" y="35" width="1010" height="260" fill="#FFFFFF"/>
+  <!-- 黑色单线字标（单色版，i 点同为黑） -->
+  <g fill="none" stroke="#000000" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
     <path d="M100 80 V250 H240 V210"/>
-    <!-- u -->
     <path d="M300 140 V210 A40 40 0 0 0 380 210 V140"/>
-    <!-- m：双拱三杆 -->
     <path d="M440 250 V180 A40 40 0 0 1 520 180 V250 M520 180 A40 40 0 0 1 600 180 V250"/>
-    <!-- i：短杆（暖金点另行） -->
     <path d="M660 140 V250"/>
-    <!-- n -->
     <path d="M720 250 V180 A40 40 0 0 1 800 180 V250"/>
-    <!-- a：单层圈 + 右杆 -->
     <circle cx="915" cy="195" r="55"/>
     <path d="M970 140 V250"/>
   </g>
-  <!-- i 的点：唯一暖金 = Lumina 之光 -->
-  <circle cx="660" cy="108" r="12" fill="#D9A54A"/>
+  <circle cx="660" cy="108" r="12" fill="#000000"/>
 </svg>
