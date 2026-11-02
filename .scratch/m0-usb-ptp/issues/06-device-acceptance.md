@@ -4,7 +4,15 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** blocked（阻塞：用户暂无 OTG 双头线材；代码与集成已全部就绪，待线材到手即可现场验收）
+
+## Pending-verifier（线材到手后按此清单）
+1. 插线打开 App → 应显「未连接 · 请插入相机」（闪退修复已验证 adb 安装 Success）
+2. OTG + Z30（PTP 模式）→ 系统弹权限 → 允许
+3. 清单 10s 内出现（型号/文件名+大小/日期分组/顶部统计/日志尾）
+4. 拔 OTG → 归零；重插 → 自动重连
+5. 相机休眠 → 唤醒 → 人话原因恢复
+6. 离线轨迹自动落在 files/m0-probe.log（已实现，`run-as com.lumina cat files/m0-probe.log` 拉取）
 
 - [ ] 真机完整跑通 05 全部验收标准（用户在场验收）
 - [ ] 探针"一键 dump 会话字节"产出真实响应字节流
