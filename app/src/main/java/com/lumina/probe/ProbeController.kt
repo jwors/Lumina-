@@ -57,6 +57,8 @@ class ProbeController(
         kind: UsbDeviceClassifier.DeviceKind?,
         device: UsbDevice?,
     ) {
+        // 每次相机状态变化都落盘（真机离线排障：USB 口被相机占用时无法连 logcat）
+        logEvents(listOf("camera event: state=$state kind=$kind device=${device?.deviceName}"))
         when (state) {
             UsbCameraStateMachine.State.NOT_CONNECTED -> teardown()
             UsbCameraStateMachine.State.PENDING_PERMISSION ->
@@ -190,13 +192,13 @@ class ProbeController(
             "相机返回错误 0x%04X（会话可能已失效，重插一次再试）".format(e.code)
         e is UsbTransportException && e.reason == "read" -> "相机休眠或已拔出，唤醒或重插"
         e is UsbTransportException && e.reason == "write" -> "相机没响应写入（休眠中？）"
-        e is UsbTransportException && e.reason == "claim" -> "接口被系统占用：重启手机蓝牙/文件传输后再试"
+        e is UsbTransportException && e.reason == "claim" -> "接口被系统占用：拔下重插一次，或重启手机再试"
         e.message?.contains("no Still-Image interface") == true -> "相机不是 PTP 模式：菜单切换 USB 连接方式"
         else -> e.message ?: e.toString()
     }
 
-    /** story 20：设备/协议异常落应用私有目录（真机现场可回溯；空列表不写）。 */
-    private fun logFailure(lines: List<String>) {
+    /** story 20：设备事件/协议异常落应用私有目录（真机现场可回溯）。 */
+    private fun logEvents(lines: List<String>) {
         if (lines.isEmpty()) return
         runCatching {
             val file = File(appContext.filesDir, "m0-probe.log")
@@ -204,6 +206,9 @@ class ProbeController(
             file.appendText(lines.joinToString("") { "[$stamp] $it\n" })
         }
     }
+
+    /** 失败路径 = 事件日志 + 人话一行。 */
+    private fun logFailure(lines: List<String>) = logEvents(lines)
 
     private fun emit(state: ProbeUiState) = mainThread.post { onState(state) }
 
