@@ -44,7 +44,8 @@ class UsbCameraMonitor(
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             addAction(ACTION_PERMISSION)
         }
-        context.registerReceiver(receiver, filter)
+        // Android 13+ 强制：非系统专用广播必须显式声明导出性；权限应答经 setPackage 定向，NOT_EXPORTED 安全
+        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         publish()
     }
 

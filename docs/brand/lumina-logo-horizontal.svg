@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 384" width="1280" height="384" role="img" aria-label="Lumina wordmark">
+  <!-- Lumina 横版锁印：线稿机身 + 光线 + 衬线字标（F·Grain 奶绿） -->
+  <rect width="1280" height="384" rx="64" fill="#F4F2EA"/>
+
+  <!-- 线稿相机 -->
+  <g fill="none" stroke="#767F72" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M148 138 h66 l21 -27 h67 l21 27 h50 a16 16 0 0 1 16 16 v96 a16 16 0 0 1 -16 16 H148 a16 16 0 0 1 -16 -16 v-96 a16 16 0 0 1 16 -16 z"/>
+    <circle cx="268" cy="207" r="49"/>
+    <circle cx="268" cy="207" r="28"/>
+  </g>
+  <!-- 镜头星光 + 光点 -->
+  <g stroke="#767F72" stroke-width="7" stroke-linecap="round">
+    <line x1="268" y1="74" x2="268" y2="54"/>
+    <line x1="218" y1="88" x2="207" y2="72"/>
+    <line x1="318" y1="88" x2="329" y2="72"/>
+  </g>
+  <circle cx="268" cy="48" r="6" fill="#20251F"/>
+  <!-- 山脊一笔 -->
+  <g fill="none" stroke="#767F72" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M148 300 L204 276 L244 292 L308 270 L366 300"/>
+  </g>
+
+  <!-- 字标 -->
+  <text x="452" y="248" fill="#20251F"
+        font-family="Georgia, 'Times New Roman', 'Songti SC', serif"
+        font-size="150" letter-spacing="6">Lumina</text>
+  <!-- 副标：奶绿淡字 -->
+  <text x="456" y="300" fill="#767F72"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="30" letter-spacing="10">FILM · WALK · GAIN</text>
+</svg>
