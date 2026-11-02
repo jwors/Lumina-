@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina mark">
-  <!-- Lumina 品牌记号 = 取景圆 + 圆内日出过山脊
-       配色层级：鼠尾草取景 #767F72 · 墨绿山 #20251F · 暖金日 #D9A54A -->
-  <g fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round">
-    <circle cx="256" cy="268" r="150"/>
+  <!-- Lumina 抽象记号：取景环 + 一道单峰 + 环顶一段光弯
+       = 镜头一抬，山峰进入光里。两个色相 + 一笔几何，极简抽象 -->
+  <g fill="none" stroke="#767F72" stroke-width="17" stroke-linecap="round">
+    <!-- 取景环（长段，绕大半周） -->
+    <path d="M386 193 A 150 150 0 1 1 126 193"/>
   </g>
-  <!-- 山脊：两端搭在圆周上 -->
-  <g fill="none" stroke="#20251F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"/>
+  <g fill="none" stroke="#D9A54A" stroke-width="17" stroke-linecap="round">
+    <!-- 环顶光弯（短弧段 = 日） -->
+    <path d="M126 193 A 150 150 0 0 1 386 193"/>
   </g>
-  <!-- 日出于山右峰之上：暖金 -->
-  <circle cx="256" cy="152" r="16" fill="#D9A54A"/>
+  <!-- 单峰：两端搭在环上，峰尖伸向光弯 -->
+  <g fill="none" stroke="#20251F" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M110 238 L 256 148 L 402 238"/>
+  </g>
 </svg>

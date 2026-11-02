@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lumina app icon">
-  <!-- App 图标：奶油圆角方 + 出山记号 -->
+  <!-- App 图标：奶油圆角方 + 抽象记号 -->
   <rect width="512" height="512" rx="112" fill="#F4F2EA"/>
-  <g transform="translate(0,12)">
-    <circle cx="256" cy="268" r="150" fill="none" stroke="#767F72" stroke-width="14" stroke-linecap="round"/>
-    <path d="M110 238 L180 196 L234 262 L306 190 L402 238"
-          fill="none" stroke="#20251F" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="256" cy="152" r="16" fill="#D9A54A"/>
+  <g transform="translate(0,10)">
+    <path d="M386 193 A 150 150 0 1 1 126 193" fill="none" stroke="#767F72" stroke-width="17" stroke-linecap="round"/>
+    <path d="M126 193 A 150 150 0 0 1 386 193" fill="none" stroke="#D9A54A" stroke-width="17" stroke-linecap="round"/>
+    <path d="M110 238 L 256 148 L 402 238" fill="none" stroke="#20251F" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
