@@ -10,13 +10,14 @@ import com.lumina.transport.Transport
 import java.io.IOException
 import java.nio.ByteBuffer
 
-/** USB 层可读失败（reason ∈ claim/attach/open/read/write），供 UI 人话化，不走文案匹配。 */
+/**
+ * USB 层可读失败（reason ∈ claim/attach/open/read/write），供 UI 人话化，不走文案匹配。 */
 class UsbTransportException(val reason: String, detailMessage: String) : IOException(detailMessage)
 
 /**
  * Transport 的真实 USB 实现（工单 04）。
  * 协议层（ptp 包）只知道缝隙契约，这里的全部职责是把它落到 USB bulk 管道上：
- * - open：认领 PTP 接口（幂等性由状态机钉死，重复 open 抛错）
+ * - open：认领 PTP 接口 + 清端点 HALT
  * - write/read：一次 bulk 传输一个块
  * - close：释放接口 + 关 connection（终结性同 FakeTransport）
  * IO 失败一律 UsbTransportException，带可读原因（相机休眠 → 超时，拔线 → 设备不可用）。
@@ -28,7 +29,7 @@ class UsbTransport(
     private val bulkOut: UsbEndpoint,
     /** 单次 bulk 传输的超时毫秒：相机取景器待机不等于休眠断开 */
     private val timeoutMs: Int = 5_000,
-    /** 诊断回环：每次 open/清 HALT/端点详情经此走 grooves 出到 m0-probe.log */
+    /** 诊断回环：open/清 HALT 详情经此落到 m0-probe.log */
     private val diag: (String) -> Unit = {},
 ) : Transport {
 
@@ -50,6 +51,7 @@ class UsbTransport(
             )
         }
         // 相机侧残留 HALT（粗暴拔线后的 STALL）会让首笔 bulk 立即 -1：两端各清一次。
+        // CLEAR_FEATURE(ENDPOINT_HALT)：标准请求 bmRequestType=0x02, bRequest=0x01, wValue=0。
         val rcIn = connection.controlTransfer(0x02, 0x01, 0, bulkIn.address, null, 0, 0, timeoutMs)
         val rcOut = connection.controlTransfer(0x02, 0x01, 0, bulkOut.address, null, 0, 0, timeoutMs)
         diag(
@@ -104,30 +106,45 @@ class UsbTransport(
 
     companion object {
         /**
-         * 从 UsbManager 视角打开一台已授权的 PTP 设备。
-         * 只认 BULK 型号端点（影像接口可能附带中断 IN 端点，code-review 抓到的坑）；
-         * 找不到时抛 IllegalStateException（含 MTP 疑似诊断）。
+         * 从 UsbManager 视角打开一台已授权的设备，并把完整的枚举诊断吐给 [diag]
+         * （首次挂出问题时要能看到每个接口/端点的真身）。
          */
         fun from(usbManager: UsbManager, device: UsbDevice, diag: (String) -> Unit = {}): UsbTransport {
             diag(
-                "usb device: name=${device.deviceName} product=${device.productName} " +
-                    "vendorId=0x%04X productId=0x%04X deviceClass=0x%02X"
-                    .format(device.vendorId, device.productId, device.deviceClass),
+                "usb device: name=" + device.deviceName +
+                    " product=" + device.productName +
+                    " vendorId=0x" + "%04X".format(device.vendorId) +
+                    " productId=0x" + "%04X".format(device.productId) +
+                    " deviceClass=0x" + "%02X".format(device.deviceClass),
             )
+            for (index in 0 until device.interfaceCount) {
+                val candidate = device.getInterface(index)
+                val endpointSummary = (0 until candidate.endpointCount).joinToString(" ") { e ->
+                    val ep = candidate.getEndpoint(e)
+                    "ep(addr=0x" + "%02X".format(ep.address) +
+                        " " + if (ep.direction == UsbConstants.USB_DIR_IN) "IN" else "OUT" +
+                        ")"
+                }
+                diag(
+                    "usb iface[" + index + "]: class=0x" + "%02X".format(candidate.interfaceClass) +
+                        " alt=" + candidate.alternateSetting + " -> " + endpointSummary,
+                )
+            }
             val iface = (0 until device.interfaceCount)
                 .map { device.getInterface(it) }
                 .firstOrNull { it.interfaceClass == UsbDeviceClassifier.CLASS_STILL_IMAGE }
                 ?: throw IllegalStateException(
-                    "no Still-Image interface on ${device.deviceName} " +
-                        "(${describeInterfaces(device)}) — likely a file/MTP device",
+                    "no Still-Image interface on " + device.deviceName +
+                        " likely a file/MTP device",
                 )
             val bulk = iface.bulkEndpoints()
             val bulkIn = bulk.first { it.direction == UsbConstants.USB_DIR_IN }
             val bulkOut = bulk.first { it.direction == UsbConstants.USB_DIR_OUT }
             diag(
-                "usb iface: class=0x%02X altSetting=${iface.alternateSetting} " +
-                    "endpoints=${iface.endpointCount} in=0x%02X out=0x%02X"
-                    .format(iface.interfaceClass, bulkIn.address, bulkOut.address),
+                "usb chosen: class=0x" + "%02X".format(iface.interfaceClass) +
+                    " alt=" + iface.alternateSetting +
+                    " bulkIn=0x" + "%02X".format(bulkIn.address) +
+                    " bulkOut=0x" + "%02X".format(bulkOut.address),
             )
             val connection = usbManager.openDevice(device)
                 ?: throw UsbTransportException("open", "openDevice failed (not granted or unplugged?)")
@@ -140,10 +157,5 @@ class UsbTransport(
             (0 until endpointCount)
                 .map { getEndpoint(it) }
                 .filter { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK }
-
-        private fun describeInterfaces(device: UsbDevice): String =
-            (0 until device.interfaceCount)
-                .map { device.getInterface(it).interfaceClass }
-                .joinToString(prefix = "interfaceClasses=[", postfix = "]") { "0x%02X".format(it) }
     }
 }

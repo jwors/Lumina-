@@ -119,6 +119,8 @@ class ProbeController(
                 attempt++
                 if (attempt >= 2) {
                     emit(ProbeUiState("读取失败：${humanize(e)}"))
+                    // PTP 两轮失败 → 立即转框架 MtpDevice 兜底（story 17；同时交叉验证管道层）
+                    listViaMtp(device)
                     return
                 }
                 logEvents(listOf("retrying PTP session (attempt $attempt)"))
