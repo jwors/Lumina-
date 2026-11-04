@@ -7,7 +7,16 @@
 
 **Blocked by:** 无
 
-**Status:** claimed
+**Status:** resolved
+
+## Comments
+
+- Room 2.6.1 + KSP（`2.0.20-1.0.25`，与 Kotlin 2.0.20 配对）入选：KSP 比 kapt 快且官方对齐 Kotlin 2.0。
+- `master_inventory` 表 + DAO（insert/findByRelPath/all/deleteByRelPath/clear）+ AppDatabase 单例。
+- 目录布局：`Master/<yyyy-MM-dd>/<原名>`；日期源 = 拍摄日期，缺省回退修改日期，双缺省 1970 占位（拍摄日期由调用方传，保持本层无 MTP 依赖）。
+- 盘点存取走 `InventoryStore` 窄接口：Room DAO 实装 + `InMemoryInventoryStore`（JVM 测试用），`MasterStore` 门面（register 同名跳过 / MissingFile 拒绝 / snapshot 排序 / pruneAbsent 对账幂等）。
+- 测试取舍：**不引 Robolectric**——纯逻辑（路径/排序/对账）用 `TemporaryFolder` 真文件 + 内存盘点即可 JVM 绿（8/8）；Room DAO 的真机行为留 06 号验收（`run-as` 查库）。
+- 测试证据：`gradle :app:testDebugUnitTest` BUILD SUCCESSFUL，全套 **43/43 绿**（新增 MasterStoreTest 8 例）。
 
 - [ ] Room 依赖与 schema（KSP/kapt 二选一并注明理由）
 - [ ] MasterInventory 表 + DAO（增/查/全列出）
