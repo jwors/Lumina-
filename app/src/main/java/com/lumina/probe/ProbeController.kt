@@ -112,8 +112,9 @@ class ProbeController(
                 )
                 return
             } catch (e: Exception) {
-                // 原始异常全量入库（屏上给人话，文件里留诊断数据）
-                logEvents(listOf("PTP path fail: ${e.javaClass.simpleName}: ${e.message}"))
+                // 原始异常 + 协议日志尾巴全量入库（屏上给人话，文件里留诊断数据）
+                logEvents(listOf("PTP path fail: ${e.javaClass.simpleName}: ${e.message}") +
+                    ptp.log.snapshot().takeLast(6))
                 runCatching { ptp.close() }
                 session = null
                 attempt++

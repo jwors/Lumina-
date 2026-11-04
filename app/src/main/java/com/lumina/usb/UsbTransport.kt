@@ -27,8 +27,8 @@ class UsbTransport(
     private val iface: UsbInterface,
     private val bulkIn: UsbEndpoint,
     private val bulkOut: UsbEndpoint,
-    /** 单次 bulk 传输的超时毫秒：相机取景器待机不等于休眠断开 */
-    private val timeoutMs: Int = 5_000,
+    /** 单次 bulk 传输的超时毫秒：弱供电 OTG 时相机会挣扎较久，10s+ 给足余量 */
+    private val timeoutMs: Int = 12_000,
     /** 诊断回环：open/清 HALT 详情经此落到 m0-probe.log */
     private val diag: (String) -> Unit = {},
 ) : Transport {
