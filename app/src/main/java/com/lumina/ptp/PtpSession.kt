@@ -30,11 +30,11 @@ class PtpSession(
     val currentState: State get() = state
 
     /** OpenSession；成功后进入 Open。（会话负责打开底层传输，契约见 Transport.open）
-     *  连接序列（gphoto2 reset 手势）：
-     *  ① pre-close：相机可能被系统服务留下半截会话/事务（真机实录 0x2007 IncompleteTransfer），
-     *     先发 CLOSE_SESSION 清一把，一切错误码容忍（SESSION_NOT_OPEN/AccessDenied…都是正常结果）。
-     *  ② GetDeviceInfo 探活（会话前合法，顺带校准相机计数器）。
-     *  ③ OpenSession；宽容 0x201E SessionAlreadyOpened。 */
+     *  连接序列（ptplibrary/gphoto2 结语）：
+     *  ① transport.open：claim + StillImageDeviceReset(0x66) + 清 HALT；
+     *  ② pre-close：清相机残留会话（一切错误码容忍，SESSION_NOT_OPEN=本来就没有）；
+     *  ③ OpenSession；宽容 0x201E SessionAlreadyOpened。
+     *  GetDeviceInfo 挪到会话后（部分相机必须先有 session 才答它——真机实录 probe 探活全挂）。 */
     fun open() {
         check(state == State.Closed) { "session already $state" }
         transport.open()
@@ -42,15 +42,7 @@ class PtpSession(
             send(OpCode.CLOSE_SESSION)
             log.log("pre-close: stale session cleared cleanly")
         } catch (e: PtpResponseException) {
-            // 相机明确回应了错误码（比如本地无会话 SESSION_NOT_OPEN）= 清障目的已达成
             log.log("pre-close tolerated camera response 0x%04X".format(e.code))
-        }
-        try {
-            sendWithPayload(OpCode.GET_DEVICE_INFO)
-            log.log("GetDeviceInfo probe ok (pre-session)")
-        } catch (e: Exception) {
-            log.log("GetDeviceInfo probe failed: ${e.message}")
-            throw IllegalStateException("GetDeviceInfo probe failed: ${e.message}", e)
         }
         try {
             send(OpCode.OPEN_SESSION, longArrayOf(1))
