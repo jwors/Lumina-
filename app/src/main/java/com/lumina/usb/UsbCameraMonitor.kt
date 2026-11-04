@@ -46,7 +46,24 @@ class UsbCameraMonitor(
         }
         // Android 13+ 强制：非系统专用广播必须显式声明导出性；权限应答经 setPackage 定向，NOT_EXPORTED 安全
         context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        // 关键自扫描：App 后启动时 ATTACHED 广播早已发完，必须主动扫已接入设备
+        initialScan()
         publish()
+    }
+
+    /**
+     * 打开 App 时设备可能已经插着（用户习惯：先接相机再开 App）。
+     * 枚举 UsbManager 当前设备，找到第一台非 OTHER 的作为"事实接入"，
+     * 走与广播 ATTACHED 完全一致的状态机路径（不重复调用 attach 广播）。
+     */
+    private fun initialScan() {
+        if (sm.currentState != UsbCameraStateMachine.State.NOT_CONNECTED) return
+        val candidate = usbManager.deviceList.values
+            .filter { classify(it) != UsbDeviceClassifier.DeviceKind.OTHER }
+            .firstOrNull() ?: return
+        lastDevice = candidate
+        sm.on(UsbCameraStateMachine.Event.ATTACHED)
+        requestPermission(candidate) // 已授权过的设备 requestPermission = 立即回调 granted
     }
 
     /** 广播里 Parcelable 异常不影响探针存活：所有分支包一层兜底 */
