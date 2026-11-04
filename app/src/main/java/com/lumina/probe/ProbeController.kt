@@ -85,6 +85,16 @@ class ProbeController(
         if (device == null) {
             emit(ProbeUiState("已授权但设备不可见，请拔下重插")); return
         }
+        // 预热空转（真机实证：第一笔 claim 的 bulk 写必卡死，第二笔就通）：
+        // 把"-必卡死的第一笔"拿来做空 claim。失败/成功都只是记录，不算在重试次数里。
+        try {
+            val warm = UsbTransport.from(usbManager, device, diag = { line -> logEvents(listOf("warmup: $line")) })
+            warm.open()
+            warm.close()
+            logEvents(listOf("warmup: done"))
+        } catch (e: Exception) {
+            logEvents(listOf("warmup skipped: ${e.javaClass.simpleName}: ${e.message}"))
+        }
         var attempt = 0
         while (true) {
             val transport = try {
@@ -118,9 +128,9 @@ class ProbeController(
                 runCatching { ptp.close() }
                 session = null
                 attempt++
-                if (attempt >= 2) {
+                if (attempt >= 3) {
                     emit(ProbeUiState("读取失败：${humanize(e)}"))
-                    // PTP 两轮失败 → 立即转框架 MtpDevice 兜底（story 17；同时交叉验证管道层）
+                    // PTP 多轮失败 → 立即转框架 MtpDevice 兜底（story 17；同时交叉验证管道层）
                     listViaMtp(device)
                     return
                 }
@@ -146,8 +156,21 @@ class ProbeController(
             val files = mutableListOf<CameraObject>()
             val folders = mutableListOf<CameraObject>()
             for (storageId in mtp.getStorageIds() ?: IntArray(0)) {
-                // MTP parent 语义（0=根/全量）真机口径挂 06 号校验
-                for (handle in mtp.getObjectHandles(storageId, -1, 0) ?: IntArray(0)) {
+                // MTP parent 语义两家口径（0=根 / -1 或 0xFFFFFFFF=全部）：
+                // 先按 (format=0, parent=0) 取；空则穷举 (0/-1)×(0/-1) 的组合取并集
+                val seen = mutableSetOf<Int>()
+                val handles = mutableListOf<Int>()
+                outer@ for (format in intArrayOf(0, -1)) {
+                    for (parent in intArrayOf(0, PtpSession.PARENT_ALL.toInt(), -1)) {
+                        val altHandles = mtp.getObjectHandles(storageId, format, parent) ?: IntArray(0)
+                        for (h in altHandles) if (seen.add(h)) handles.add(h)
+                        if (handles.isNotEmpty()) break@outer
+                    }
+                }
+                logEvents(
+                    listOf("MTP storage=0x%08X handles=%d".format(storageId, handles.size)),
+                )
+                for (handle in handles) {
                     val info = mtp.getObjectInfo(handle) ?: continue
                     val obj = CameraObject(
                         handle = info.objectHandle.toLong(),
