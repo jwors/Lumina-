@@ -29,11 +29,17 @@ class PtpSession(
 
     val currentState: State get() = state
 
-    /** OpenSession；成功后进入 Open。（会话负责打开底层传输，契约见 Transport.open） */
+    /** OpenSession；成功后进入 Open。（会话负责打开底层传输，契约见 Transport.open）
+     *  宽容 0x201E SessionAlreadyOpened：相机残留会话直接沿用（gphoto2 同款语义）。 */
     fun open() {
         check(state == State.Closed) { "session already $state" }
         transport.open()
-        send(OpCode.OPEN_SESSION, longArrayOf(1))
+        try {
+            send(OpCode.OPEN_SESSION, longArrayOf(1))
+        } catch (e: PtpResponseException) {
+            if (e.code != RespCode.SESSION_ALREADY_OPENED) throw e
+            log.log("OpenSession: camera reported session already opened (0x201E), reusing")
+        }
         state = State.Open
     }
 

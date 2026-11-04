@@ -189,7 +189,7 @@ class ProbeController(
     /** 运行期异常 → 人话（类型化，不靠截字符串）。 */
     private fun humanize(e: Exception): String = when {
         e is PtpResponseException ->
-            "相机返回错误 0x%04X（会话可能已失效，重插一次再试）".format(e.code)
+            "相机返回错误 0x%04X（op=0x%04X，会话可能已失效，重插一次再试）".format(e.code, e.opCode)
         e is UsbTransportException && e.reason == "read" -> "相机休眠或已拔出，唤醒或重插"
         e is UsbTransportException && e.reason == "write" -> "相机没响应写入（休眠中？）"
         e is UsbTransportException && e.reason == "claim" -> "接口被系统占用：拔下重插一次，或重启手机再试"

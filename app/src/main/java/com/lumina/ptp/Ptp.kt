@@ -21,6 +21,9 @@ object OpCode {
 object RespCode {
     const val OK = 0x2001
     const val SESSION_NOT_OPEN = 0x2003
+
+    /** 相机残留会话未关（拔线粗暴常见）：OpenSession 时当成功处理，直接沿用 */
+    const val SESSION_ALREADY_OPENED = 0x201E
 }
 
 /** 相机应答了非 OK 响应码：单测与真机日志都按错误来源标注 */

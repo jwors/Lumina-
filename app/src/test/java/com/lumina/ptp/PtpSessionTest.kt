@@ -119,6 +119,27 @@ class PtpSessionTest {
         assertThrows(IllegalStateException::class.java) { s.open() }
     }
 
+    @Test
+    fun `session already opened (0x201E) is tolerated and session proceeds`() {
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.SESSION_ALREADY_OPENED, tid = 1), // 相机残留会话
+                dataPack(OpCode.GET_DEVICE_INFO, tid = 2, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, tid = 2),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open() // 不抛：沿用相机侧会话
+        assertEquals(PtpSession.State.Open, s.currentState)
+        assertEquals("NIKON Z 30", s.getModel())
+        assertEquals(PtpSession.State.Ready, s.currentState)
+        // tid 已被 OpenSession 事务消费（递增到 2）
+        assertArrayEquals(
+            encodeRequest(OpCode.GET_DEVICE_INFO, 2),
+            t.observedWrites()[1],
+        )
+    }
+
     // ---------- code-review 修复的回归测试 ----------
 
     @Test
