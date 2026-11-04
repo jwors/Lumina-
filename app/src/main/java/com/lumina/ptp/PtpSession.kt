@@ -114,6 +114,9 @@ class PtpSession(
          * M1 进入文件数据阶段（单张 NEF ~50MB）时按需上调并补测试。
          */
         const val MAX_CONTAINER_BYTES = 4 shl 20
+
+        /** 全宽读 stage：必须 ≥ 真实 USB 包上限（USB2 bulk 512B），4K 兼容 USB3。 */
+        const val READ_STAGE_SIZE = 4096
     }
 
     /** CloseSession（尽力而为）+ 关闭底层传输 */
@@ -160,34 +163,42 @@ class PtpSession(
         transport.write(encodeRequest(op, myTid, params))
     }
 
-    /** 从 transport 读到一个完整容器字节（容忍底层任意分片，按前置 length 字段重组）。 */
+    /**
+     * 从 transport 读一个完整容器。真实 USB bulk 的包语义：**读请求必须 ≥ 整包容量
+     * （512B+），短读会把包内剩余字节丢给内核**（真机实录：GetDeviceInfo 的 Data 阶段
+     * 因 12 字节头短读而永久死锁——MtpDevice 按整包读所以能通）。
+     * 所以这里全部按 4K 全宽读，超出容器长度的粘包字节留存到下一笔。
+     */
     private fun readContainerBytes(): ByteArray {
-        val head = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
-        fill(head, 12, "header")
-        head.flip()
-        val fullLength = head.int
+        val out = java.io.ByteArrayOutputStream()
+        leftover?.let { out.write(it); leftover = null }
+        while (out.size() < 12) readChunkInto(out)
+        val header = out.toByteArray()
+        val fullLength = java.nio.ByteBuffer
+            .wrap(header, 0, header.size)
+            .order(ByteOrder.LITTLE_ENDIAN).int
         check(fullLength in 12..MAX_CONTAINER_BYTES) {
             "container length $fullLength outside sane range (12..$MAX_CONTAINER_BYTES)"
         }
-        val body = ByteBuffer.allocate(fullLength - 12).order(ByteOrder.LITTLE_ENDIAN)
-        if (fullLength > 12) fill(body, fullLength - 12, "body")
-        val full = ByteBuffer.allocate(fullLength).order(ByteOrder.LITTLE_ENDIAN)
-        head.rewind() // limit 已是 12，仅把读 position 归零（flip 会把 limit 错设为 4）
-        full.put(head)
-        body.flip() // 填满后 position 在末尾，翻转后才能整体拷出
-        full.put(body)
-        return full.array()
-    }
-
-    /** 反复 read 直到填满 n 字节；USB bulk read 常常把容器任意切段。 */
-    private fun fill(buffer: ByteBuffer, n: Int, what: String) {
-        while (buffer.position() < n) {
-            val got = transport.read(buffer)
-            check(got > 0) {
-                "transport EOF while reading $what (${buffer.position()}/$n)"
-            }
+        while (out.size() < fullLength) readChunkInto(out)
+        val all = out.toByteArray()
+        return if (all.size == fullLength) {
+            all
+        } else {
+            leftover = all.copyOfRange(fullLength, all.size) // 粘包：下一笔事务的头
+            all.copyOf(fullLength)
         }
     }
+
+    /** 一次全宽读（4K stage），返回实际收到字节数。 */
+    private fun readChunkInto(out: java.io.ByteArrayOutputStream) {
+        val got = transport.read(ByteBuffer.wrap(stage))
+        check(got > 0) { "transport exhausted while reading container (got $got)" }
+        out.write(stage, 0, got)
+    }
+
+    private val stage = ByteArray(READ_STAGE_SIZE)
+    private var leftover: ByteArray? = null
 
     private fun readResponse(op: Int, tid: Int): Container.Response {
         val bytes = readContainerBytes()
