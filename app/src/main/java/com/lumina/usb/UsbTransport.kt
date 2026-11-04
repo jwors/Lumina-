@@ -47,7 +47,18 @@ class UsbTransport(
                 "claimInterface failed (device may be held by system service)",
             )
         }
+        // 相机侧残留 HALT（粗暴拔线后的 STALL）会让首笔 bulk 立即 -1：两端各清一次。
+        // 失败不阻断——部分设备不实现/不需要。
+        clearHalt(bulkIn)
+        clearHalt(bulkOut)
         phase = Phase.Open
+    }
+
+    /** CLEAR_FEATURE(ENDPOINT_HALT)：标准请求 bmRequestType=0x02, bRequest=0x01, wValue=0 */
+    private fun clearHalt(endpoint: UsbEndpoint) {
+        runCatching {
+            connection.controlTransfer(0x02, 0x01, 0, endpoint.address, null, 0, 0, timeoutMs)
+        }
     }
 
     override fun write(chunk: ByteArray): Int {

@@ -37,7 +37,6 @@ class ProbeController(
     private val mainThread = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var session: PtpSession? = null
-    private var failedSessionLog: List<String> = emptyList()
 
     private val monitor = UsbCameraMonitor(appContext, usbManager) { monitorState, kind, device ->
         io.execute { react(monitorState, kind, device) }
@@ -86,40 +85,45 @@ class ProbeController(
         if (device == null) {
             emit(ProbeUiState("已授权但设备不可见，请拔下重插")); return
         }
-        val transport = try {
-            UsbTransport.from(usbManager, device)
-        } catch (e: Exception) {
-            logFailure(listOf("transport open: ${e.message}"))
-            emit(ProbeUiState("无法打开相机：${humanize(e)}")); return
-        }
-        val ptp = PtpSession(transport)
-        session = ptp
-        try {
-            // 连接三步：transport.open + OpenSession → 型号 → 存储与清单
-            ptp.open()
-            val model = ptp.getModel()
-            val summary = ObjectCatalog.merge(
-                ptp.listStorage().map { ObjectCatalog(ptp).traverse(it.id) },
-            )
-            emit(
-                ProbeUiState(
-                    "$model · 清单就绪",
-                    model = model,
-                    summary = summary,
-                    logTail = ptp.log.snapshot().takeLast(LOG_TAIL),
-                ),
-            )
-        } catch (e: Exception) {
-            failedSessionLog = ptp.log.snapshot()
-            logFailure(listOf("PTP path fail: ${humanize(e)}"))
-            emit(
-                ProbeUiState(
-                    "读取失败：${humanize(e)}",
-                    logTail = failedSessionLog.takeLast(LOG_TAIL),
-                ),
-            )
-            runCatching { ptp.close() }
-            session = null
+        var attempt = 0
+        while (true) {
+            val transport = try {
+                UsbTransport.from(usbManager, device)
+            } catch (e: Exception) {
+                logEvents(listOf("transport open: ${e.javaClass.simpleName}: ${e.message}"))
+                emit(ProbeUiState("无法打开相机：${humanize(e)}")); return
+            }
+            val ptp = PtpSession(transport)
+            session = ptp
+            try {
+                // 连接三步：transport.open + OpenSession → 型号 → 存储与清单
+                ptp.open()
+                val model = ptp.getModel()
+                val summary = ObjectCatalog.merge(
+                    ptp.listStorage().map { ObjectCatalog(ptp).traverse(it.id) },
+                )
+                emit(
+                    ProbeUiState(
+                        "$model · 清单就绪",
+                        model = model,
+                        summary = summary,
+                        logTail = ptp.log.snapshot().takeLast(LOG_TAIL),
+                    ),
+                )
+                return
+            } catch (e: Exception) {
+                // 原始异常全量入库（屏上给人话，文件里留诊断数据）
+                logEvents(listOf("PTP path fail: ${e.javaClass.simpleName}: ${e.message}"))
+                runCatching { ptp.close() }
+                session = null
+                attempt++
+                if (attempt >= 2) {
+                    emit(ProbeUiState("读取失败：${humanize(e)}"))
+                    return
+                }
+                logEvents(listOf("retrying PTP session (attempt $attempt)"))
+                emit(ProbeUiState("正在重试连接相机…", busy = true))
+            }
         }
     }
 
