@@ -26,8 +26,10 @@ class UsbTransport(
     private val iface: UsbInterface,
     private val bulkIn: UsbEndpoint,
     private val bulkOut: UsbEndpoint,
-    /** 单次 bulk 传输的超时毫秒：相机取景器待机不等于休眠断开，5s 足够 */
+    /** 单次 bulk 传输的超时毫秒：相机取景器待机不等于休眠断开 */
     private val timeoutMs: Int = 5_000,
+    /** 诊断回环：每次 open/清 HALT/端点详情经此走 grooves 出到 m0-probe.log */
+    private val diag: (String) -> Unit = {},
 ) : Transport {
 
     private sealed interface Phase {
@@ -48,17 +50,13 @@ class UsbTransport(
             )
         }
         // 相机侧残留 HALT（粗暴拔线后的 STALL）会让首笔 bulk 立即 -1：两端各清一次。
-        // 失败不阻断——部分设备不实现/不需要。
-        clearHalt(bulkIn)
-        clearHalt(bulkOut)
+        val rcIn = connection.controlTransfer(0x02, 0x01, 0, bulkIn.address, null, 0, 0, timeoutMs)
+        val rcOut = connection.controlTransfer(0x02, 0x01, 0, bulkOut.address, null, 0, 0, timeoutMs)
+        diag(
+            "halt-cleared: in(0x%02X)=rc%d, out(0x%02X)=rc%d"
+                .format(bulkIn.address, rcIn, bulkOut.address, rcOut),
+        )
         phase = Phase.Open
-    }
-
-    /** CLEAR_FEATURE(ENDPOINT_HALT)：标准请求 bmRequestType=0x02, bRequest=0x01, wValue=0 */
-    private fun clearHalt(endpoint: UsbEndpoint) {
-        runCatching {
-            connection.controlTransfer(0x02, 0x01, 0, endpoint.address, null, 0, 0, timeoutMs)
-        }
     }
 
     override fun write(chunk: ByteArray): Int {
@@ -110,7 +108,12 @@ class UsbTransport(
          * 只认 BULK 型号端点（影像接口可能附带中断 IN 端点，code-review 抓到的坑）；
          * 找不到时抛 IllegalStateException（含 MTP 疑似诊断）。
          */
-        fun from(usbManager: UsbManager, device: UsbDevice): UsbTransport {
+        fun from(usbManager: UsbManager, device: UsbDevice, diag: (String) -> Unit = {}): UsbTransport {
+            diag(
+                "usb device: name=${device.deviceName} product=${device.productName} " +
+                    "vendorId=0x%04X productId=0x%04X deviceClass=0x%02X"
+                    .format(device.vendorId, device.productId, device.deviceClass),
+            )
             val iface = (0 until device.interfaceCount)
                 .map { device.getInterface(it) }
                 .firstOrNull { it.interfaceClass == UsbDeviceClassifier.CLASS_STILL_IMAGE }
@@ -121,9 +124,15 @@ class UsbTransport(
             val bulk = iface.bulkEndpoints()
             val bulkIn = bulk.first { it.direction == UsbConstants.USB_DIR_IN }
             val bulkOut = bulk.first { it.direction == UsbConstants.USB_DIR_OUT }
+            diag(
+                "usb iface: class=0x%02X altSetting=${iface.alternateSetting} " +
+                    "endpoints=${iface.endpointCount} in=0x%02X out=0x%02X"
+                    .format(iface.interfaceClass, bulkIn.address, bulkOut.address),
+            )
             val connection = usbManager.openDevice(device)
                 ?: throw UsbTransportException("open", "openDevice failed (not granted or unplugged?)")
-            return UsbTransport(connection, iface, bulkIn, bulkOut)
+            diag("usb openDevice ok")
+            return UsbTransport(connection, iface, bulkIn, bulkOut, diag = diag)
         }
 
         /** 只取 BULK 型端点（影像接口可能附带中断 IN 端点）。 */

@@ -88,7 +88,7 @@ class ProbeController(
         var attempt = 0
         while (true) {
             val transport = try {
-                UsbTransport.from(usbManager, device)
+                UsbTransport.from(usbManager, device, diag = { line -> logEvents(listOf(line)) })
             } catch (e: Exception) {
                 logEvents(listOf("transport open: ${e.javaClass.simpleName}: ${e.message}"))
                 emit(ProbeUiState("无法打开相机：${humanize(e)}")); return

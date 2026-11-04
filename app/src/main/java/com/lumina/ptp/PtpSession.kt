@@ -30,10 +30,18 @@ class PtpSession(
     val currentState: State get() = state
 
     /** OpenSession；成功后进入 Open。（会话负责打开底层传输，契约见 Transport.open）
-     *  宽容 0x201E SessionAlreadyOpened：相机残留会话直接沿用（gphoto2 同款语义）。 */
+     *  ① 开 Session 前先发一笔 GetDeviceInfo 探活（会话前合法；gphoto2 同款，兼校准相机计数器预期）
+     *  ② 宽容 0x201E SessionAlreadyOpened：相机残留会话直接沿用。 */
     fun open() {
         check(state == State.Closed) { "session already $state" }
         transport.open()
+        try {
+            sendWithPayload(OpCode.GET_DEVICE_INFO)
+            log.log("GetDeviceInfo probe ok (pre-session)")
+        } catch (e: Exception) {
+            log.log("GetDeviceInfo probe failed: ${e.message}")
+            throw IllegalStateException("GetDeviceInfo probe failed: ${e.message}", e)
+        }
         try {
             send(OpCode.OPEN_SESSION, longArrayOf(1))
         } catch (e: PtpResponseException) {
@@ -47,19 +55,7 @@ class PtpSession(
     fun getModel(): String {
         check(state == State.Open) { "getModel requires Open, state=$state" }
         val data = sendWithPayload(OpCode.GET_DEVICE_INFO)
-        val r = MtpReader(data)
-        r.u16()                 // StandardVersion
-        r.u32()                 // VendorExtensionID
-        r.u16()                 // VendorExtensionVersion
-        r.mtpString()           // VendorExtensionDesc
-        r.u16()                 // FunctionalMode
-        r.u16Array()            // Operationcodes
-        r.u16Array()            // Eventcodes
-        r.u16Array()            // DevicePropcodes
-        r.u16Array()            // CaptureFormats
-        r.u16Array()            // ImageFormats
-        r.mtpString()           // Manufacturer
-        val model = r.mtpString() // Model
+        val model = parseDeviceInfo(data)
         state = State.Ready
         return model
     }
