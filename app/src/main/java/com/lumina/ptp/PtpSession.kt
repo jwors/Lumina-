@@ -208,16 +208,12 @@ class PtpSession(
                 check(c.opCode == op) {
                     "data code 0x%04X != op 0x%04X".format(c.opCode, op)
                 }
-                check(c.tid == tid) {
-                    "transaction id mismatch: got ${c.tid}, expected $tid"
-                }
+                warnTidMismatch(c.tid, tid)
                 c.payload
             }
             is Container.Response -> {
-                // 响应先到 = 无数据阶段：tid 对称校验后按错误码出场
-                check(c.tid == tid) {
-                    "transaction id mismatch: got ${c.tid}, expected $tid"
-                }
+                // 响应先到 = 无数据阶段：tid 宽容警告后按错误码出场
+                warnTidMismatch(c.tid, tid)
                 if (c.responseCode != RespCode.OK) throw PtpResponseException(c.responseCode, op)
                 throw IllegalArgumentException(
                     "expected data for 0x%04X, got response".format(op),
@@ -227,8 +223,19 @@ class PtpSession(
     }
 
     private fun requireOk(resp: Container.Response, op: Int, tid: Int) {
-        check(resp.tid == tid) { "transaction id mismatch: got ${resp.tid}, expected $tid" }
+        warnTidMismatch(resp.tid, tid)
         if (resp.responseCode != RespCode.OK) throw PtpResponseException(resp.responseCode, op)
+    }
+
+    /**
+     * TID 不匹配是警告不是硬错误（gphoto2 语义）：
+     * 系统服务可能先探测过相机使其计数器领先；单线程顺序协议里，
+     * 响应到达顺序本身即配对依据，丢失配对会导致整块重试而非假数据。
+     */
+    private fun warnTidMismatch(got: Int, expected: Int) {
+        if (got != expected) {
+            log.log("TID mismatch: camera=$got expected=$expected, continuing by arrival order")
+        }
     }
 
     // ---------- 环形日志 ----------

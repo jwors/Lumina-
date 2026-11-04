@@ -87,10 +87,19 @@ class PtpSessionTest {
     }
 
     @Test
-    fun `response tid mismatch is rejected`() {
-        val t = FakeTransport(listOf(resp(RespCode.OK, tid = 99)))
+    fun `response tid mismatch is tolerated with ring-log warning (nikon-style quirks)`() {
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, tid = 99), // 相机计数器不与主机对齐（系统服务先探测过）
+                dataPack(OpCode.GET_DEVICE_INFO, tid = 100, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, tid = 100),
+            ),
+        )
         val s = PtpSession(t)
-        assertThrows(IllegalStateException::class.java) { s.open() }
+        s.open() // tid=99 ≠ 1：警告不抛
+        assertEquals(PtpSession.State.Open, s.currentState)
+        assertEquals("NIKON Z 30", s.getModel())
+        assertEquals(true, s.log.snapshot().any { it.contains("TID mismatch") })
     }
 
     @Test
