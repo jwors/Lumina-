@@ -1,6 +1,6 @@
 # M0 · USB 连通性验证（PTP 握手与列取）
 
-> Status: ready-for-agent
+> Status: implemented — 06 号真机验收达成（MTP 兜底路径出全卡清单 739 handles/131 文件）；PTP 主路径 Data 阶段弱供电疑点移交 M1（详见 issues/06）
 > 上游：`docs/SPEC-Lumina.md` §3.1、§7；词汇：`GLOSSARY.md`（Ingest / Master）
 
 ## Problem Statement

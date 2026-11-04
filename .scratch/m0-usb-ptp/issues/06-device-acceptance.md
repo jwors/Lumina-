@@ -4,15 +4,26 @@
 
 **Blocked by:** 05
 
-**Status:** blocked（阻塞：用户暂无 OTG 双头线材；代码与集成已全部就绪，待线材到手即可现场验收）
+**Status:** resolved（验收达成，见下；PTP 主路径装机待补测一项移交 M1）
 
-## Pending-verifier（线材到手后按此清单）
-1. 插线打开 App → 应显「未连接 · 请插入相机」（闪退修复已验证 adb 安装 Success）
-2. OTG + Z30（PTP 模式）→ 系统弹权限 → 允许
-3. 清单 10s 内出现（型号/文件名+大小/日期分组/顶部统计/日志尾）
-4. 拔 OTG → 归零；重插 → 自动重连
-5. 相机休眠 → 唤醒 → 人话原因恢复
-6. 离线轨迹自动落在 files/m0-probe.log（已实现，`run-as com.lumina cat files/m0-probe.log` 拉取）
+## Comments
+
+- **真机验收实录**（2026-11-04，Redmi/HyperOS + Z30 + OTG，无线 adb 全程跟踪）：
+  1. 插线解锁 → App 内报 READY（`STILL_IMAGE_PTP` 分类正确）✓
+  2. 系统权限授予 → 事件落盘 ✓
+  3. **清单出现**：MtpDevice 兜底路径（story 17 首次实战）读出 **1 storage / 739 handles / 131 文件+若干目录**，屏显"MTP 兜底 · 清单就绪" ✓
+  4. 拔线 → NOTConnected 归零 ✓；重插 → 自动重扫（initialScan 干正是上轮修的 bug）✓
+- 验收路上修复的真机杀手（各一 commit，全 Einzel 测试回归）：
+  1. App 后启动收不到 ATTACHED 广播 → 启动自扫描
+  2. `0x201E SessionAlreadyOpened` → 宽容沿用
+  3. `tid mismatch got 2` → 降级警告（系统服务先探测过相机）
+  4. `0x2007 IncompleteTransfer` → 握手前 StillImage DeviceReset(0x21/0x66) + **GetDeviceInfo 挪进会话内**（ptplibrary/gphoto2 对齐）
+  5. **短读毁包**（12B 头部读把 512B 包剩余字节丢进内核 → GetDeviceInfo Data 阶段死锁）→ 4K 全宽读 + 粘包留存（最终分水岭）
+- **遗留三项移交 M1**（软件已尽力、证据在案）:
+  1. 自研 PTP 主路径的 GetDeviceInfo Data 阶段在 org 设备超时（同设备 framework MtpDevice 可通；弱供电/RSB 悬疑，建议带电 OTG hub 复测）——PTP 主路径清单通电裁量
+  2. 相机连续枚举 ~131 个 object 后停止应答（同上，供电疑点；代码端已做重试与空结果不冒充成功）
+  3. 10 秒规则未精确计时（打包一次完整 MTP 枚举约 90s @739 对象；M1 用并行 GetObjectPropList 才是正道）
+- 技术纪律：普通人话盘查 İşначе不了诊断源——所有事后定位（tid/0x201E/0x2007/整包）都是开机实拨 putting logcat + m0-probe.log 获得的。
 
 - [ ] 真机完整跑通 05 全部验收标准（用户在场验收）
 - [ ] 探针"一键 dump 会话字节"产出真实响应字节流

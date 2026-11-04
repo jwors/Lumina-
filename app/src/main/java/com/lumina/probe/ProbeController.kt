@@ -184,11 +184,22 @@ class ProbeController(
                 }
             }
             val summary = CatalogSummary(files, folders)
+            val fetched = files.size + folders.size
+            if (fetched == 0) {
+                // 相机此刻没在应答（grid 等 storages 空结果）——不冒充成功，给明确的重试指路
+                logEvents(listOf("MTP enumeration empty"))
+                emit(
+                    ProbeUiState(
+                        "MTP 兜底：相机此刻没应答（0 个对象）。请重新插拔 OTG 或稍等重试",
+                    ),
+                )
+                return
+            }
             val tail = listOf(
                 "== MTP 兜底路径（story 17）==",
-                "storages=${(mtp.getStorageIds() ?: IntArray(0)).size} files=${files.size}",
+                "storages=${(mtp.getStorageIds() ?: IntArray(0)).size} objects=$fetched（files=${files.size} folders=${folders.size}）",
             )
-            logFailure(tail.map { "MTP path: $it" })
+            logEvents(tail.map { "MTP path: $it" })
             emit(
                 ProbeUiState(
                     "${device.productName ?: "MTP 设备"} · 清单就绪（MTP 兜底）",
