@@ -7,7 +7,7 @@
 
 **Blocked by:** 无
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Room 依赖与 schema（KSP/kapt 二选一并注明理由）
 - [ ] MasterInventory 表 + DAO（增/查/全列出）
