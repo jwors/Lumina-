@@ -25,32 +25,33 @@ class ObjectCatalogTest {
 
     private fun handlesPack(vararg handles: Long) = FakeCamera.u32Array(*handles)
 
-    /** 标准脚本：探活 + open，随后正是 3 对象枚举（无 getModel 事务；traverse 直测不查型号） */
+    /** 标准脚本：pre-close + 探活 + open，随后正是 3 对象枚举 */
     private fun camera(): FakeTransport = FakeTransport(
         listOf(
-            dataPack(OpCode.GET_DEVICE_INFO, 1, FakeCamera.deviceInfo("NIKON Z 30")),
-            resp(RespCode.OK, 1),
-            resp(RespCode.OK, 2),                                   // OpenSession
-            dataPack(OpCode.GET_OBJECT_HANDLES, 3, handlesPack(100, 200, 300)),
-            resp(RespCode.OK, 3),
+            resp(RespCode.OK, 1),                                   // pre-close
+            dataPack(OpCode.GET_DEVICE_INFO, 2, FakeCamera.deviceInfo("NIKON Z 30")),
+            resp(RespCode.OK, 2),                                   // 探活
+            resp(RespCode.OK, 3),                                   // OpenSession
+            dataPack(OpCode.GET_OBJECT_HANDLES, 4, handlesPack(100, 200, 300)),
+            resp(RespCode.OK, 4),
             dataPack(                                               // #100：DCIM 目录
-                OpCode.GET_OBJECT_INFO, 4,
+                OpCode.GET_OBJECT_INFO, 5,
                 FakeCamera.objectInfo("DCIM", assocType = ASSOC_TYPE_FOLDER,
                     modificationDate = "20261031T100000"),
             ),
-            resp(RespCode.OK, 4),
+            resp(RespCode.OK, 5),
             dataPack(                                               // #200：JPG
-                OpCode.GET_OBJECT_INFO, 5,
+                OpCode.GET_OBJECT_INFO, 6,
                 FakeCamera.objectInfo("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG,
                     size = 12_345, parent = 100, captureDate = "20261030T081530"),
             ),
-            resp(RespCode.OK, 5),
+            resp(RespCode.OK, 6),
             dataPack(                                               // #300：MP4（体积满 u32）
-                OpCode.GET_OBJECT_INFO, 6,
+                OpCode.GET_OBJECT_INFO, 7,
                 FakeCamera.objectInfo("MOV_N0380.MP4", size = 0xFFFFFFF0, parent = 100,
                     modificationDate = "20261031T080000"),
             ),
-            resp(RespCode.OK, 6),
+            resp(RespCode.OK, 7),
         ),
     )
 
@@ -67,18 +68,18 @@ class ObjectCatalogTest {
     fun `traverse requests all handles with PARENT_ALL then infos in order`() {
         val (s, t) = session()
         ObjectCatalog(s).traverse(STORAGE)
-        // 写序：0=探活GDI, 1=OpenSession, 2=handles, 3..5=infos
+        // 写序：0=pre-close, 1=探活GDI, 2=OpenSession, 3=handles, 4..6=infos
         assertArrayEquals(
-            encodeRequest(OpCode.GET_OBJECT_HANDLES, 3, longArrayOf(STORAGE, 0, PtpSession.PARENT_ALL)),
-            t.observedWrites()[2],
-        )
-        assertArrayEquals(
-            encodeRequest(OpCode.GET_OBJECT_INFO, 4, longArrayOf(100)),
+            encodeRequest(OpCode.GET_OBJECT_HANDLES, 4, longArrayOf(STORAGE, 0, PtpSession.PARENT_ALL)),
             t.observedWrites()[3],
         )
         assertArrayEquals(
-            encodeRequest(OpCode.GET_OBJECT_INFO, 6, longArrayOf(300)),
-            t.observedWrites()[5],
+            encodeRequest(OpCode.GET_OBJECT_INFO, 5, longArrayOf(100)),
+            t.observedWrites()[4],
+        )
+        assertArrayEquals(
+            encodeRequest(OpCode.GET_OBJECT_INFO, 7, longArrayOf(300)),
+            t.observedWrites()[6],
         )
     }
 
@@ -125,11 +126,12 @@ class ObjectCatalogTest {
     fun `zero file storage yields empty catalog`() {
         val t = FakeTransport(
             listOf(
-                dataPack(OpCode.GET_DEVICE_INFO, 1, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_DEVICE_INFO, 2, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 2),
-                dataPack(OpCode.GET_OBJECT_HANDLES, 3, handlesPack()),
                 resp(RespCode.OK, 3),
+                dataPack(OpCode.GET_OBJECT_HANDLES, 4, handlesPack()),
+                resp(RespCode.OK, 4),
             ),
         )
         val s = PtpSession(t)
@@ -143,12 +145,13 @@ class ObjectCatalogTest {
     fun `absurd object count from camera is rejected without allocation`() {
         val t = FakeTransport(
             listOf(
-                dataPack(OpCode.GET_DEVICE_INFO, 1, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_DEVICE_INFO, 2, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 2),
-                // 相机谎报 count = 0x20000000（5.3 亿，超出上限 2^20）
-                dataPack(OpCode.GET_OBJECT_HANDLES, 3, u32(0x20000000)),
                 resp(RespCode.OK, 3),
+                // 相机谎报 count = 0x20000000（5.3 亿，超出上限 2^20）
+                dataPack(OpCode.GET_OBJECT_HANDLES, 4, u32(0x20000000)),
+                resp(RespCode.OK, 4),
             ),
         )
         val s = PtpSession(t)
@@ -161,16 +164,17 @@ class ObjectCatalogTest {
     fun `duplicate handles are de-duplicated by visited set`() {
         val t = FakeTransport(
             listOf(
-                dataPack(OpCode.GET_DEVICE_INFO, 1, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_DEVICE_INFO, 2, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 2),
-                dataPack(OpCode.GET_OBJECT_HANDLES, 3, handlesPack(200, 200)),
                 resp(RespCode.OK, 3),
+                dataPack(OpCode.GET_OBJECT_HANDLES, 4, handlesPack(200, 200)),
+                resp(RespCode.OK, 4),
                 dataPack(
-                    OpCode.GET_OBJECT_INFO, 4,
+                    OpCode.GET_OBJECT_INFO, 5,
                     FakeCamera.objectInfo("DSC_N0379.JPG", format = ObjectFormat.EXIF_JPEG, size = 1),
                 ),
-                resp(RespCode.OK, 4),
+                resp(RespCode.OK, 5),
                 // 若不查重，这里需要第二个 info 响应 —— 不提供，脚本耗尽即失败
             ),
         )
@@ -185,16 +189,17 @@ class ObjectCatalogTest {
         val longName = "DSC_N0379_20261031_ levy-onthe-sky-超长文件名" + "x".repeat(200) + ".NEF"
         val t = FakeTransport(
             listOf(
-                dataPack(OpCode.GET_DEVICE_INFO, 1, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
+                dataPack(OpCode.GET_DEVICE_INFO, 2, FakeCamera.deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 2),
-                dataPack(OpCode.GET_OBJECT_HANDLES, 3, handlesPack(400)),
                 resp(RespCode.OK, 3),
+                dataPack(OpCode.GET_OBJECT_HANDLES, 4, handlesPack(400)),
+                resp(RespCode.OK, 4),
                 dataPack(
-                    OpCode.GET_OBJECT_INFO, 4,
+                    OpCode.GET_OBJECT_INFO, 5,
                     FakeCamera.objectInfo(longName, format = 0x3000, size = 45_000_000),
                 ),
-                resp(RespCode.OK, 4),
+                resp(RespCode.OK, 5),
             ),
         )
         val s = PtpSession(t)
