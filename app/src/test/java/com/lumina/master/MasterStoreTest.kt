@@ -17,7 +17,7 @@ class MasterStoreTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private val capture = 1792569600000L // 2026-10-31（UTC）
+    private val capture = 1793404800000L // 2026-10-31T00:00Z
 
     private fun store(): MasterStore = MasterStore(tmp.root, InMemoryInventoryStore())
 
@@ -74,14 +74,16 @@ class MasterStoreTest {
     }
 
     @Test
-    fun `snapshot sorted by date desc then name`() {
+    fun `snapshot sorted by date desc then name asc`() {
         val s = store()
-        s.register(1792569600000L, null, "B.JPG", sizeBytes = 0) + File(tmp.root, "Master/2026-10-31/B.JPG").let {
-            it.parentFile.mkdirs(); Files.write(it.toPath(), byteArrayOf(1))
-            s  // note: register already called;我们这里重算
-            s.register(1704200400000L + 100_000, null, "A.JPG", sizeBytes = 0) // 2024-01-02
-        }
-        println(s.snapshot().map { it.relPath })
+        touch("Master/2026-10-31/B.JPG"); touch("Master/2026-10-31/C.JPG"); touch("Master/2026-11-01/A.JPG")
+        s.register(1793404800000L, null, "B.JPG", sizeBytes = 3)
+        s.register(1793404800000L, null, "C.JPG", sizeBytes = 3)
+        s.register(1793491200000L, null, "A.JPG", sizeBytes = 3) // 2026-11-01
+        assertEquals(
+            listOf("Master/2026-11-01/A.JPG", "Master/2026-10-31/B.JPG", "Master/2026-10-31/C.JPG"),
+            s.snapshot().map { it.relPath },
+        )
     }
 
     @Test
@@ -98,7 +100,7 @@ class MasterStoreTest {
 
     @Test
     fun `dateKey groups respected for gallery grouping`() {
-        assertEquals("2026-10-31", MasterPaths.dateKeyOf(capture, null))
-        assertNull(null.takeIf { false })
+        assertEquals("2026-10-31", MasterPaths.dateKeyOf(capture, 123L)) // 拍摄日期优先
+        assertEquals("1970-01-01", MasterPaths.dateKeyOf(null, null))    // 双缺省占位
     }
 }
