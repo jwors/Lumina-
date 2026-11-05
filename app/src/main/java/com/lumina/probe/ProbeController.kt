@@ -344,7 +344,7 @@ class ProbeController(
                 runCatching { ptp.close() }
                 session = null
                 attempt++
-                if (attempt >= 3) {
+                if (attempt >= 2) {
                     emit(ProbeUiState("读取失败：${humanize(e)}"))
                     listViaMtp(device)
                     return
