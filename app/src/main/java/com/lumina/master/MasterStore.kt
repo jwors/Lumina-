@@ -118,8 +118,60 @@ class MasterStore(
         val file = fileOf(relPath)
         if (!file.exists()) return false
         if (inventory.findByRelPath(relPath) != null) return false
+        // dateKey 取路径内第二段（按布局契约）；"+" 开头的坏目录不算有效日期
+        val second = relPath.removePrefix("Master/").substringBefore('/')
+        val dateKey = second.takeIf { second.length == 10 && !second.startsWith("+") }
+            ?: MasterPaths.dateKeyOf(null, file.lastModified())
+        inventory.insert(
+            MasterInventoryEntity(
+                relPath = relPath,
+                origFileName = file.name,
+                dateKey = dateKey,
+                sizeBytes = file.length(),
+                ingestedAtMs = System.currentTimeMillis(),
+            ),
+        )
+        return true
+    }
+
+
+    /** 历史数据修复：double-multiplied dateKey（目录像 "+57687-03-19"）：
+     * 错误毫秒 = 真实毫秒 × 1000（当时把框架已给的毫秒再当秒乘了一遍）→ 反推真实日期。
+     * 返回 (oldRelPath, newRelPath, 新 dateKey) 迁移三元组；识别不出 + 前缀的返回空表。
+     */
+    fun repairsForDateDoubleBind(): List<Triple<String, String, String>> {
+        val out = mutableListOf<Triple<String, String, String>>()
+        for (entry in inventory.all()) {
+            if (!entry.dateKey.startsWith("+")) continue
+            val wrongDate = try {
+                java.time.LocalDate.parse(entry.dateKey.removePrefix("+"))
+            } catch (_: Exception) {
+                continue
+            }
+            val wrongMs = wrongDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+            val trueMs = wrongMs / 1000
+            val trueKey = MasterPaths.dateKeyOf(trueMs, null)
+            val namePart = entry.relPath.substringAfterLast('/')
+            out += Triple(entry.relPath, "Master/$trueKey/$namePart", trueKey)
+        }
+        return out
+    }
+
+    /** 把清单行指向修复后的路径/日期（表内改写）。 */
+    fun repointDate(oldRel: String, newRel: String, newDateKey: String) {
+        val entry = inventory.findByRelPath(oldRel) ?: return
+        inventory.deleteByRelPath(oldRel)
+        inventory.insert(entry.copy(relPath = newRel, dateKey = newDateKey))
+    }
+
+    /** 对账另一向：目录里存在但盘点缺条目的文件 → 收养（Room 补登记）。 */
+    fun adoptExistingDiskFile(relPath: String): Boolean {
+        val file = fileOf(relPath)
+        if (!file.exists()) return false
+        if (inventory.findByRelPath(relPath) != null) return false
         // dateKey 取路径内第二段（按布局契约）；取不到回退修改日期
-        val dateKey = relPath.removePrefix("Master/").substringBefore('/').takeIf { it.length == 10 }
+        val second = relPath.removePrefix("Master/").substringBefore('/')
+        val dateKey = second.takeIf { it.length == 10 && it[0] != '+' }
             ?: MasterPaths.dateKeyOf(null, file.lastModified())
         inventory.insert(
             MasterInventoryEntity(

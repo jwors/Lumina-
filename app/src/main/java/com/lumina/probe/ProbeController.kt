@@ -159,6 +159,21 @@ class ProbeController(
         io.execute {
             val pruned = masterStore.pruneAbsent()
             var adopted = 0
+            var repaired = 0
+            // 日期修复迁移（历史数据）：double-multiply 造成的 "+NNNNNN-MM-DD" 目录
+            // → 真实毫秒 = 错误毫秒 / 1000 → 文件搬入真正日期目录 + Room 行修正
+            masterStore.repairsForDateDoubleBind().forEach { (oldRel, newRel, newDateKey) ->
+                runCatching {
+                    val from = masterStore.fileOf(oldRel)
+                    val to = masterStore.fileOf(newRel)
+                    to.parentFile?.mkdirs()
+                    if (from.renameTo(to) || (from.copyTo(to, overwrite = true).exists() && from.delete())) {
+                        masterStore.repointDate(oldRel, newRel, newDateKey)
+                        repaired++
+                    }
+                }
+            }
+            if (repaired > 0) logEvents(listOf("gallery repair: $repaired entries re-dated"))
             // 收养：Master/ 子树里未登记的真实图像文件
             appContext.filesDir.walkTopDown()
                 .filter { f -> f.isFile }
@@ -169,12 +184,22 @@ class ProbeController(
                     upper.endsWith(".JPG") || upper.endsWith(".JPEG") || upper.endsWith(".NEF") || upper.endsWith(".MP4")
                 }
                 .forEach { (_, rel) ->
-                    if (masterStore.adoptExisting(rel)) adopted++
+                    if (masterStore.adoptExistingDiskFile(rel)) adopted++
                 }
             val rows = masterStore.snapshot()
             val items = rows.map {
-                GalleryItem(relPath = it.relPath, name = it.origFileName,
-                    dateKey = it.dateKey, sizeBytes = it.sizeBytes)
+                val fallbackRel = if (it.origFileName.uppercase().endsWith(".NEF")) {
+                    val candidate = it.relPath.replaceAfterLast('.', "JPG")
+                    val asFile = java.io.File(appContext.filesDir, candidate)
+                    if (asFile.exists()) candidate else null
+                } else {
+                    null
+                }
+                GalleryItem(
+                    relPath = it.relPath, name = it.origFileName,
+                    dateKey = it.dateKey, sizeBytes = it.sizeBytes,
+                    fallbackRelPath = fallbackRel,
+                )
             }
             lastGalleryItems = items
             lastGalleryStatus = if (pruned > 0 || adopted > 0)
@@ -649,6 +674,8 @@ data class GalleryItem(
     val name: String,
     val dateKey: String,
     val sizeBytes: Long,
+    /** NEF 行的同名 JPEG（在盘）——用它出真缩略图；null = 真占位卡 */
+    val fallbackRelPath: String? = null,
 )
 
 /** 相机页的可勾对象（UI 直接消费）。 */
