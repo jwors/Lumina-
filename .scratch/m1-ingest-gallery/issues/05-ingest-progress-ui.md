@@ -7,7 +7,16 @@ IngestEngine 的进度回调经主线程回调进 Compose 状态。
 
 **Blocked by:** 03, 02（引擎依赖）
 
-**Status:** claimed
+**Status:** resolved
+
+## Comments
+
+- 进度数据包 `IngestProgress`（running/done/total/currentName/statuses map）进 ProbeUiState；emitCameraPage 全量快照每事件上屏。
+- UI：底部固定进度条（material3 lambda progress）+ "正在复制：<文件>"当前行 + 每文件行状态文本：`复制中…` / `✓ 已入库` / `已在库（跳过）` / `✗ 原因`；失败行内嵌"重试"小按钮 → `engine.retryOne(item)`（单文件引擎重试，不走整轮）。
+- 重试语义：MtpImportEngine.retryOne / FakeIngestEngine.retryOne 都实现——已在盘走收养跳过、失败保留 pendingFails；Fake 的 outcomes 改为 `var`，测试可中途改脚本验证"第二次成功"。
+- 断开 UI 降级：相机跑了/线拔了时 retryOne 返回"camera refused"进入状态行（重试按钮仍在）。
+- 测试证据：50/50 绿（IngestEngineTest含 retry 语义验证 7 例中已有覆盖）。
+- 真机（06）：导出/重试/汇总的整机流程待线。
 
 - [ ] 底部固定进度条 + 当前行
 - [ ] 每文件状态行 + 单独重试
