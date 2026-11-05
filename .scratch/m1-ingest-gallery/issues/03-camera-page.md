@@ -7,7 +7,7 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 对象列表 UI（日期分组、体积、JPEG/RAW 徽标）
 - [ ] 勾选 → IngestQueue 表（持久化）

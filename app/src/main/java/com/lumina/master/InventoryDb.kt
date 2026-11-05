@@ -46,12 +46,13 @@ interface MasterInventoryDao {
 }
 
 @Database(
-    entities = [MasterInventoryEntity::class],
-    version = 1,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun masterInventoryDao(): MasterInventoryDao
+    abstract fun ingestQueueDao(): IngestQueueDao
 
     companion object {
         @Volatile
@@ -59,11 +60,12 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
+                // M1 开发期破坏性迁移（无用户库可丢）；M2 起换正式 migration
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "lumina.db",
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration().build().also { instance = it }
             }
     }
 }

@@ -34,8 +34,7 @@ interface InventoryStore {
 }
 
 /** JVM/单测用内存实现（语义与 Room DAO 对齐）。 */
-class InMemoryInventoryStore : InventoryStore {
-    private val rows = mutableListOf<MasterInventoryEntity>()
+class InMemoryInventoryStore : InventoryStore {    private val rows = mutableListOf<MasterInventoryEntity>()
     private var nextId = 1L
 
     override fun insert(entry: MasterInventoryEntity): Long {

@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,13 +34,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumina.ptp.CameraObject
-import com.lumina.ptp.DateGroup
 import java.time.LocalDate
 
 /**
- * M0 探针屏（工单 05 集成版）：
- * 插线 → 授权 → 按拍摄日期分组的卡内照片清单 + 顶部统计 + 底部会话日志尾巴。
- * 视觉延续 F·Grain 胶片奶绿（奶油底 / 鼠标绿点缀 / 衬线编辑气质）。
+ * M1 相机页（工单 03）：M0 探针升级为双 Tab（相机/图库）。
+ * 相机页支持逐张勾选 + 全选本日/清空 + 底部"导出 N 个" + 队列状态行。
+ * 图库（工单 04）此版仅占位。
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,7 +49,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             Surface(color = FilmBackground) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    ProbeScreen(state, controller)
+                    AppScaffold(state, controller)
                 }
             }
         }
@@ -59,19 +61,82 @@ val InkTeal = Color(0xFF20251F)
 val SageText = Color(0xFF767F72)
 val CreamFaint = Color(0xFFB9B3A6)
 val DividerCream = Color(0xFFE3DFD3)
+val PillActive = Color(0xFFE0E5D8)
 
 @Composable
-fun ProbeScreen(state: ProbeUiState, controller: ProbeController) {
+fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
+    var tab by remember { mutableStateOf("相机") }
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
     ) {
+        // 顶部名字 + Tab
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("Lumina", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = InkTeal)
-            Spacer(Modifier.height(0.dp).weight(1f))
-            Text("M0 probe", fontSize = 10.sp, color = CreamFaint)
+            Text("Lumina", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = InkTeal)
+            Modifier.weight(1f).let { Spacer(modifier = it) }
+            Text("M1", fontSize = 10.sp, color = CreamFaint)
         }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .background(DividerCream)
+                .padding(4.dp),
+        ) {
+            TabPill("相机", tab, onSelect = { tab = it })
+            TabPill("图库", tab, onSelect = { tab = it })
+        }
+
+        if (tab == "相机") {
+            CameraPage(Modifier.weight(1f), state, controller)
+        } else {
+            GalleryPlaceholder(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun TabPill(name: String, current: String, onSelect: (String) -> Unit) {
+    val active = name == current
+    Box(
+        modifier = Modifier
+            .background(if (active) PillActive else FilmBackground)
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .clickable { onSelect(name) },
+    ) {
+        Text(
+            name,
+            fontSize = 16.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (active) InkTeal else SageText,
+        )
+    }
+}
+
+@Composable
+private fun GalleryPlaceholder(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Master 图库还没有内容", fontSize = 16.sp, color = SageText)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "先切到相机 Tab 勾选并导出（工单 04 会点亮此页）",
+            fontSize = 12.sp,
+            color = CreamFaint,
+        )
+    }
+}
+
+@Composable
+private fun CameraPage(
+    modifier: Modifier = Modifier,
+    state: ProbeUiState,
+    controller: ProbeController,
+) {
+    Column(modifier = modifier) {
         Spacer(Modifier.height(12.dp))
         if (state.busy) {
             LinearProgressIndicator(
@@ -93,28 +158,79 @@ fun ProbeScreen(state: ProbeUiState, controller: ProbeController) {
                     .clickable { controller.retryPermission() },
             )
         }
-        state.summary?.let { summary ->
-            Text(
-                "${summary.totalCount} 个对象 · ${humanBytes(summary.totalBytes)}",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = InkTeal,
-                modifier = Modifier.padding(top = 20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                summary.byDate.forEach { group ->
-                    item(key = "day-${group.day}") { GroupHeader(group) }
-                    items(group.objects, key = { "obj-${it.handle}" }) { obj ->
-                        CameraRow(obj)
+
+        val grouped = state.cameraItems.groupBy { it.dateKey }
+        LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
+            grouped.forEach { (dateKey, items) ->
+                item(key = "day-$dateKey") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(dateKey, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText)
+                        Modifier.weight(1f).let { Spacer(modifier = it) }
+                        val dayAllChecked = items.all {
+                            state.checkedNames.contains(it.name)
+                        }
+                        Text(
+                            if (dayAllChecked) "清空本日" else "全选本日",
+                            fontSize = 12.sp,
+                            color = InkTeal,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable {
+                                controller.toggleDay(dateKey, !dayAllChecked)
+                            },
+                        )
                     }
                 }
+                items(items, key = { "obj-${it.handle}:${it.name}" }) { obj ->
+                    CameraRow(obj, checked = state.checkedNames.contains(obj.name),
+                        onToggle = { controller.toggleCheck(obj) })
+                }
             }
-        } ?: Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(16.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        state.ingestStatus.let { status ->
+            if (status.isNotBlank()) {
+                Text(status, fontSize = 12.sp, color = SageText)
+            }
+        }
+        // 底部固定：导出按钮
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val n = state.checkedNames.size
+            val enabled = state.engineReady && n > 0
+            Box(
+                modifier = Modifier
+                    .background(if (enabled) InkTeal else DividerCream)
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .clickable(enabled = enabled) { controller.startIngest() },
+            ) {
+                Text(
+                    if (state.engineReady) "导出 $n 个" else "引擎未就绪（需 MTP 会话）",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) FilmBackground else SageText,
+                )
+            }
+            if (state.ingestStatus.contains("失败") && state.checkedNames.isNotEmpty()) {
+                Text(
+                    "重试失败",
+                    fontSize = 14.sp,
+                    color = InkTeal,
+                    modifier = Modifier
+                        .padding(start = 16.dp)
+                        .clickable { controller.retryFailed() },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -130,32 +246,17 @@ fun ProbeScreen(state: ProbeUiState, controller: ProbeController) {
     }
 }
 
+/** 对象行（勾选框 + 文件名 + 体积 + 分隔线）。 */
 @Composable
-private fun GroupHeader(group: DateGroup) {
-    val label = group.day
-        ?.let { LocalDate.ofEpochDay(it) }
-        ?.let { "$it" }
-        ?: "无拍摄日期"
-    Text(
-        label,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = SageText,
-        modifier = Modifier
-            .padding(top = 16.dp, bottom = 4.dp)
-            .fillMaxWidth(),
-    )
-}
-
-@Composable
-private fun CameraRow(obj: CameraObject) {
+private fun CameraRow(obj: CameraItem, checked: Boolean, onToggle: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 10.dp),
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Checkbox(checked = checked, onCheckedChange = { onToggle() })
             Text(obj.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
             Text(humanBytes(obj.sizeBytes), fontSize = 12.sp, color = SageText)
         }

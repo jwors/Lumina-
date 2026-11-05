@@ -6,6 +6,14 @@ import android.hardware.usb.UsbManager
 import android.mtp.MtpDevice
 import android.os.Handler
 import android.os.Looper
+import com.lumina.ingest.IngestCallback
+import com.lumina.ingest.IngestEngine
+import com.lumina.ingest.IngestItem
+import com.lumina.ingest.MtpImportEngine
+import com.lumina.master.AppDatabase
+import com.lumina.master.IngestQueueEntity
+import com.lumina.master.MasterStore
+import com.lumina.master.RoomInventoryStore
 import com.lumina.ptp.CameraObject
 import com.lumina.ptp.CatalogSummary
 import com.lumina.ptp.ObjectCatalog
@@ -19,13 +27,14 @@ import com.lumina.usb.UsbTransport
 import com.lumina.usb.UsbTransportException
 import java.io.File
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
 
 /**
- * 探针全链路控制器（工单 05）：连接监视 → 授权 → 会话/兜底 → 按日期分组清单。
- * 主路径 = 纯 PTP（interpret为 Still-Image 类）；系统若把相机识别为文件设备（MTP 类），
- * 走 android.mtp.MtpDevice 兜底列清单并把"走了哪条路径"写进屏显日志（spec 决策 4 / story 17）。
- * 设备/协议异常同步落应用私有目录 m0-probe.log（spec 决策 7 / story 20）。
+ * M1 升级：探针控制器 = 连接监视 → 授权 → 会话 → 相机清单 → 勾选队列 → Ingest 复制。
+ * 队列真相 = Room（IngestQueue 表）；引擎是会话内存镜像（重连时由表重建）。
+ * 事件/失败仍落私有目录 m0-probe.log（spec story 20）。
  */
 class ProbeController(
     context: Context,
@@ -38,25 +47,133 @@ class ProbeController(
     private val io = Executors.newSingleThreadExecutor()
     private var session: PtpSession? = null
 
+    private val db = AppDatabase.get(appContext)
+    private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
+    private val queueDao = db.ingestQueueDao()
+    private val masterStore = MasterStore(appContext.filesDir, inventoryStore)
+
+    /** Ingest 引擎：仅 MTP 兜底枚举成功时会就位（自研 PTP GetObject 引擎 M2 接管） */
+    private var engine: IngestEngine? = null
+
+    /** 相机页数据：勾选对象（文件；目录不可勾） */
+    private var cameraItems: List<CameraItem> = emptyList()
+    private var checkedNames: Set<String> = emptySet()
+
+    /** 上一轮成功清单（切换队列状态时重发用） */
+    private var lastTitle: String? = null
+    private var lastSummary: CatalogSummary? = null
+    private var lastLogTail: List<String> = emptyList()
+    private var lastIngestStatus: String = ""
+
     private val monitor = UsbCameraMonitor(appContext, usbManager) { monitorState, kind, device ->
         io.execute { react(monitorState, kind, device) }
-    }
-
-    /** 用户在界面上重试授权（工单 04 验收第 2 条的交互入口）。 */
-    fun retryPermission() {
-        io.execute { monitor.retryPermission() }
     }
 
     init {
         io.execute { emit(ProbeUiState("未连接 · 请插入相机")) }
     }
 
+    // ---------- 公共动作（UI 入口，工单 03） ----------
+
+    fun retryPermission() {
+        io.execute { monitor.retryPermission() }
+    }
+
+    /** 勾选/取消一条：Room 是真相，引擎是镜像 */
+    fun toggleCheck(item: CameraItem) {
+        io.execute {
+            val obj = ingestItemOf(item)
+            val row = IngestQueueEntity(
+                name = item.name, handle = item.handle, sizeBytes = item.sizeBytes,
+                captureMs = item.captureMs, modifiedMs = item.modifiedMs,
+                queuedAtMs = System.currentTimeMillis(),
+            )
+            if (queueDao.deleteByName(item.name) > 0) {
+                engine?.dismiss(obj)
+                logEvents(listOf("ingest queue: removed ${item.name}"))
+            } else {
+                queueDao.upsert(row)
+                engine?.enqueue(obj)
+                logEvents(listOf("ingest queue: queued ${item.name}"))
+            }
+            emitCameraPage()
+        }
+    }
+
+    fun toggleDay(dateKey: String, checked: Boolean) {
+        io.execute {
+            for (item in cameraItems.filter { it.dateKey == dateKey }) {
+                if (checked) {
+                    queueDao.upsert(
+                        IngestQueueEntity(
+                            name = item.name, handle = item.handle, sizeBytes = item.sizeBytes,
+                            captureMs = item.captureMs, modifiedMs = item.modifiedMs,
+                            queuedAtMs = System.currentTimeMillis(),
+                        ),
+                    )
+                    engine?.enqueue(ingestItemOf(item))
+                } else {
+                    queueDao.deleteByName(item.name)
+                    engine?.dismiss(ingestItemOf(item))
+                }
+            }
+            logEvents(listOf("ingest queue: ${if (checked) "queued" else "cleared"} dateKey=$dateKey"))
+            emitCameraPage()
+        }
+    }
+
+    /** Ingest 一轮（工单 05 会把这段换成进度条视图） */
+    fun startIngest() {
+        io.execute {
+            val engineReady = engine
+            if (engineReady == null) {
+                emit(ProbeUiState("没有可用的复制引擎（需要 MTP 会话）：请重插相线", engineReady = false))
+            } else if (checkedNames.isEmpty()) {
+                emit(ProbeUiState("队列是空的：先勾选对象", engineReady = true))
+            } else {
+                runIngestRound(engineReady)
+            }
+        }
+    }
+
+    fun retryFailed() {
+        io.execute {
+            if (engine != null && engine!!.queueSize() > 0) runIngestRound(engine!!)
+            else emit(ProbeUiState("没有待重试的失败文件"))
+        }
+    }
+
+    private fun runIngestRound(engine: IngestEngine) {
+        var success = 0
+        var skipped = 0
+        var failed = 0
+        engine.drain(object : IngestCallback {
+            override fun onFileStart(item: IngestItem) = Unit
+            override fun onFileSuccess(item: IngestItem, relPath: String) {
+                queueDao.deleteByName(item.name)
+                success++
+            }
+            override fun onFileSkipped(item: IngestItem, relPath: String) {
+                queueDao.deleteByName(item.name)
+                skipped++
+            }
+            override fun onFileFail(item: IngestItem, reason: String) {
+                logEvents(listOf("ingest fail: ${item.name} — $reason"))
+                failed++
+            }
+            override fun onBatchDone(s: Int, sk: Int, f: Int) = Unit
+        })
+        lastIngestStatus = "Ingest：成功 $success · 跳过 $skipped · 失败 $failed"
+        emitCameraPage()
+    }
+
+    // ---------- 连接反应（照旧） ----------
+
     private fun react(
         state: UsbCameraStateMachine.State,
         kind: UsbDeviceClassifier.DeviceKind?,
         device: UsbDevice?,
     ) {
-        // 每次相机状态变化都落盘（真机离线排障：USB 口被相机占用时无法连 logcat）
         logEvents(listOf("camera event: state=$state kind=$kind device=${device?.deviceName}"))
         when (state) {
             UsbCameraStateMachine.State.NOT_CONNECTED -> teardown()
@@ -66,7 +183,6 @@ class ProbeController(
                         "相机已插入（kind=$kind），等你在系统弹窗点\"允许\"。" +
                             "若没有弹窗：唤醒相机屏幕后点\"重试授权\"",
                         pendingPermission = true,
-                        logTail = emptyList(),
                     ),
                 )
             UsbCameraStateMachine.State.READY -> {
@@ -79,14 +195,12 @@ class ProbeController(
         }
     }
 
-    // ---------- 主路径：纯 PTP ----------
+    // ---------- 主路径：纯 PTP（清单；Ingest 引擎见 M2） ----------
 
     private fun listViaPtp(device: UsbDevice?) {
         if (device == null) {
             emit(ProbeUiState("已授权但设备不可见，请拔下重插")); return
         }
-        // 预热空转（真机实证：第一笔 claim 的 bulk 写必卡死，第二笔就通）：
-        // 把"-必卡死的第一笔"拿来做空 claim。失败/成功都只是记录，不算在重试次数里。
         try {
             val warm = UsbTransport.from(usbManager, device, diag = { line -> logEvents(listOf("warmup: $line")) })
             warm.open()
@@ -106,23 +220,15 @@ class ProbeController(
             val ptp = PtpSession(transport)
             session = ptp
             try {
-                // 连接三步：transport.open + OpenSession → 型号 → 存储与清单
                 ptp.open()
                 val model = ptp.getModel()
                 val summary = ObjectCatalog.merge(
                     ptp.listStorage().map { ObjectCatalog(ptp).traverse(it.id) },
                 )
-                emit(
-                    ProbeUiState(
-                        "$model · 清单就绪",
-                        model = model,
-                        summary = summary,
-                        logTail = ptp.log.snapshot().takeLast(LOG_TAIL),
-                    ),
-                )
+                publishListing(title = "$model · 清单就绪（PTP）", summary = summary,
+                    logTail = ptp.log.snapshot().takeLast(LOG_TAIL))
                 return
             } catch (e: Exception) {
-                // 原始异常 + 协议日志尾巴全量入库（屏上给人话，文件里留诊断数据）
                 logEvents(listOf("PTP path fail: ${e.javaClass.simpleName}: ${e.message}") +
                     ptp.log.snapshot().takeLast(6))
                 runCatching { ptp.close() }
@@ -130,7 +236,6 @@ class ProbeController(
                 attempt++
                 if (attempt >= 3) {
                     emit(ProbeUiState("读取失败：${humanize(e)}"))
-                    // PTP 多轮失败 → 立即转框架 MtpDevice 兜底（story 17；同时交叉验证管道层）
                     listViaMtp(device)
                     return
                 }
@@ -140,7 +245,7 @@ class ProbeController(
         }
     }
 
-    // ---------- 兜底：android.mtp.MtpDevice（story 17） ----------
+    // ---------- 兜底：android.mtp.MtpDevice（story 17；兼当 Ingest 引擎载体） ----------
 
     private fun listViaMtp(device: UsbDevice?) {
         if (device == null) {
@@ -156,8 +261,6 @@ class ProbeController(
             val files = mutableListOf<CameraObject>()
             val folders = mutableListOf<CameraObject>()
             for (storageId in mtp.getStorageIds() ?: IntArray(0)) {
-                // MTP parent 语义两家口径（0=根 / -1 或 0xFFFFFFFF=全部）：
-                // 先按 (format=0, parent=0) 取；空则穷举 (0/-1)×(0/-1) 的组合取并集
                 val seen = mutableSetOf<Int>()
                 val handles = mutableListOf<Int>()
                 outer@ for (format in intArrayOf(0, -1)) {
@@ -186,7 +289,6 @@ class ProbeController(
             val summary = CatalogSummary(files, folders)
             val fetched = files.size + folders.size
             if (fetched == 0) {
-                // 相机此刻没在应答（grid 等 storages 空结果）——不冒充成功，给明确的重试指路
                 logEvents(listOf("MTP enumeration empty"))
                 emit(
                     ProbeUiState(
@@ -195,20 +297,24 @@ class ProbeController(
                 )
                 return
             }
-            val tail = listOf(
-                "== MTP 兜底路径（story 17）==",
-                "storages=${(mtp.getStorageIds() ?: IntArray(0)).size} objects=$fetched（files=${files.size} folders=${folders.size}）",
-            )
-            logEvents(tail.map { "MTP path: $it" })
-            emit(
-                ProbeUiState(
-                    "${device.productName ?: "MTP 设备"} · 清单就绪（MTP 兜底）",
-                    summary = summary,
-                    logTail = tail,
+            // 就位 Ingest 引擎（真机路径）+ 从 Room 重建队列
+            engine = MtpImportEngine(mtp, masterStore)
+            for (row in queueDao.all()) {
+                engine?.enqueue(
+                    IngestItem(row.handle, row.name, row.sizeBytes, row.captureMs, row.modifiedMs),
+                )
+            }
+            publishListing(
+                title = "${device.productName ?: "MTP 设备"} · 清单就绪（MTP 兜底）",
+                summary = summary,
+                logTail = listOf(
+                    "== MTP 兜底路径（story 17）==",
+                    "handles=${files.size + folders.size}（files=${files.size}）",
                 ),
+                afterSetup = { refreshCheckedFromDb() },
             )
         } catch (e: Exception) {
-            logFailure(listOf("MTP path fail: ${humanize(e)}"))
+            logEvents(listOf("MTP path fail: ${humanize(e)}"))
             emit(ProbeUiState("MTP 兜底也失败：${humanize(e)}"))
         }
     }
@@ -219,11 +325,71 @@ class ProbeController(
         return seconds?.times(1000L)
     }
 
+    // ---------- 清单发布 + 相机页快照 ----------
+
+    private fun publishListing(title: String, summary: CatalogSummary, logTail: List<String>, afterSetup: (() -> Unit)? = null) {
+        lastTitle = title
+        lastSummary = summary
+        lastLogTail = logTail
+        val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
+        cameraItems = summary.files.map { obj ->
+            CameraItem(
+                handle = obj.handle,
+                name = obj.name,
+                sizeBytes = obj.sizeBytes,
+                dateKey = obj.captureEpochMillis?.let { DATE_FMT.format(Instant.ofEpochMilli(it)) } ?: "未知日期",
+                captureMs = obj.captureEpochMillis,
+                modifiedMs = null,
+            )
+        }
+        afterSetup?.invoke()
+        emitCameraPage()
+    }
+
+    /** checked 现算 + 全量重发（相机快照 min 依存：summary 可空 只发文字） */
+    private fun refreshCheckedFromDb() {
+        checkedNames = queueDao.all().map { it.name }.toSet()
+    }
+
+    private fun emitCameraPage() {
+        refreshCheckedFromDb()
+        val summaryOut = lastSummary
+        val title = if (lastSummary != null) {
+            "${lastTitle ?: ""}（勾 ${checkedNames.size}）"
+        } else {
+            lastTitle ?: "未连接"
+        }
+        mainThread.post {
+            onState(
+                ProbeUiState(
+                    connectionText = title,
+                    busy = false,
+                    model = lastTitle?.substringBefore(" ·"),
+                    summary = summaryOut,
+                    logTail = lastLogTail.takeLast(LOG_TAIL),
+                    cameraItems = cameraItems,
+                    checkedNames = checkedNames,
+                    engineReady = engine != null,
+                    ingestStatus = lastIngestStatus,
+                ),
+            )
+        }
+    }
+
+    private fun ingestItemOf(item: CameraItem) =
+        IngestItem(handle = item.handle, name = item.name, sizeBytes = item.sizeBytes,
+            captureMs = item.captureMs, modifiedMs = item.modifiedMs)
+
     // ---------- 状态与日志 ----------
 
     private fun teardown() {
         runCatching { session?.close() }
         session = null
+        engine = null
+        lastTitle = null
+        lastSummary = null
+        lastLogTail = emptyList()
+        lastIngestStatus = ""
         emit(ProbeUiState("未连接 · 请插入相机"))
     }
 
@@ -248,9 +414,6 @@ class ProbeController(
         }
     }
 
-    /** 失败路径 = 事件日志 + 人话一行。 */
-    private fun logFailure(lines: List<String>) = logEvents(lines)
-
     private fun emit(state: ProbeUiState) = mainThread.post { onState(state) }
 
     private companion object {
@@ -258,7 +421,7 @@ class ProbeController(
     }
 }
 
-/** 探针界面的唯一数据包。 */
+/** 探针界面数据包（M1 增广：相机页数据 + 队列状态 + 引擎可用性） */
 data class ProbeUiState(
     val connectionText: String,
     val busy: Boolean = false,
@@ -268,4 +431,22 @@ data class ProbeUiState(
     val logTail: List<String> = emptyList(),
     /** 待授权态：界面给出"重试授权"的交互入口 */
     val pendingPermission: Boolean = false,
+    /** 相机页：可勾选对象（文件；目录不可选） */
+    val cameraItems: List<CameraItem> = emptyList(),
+    /** Room 队列的当前勾选 */
+    val checkedNames: Set<String> = emptySet(),
+    /** Ingest 引擎可用（= MTP 会话在手） */
+    val engineReady: Boolean = false,
+    /** 上一轮 Ingest 结果文本 */
+    val ingestStatus: String = "",
+)
+
+/** 相机页的可勾对象（UI 直接消费）。 */
+data class CameraItem(
+    val handle: Long,
+    val name: String,
+    val sizeBytes: Long,
+    val dateKey: String,
+    val captureMs: Long?,
+    val modifiedMs: Long?,
 )
