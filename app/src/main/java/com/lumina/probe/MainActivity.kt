@@ -3,6 +3,7 @@ package com.lumina.probe
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,17 +19,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,7 +95,8 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         if (tab == "相机") {
             CameraPage(Modifier.weight(1f), state, controller)
         } else {
-            GalleryPlaceholder(Modifier.weight(1f))
+            controller.loadGallery()
+            GalleryPage(Modifier.weight(1f), state)
         }
     }
 }
@@ -114,20 +120,143 @@ private fun TabPill(name: String, current: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun GalleryPlaceholder(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Master 图库还没有内容", fontSize = 16.sp, color = SageText)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "先切到相机 Tab 勾选并导出（工单 04 会点亮此页）",
-            fontSize = 12.sp,
-            color = CreamFaint,
+private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
+    Column(modifier = modifier) {
+        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        if (state.galleryStatus.isNotBlank()) {
+            Text(state.galleryStatus, fontSize = 12.sp, color = CreamFaint)
+        }
+        Spacer(Modifier.height(8.dp))
+        if (state.galleryItems.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Master 图库还没有内容", fontSize = 16.sp, color = SageText)
+                Spacer(Modifier.height(4.dp))
+                Text("先切到相机 Tab 勾选并导出", fontSize = 12.sp, color = CreamFaint)
+            }
+            return@Column
+        }
+        var selected by remember { mutableStateOf<GalleryItem?>(null) }
+        LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
+            state.galleryItems.groupBy { it.dateKey }.forEach { (dateKey, items) ->
+                item(key = "gday-$dateKey") {
+                    Text(
+                        dateKey,
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText,
+                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+                    )
+                }
+                items(items, key = { "g-${it.relPath}" }) { gi ->
+                    GalleryRow(gi, onClick = { selected = gi })
+                }
+            }
+        }
+        selected?.let { sel ->
+            AlertDialog(
+                onDismissRequest = { selected = null },
+                title = { Text("详情", fontSize = 14.sp, color = SageText) },
+                text = {
+                    Column {
+                        Text(sel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                        Spacer(Modifier.height(8.dp))
+                        Text("日期：${sel.dateKey}", fontSize = 13.sp, color = SageText)
+                        Text("体积：${humanBytes(sel.sizeBytes)}", fontSize = 13.sp, color = SageText)
+                        if (sel.relPath.uppercase().endsWith(".NEF") || sel.relPath.uppercase().endsWith(".MP4")) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("仅存原片（不解析 RAW）", fontSize = 12.sp, color = CreamFaint)
+                        }
+                    }
+                },
+                confirmButton = {
+                    Text(
+                        "关闭",
+                        fontSize = 14.sp,
+                        color = InkTeal,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable { selected = null }.padding(8.dp),
+                    )
+                },
+            )
+        }
+    }
+}
+
+/** JPEG 缩略图行 / NEF RAW 占位行。 */
+@Composable
+private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
+    val isRaw = !item.name.uppercase().endsWith(".JPG") && !item.name.uppercase().endsWith(".JPEG")
+    Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .height(64.dp)
+                    .padding(end = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isRaw) {
+                    Box(
+                        modifier = Modifier
+                            .background(PillActive)
+                            .padding(10.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("RAW", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkTeal)
+                            Text("胶片框", fontSize = 10.sp, color = SageText)
+                        }
+                    }
+                } else {
+                    GalleryThumb(item)
+                }
+            }
+            Text(item.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
+            Text(humanBytes(item.sizeBytes), fontSize = 12.sp, color = SageText)
+        }
+        Box(
+            Modifier.fillMaxWidth().height(1.dp).background(DividerCream),
         )
     }
+}
+
+/** 就地解码缩略图（BitmapFactory inSampleSize；每次进入页面重算——M1 无 LruCache，内存 8 项够用）。 */
+@Composable
+private fun GalleryThumb(item: GalleryItem) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = item.relPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            decodeSampled(java.io.File(context.filesDir, item.relPath).absolutePath, target = 128)
+        }
+    }
+    bitmap?.let {
+        Image(
+            bitmap = it.asImageBitmap(),
+            contentDescription = item.name,
+            modifier = Modifier.height(56.dp),
+        )
+    } ?: CircularProgressIndicator(
+        modifier = Modifier.height(24.dp),
+        color = InkTeal,
+        trackColor = DividerCream,
+        strokeWidth = 2.dp,
+    )
+}
+
+private fun decodeSampled(path: String, target: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) sample *= 2
+    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    return android.graphics.BitmapFactory.decodeFile(path, opts)
 }
 
 @Composable

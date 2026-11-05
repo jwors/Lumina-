@@ -64,6 +64,8 @@ class ProbeController(
     private var lastSummary: CatalogSummary? = null
     private var lastLogTail: List<String> = emptyList()
     private var lastIngestStatus: String = ""
+    private var lastGalleryItems: List<GalleryItem> = emptyList()
+    private var lastGalleryStatus: String = ""
 
     private val monitor = UsbCameraMonitor(appContext, usbManager) { monitorState, kind, device ->
         io.execute { react(monitorState, kind, device) }
@@ -142,6 +144,43 @@ class ProbeController(
             else emit(ProbeUiState("没有待重试的失败文件"))
         }
     }
+
+    // ---------- 图库（工单 04） ----------
+
+    /** 打开图库 Tab 时调用：pruneAbsent + 收养孤儿 + 快照上屏 */
+    fun loadGallery() {
+        io.execute {
+            val pruned = masterStore.pruneAbsent()
+            var adopted = 0
+            // 收养：Master/ 子树里未登记的真实图像文件
+            appContext.filesDir.walkTopDown()
+                .filter { f -> f.isFile }
+                .map { f -> f to f.relativeTo(appContext.filesDir).invariantSeparatorsPath }
+                .filter { (_, rel) -> rel.startsWith("Master/") }
+                .filter { (_, rel) ->
+                    val upper = rel.uppercase()
+                    upper.endsWith(".JPG") || upper.endsWith(".JPEG") || upper.endsWith(".NEF") || upper.endsWith(".MP4")
+                }
+                .forEach { (_, rel) ->
+                    if (masterStore.adoptExisting(rel)) adopted++
+                }
+            val rows = masterStore.snapshot()
+            val items = rows.map {
+                GalleryItem(relPath = it.relPath, name = it.origFileName,
+                    dateKey = it.dateKey, sizeBytes = it.sizeBytes)
+            }
+            lastGalleryItems = items
+            lastGalleryStatus = if (pruned > 0 || adopted > 0)
+                "对账：清理失效 $pruned · 收养新 $adopted" else ""
+            emit(ProbeUiState(
+                "Master 图库 · ${items.size} 个对象 · ${humanBytes(items.sumOf { it.sizeBytes })}",
+                galleryItems = items,
+                galleryStatus = lastGalleryStatus,
+            ))
+        }
+    }
+
+    /** 图库根目录（= filesDir；布局约束见 ADR-0004）——已并入 loadGallery 的 walkTopDown */
 
     private fun runIngestRound(engine: IngestEngine) {
         var success = 0
@@ -390,6 +429,8 @@ class ProbeController(
         lastSummary = null
         lastLogTail = emptyList()
         lastIngestStatus = ""
+        lastGalleryItems = emptyList()
+        lastGalleryStatus = ""
         emit(ProbeUiState("未连接 · 请插入相机"))
     }
 
@@ -439,6 +480,17 @@ data class ProbeUiState(
     val engineReady: Boolean = false,
     /** 上一轮 Ingest 结果文本 */
     val ingestStatus: String = "",
+    /** 图库（工单 04）：Room 驱动的 Master 全量快照 */
+    val galleryItems: List<GalleryItem> = emptyList(),
+    val galleryStatus: String = "",
+)
+
+/** 图库条目。 */
+data class GalleryItem(
+    val relPath: String,
+    val name: String,
+    val dateKey: String,
+    val sizeBytes: Long,
 )
 
 /** 相机页的可勾对象（UI 直接消费）。 */

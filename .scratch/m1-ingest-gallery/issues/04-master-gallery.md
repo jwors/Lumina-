@@ -8,7 +8,7 @@ NEF 显示"RAW 胶片框"占位卡（点击→"仅存原片"信息页：名字/�
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 图库 Tab（分组列表 + 顶部统计）
 - [ ] JPEG 缩略图解码 + LruCache

@@ -110,6 +110,29 @@ class MasterStore(
         return removed
     }
 
+    /**
+     * 对账另一向：目录里存在但盘点缺条目的文件 → 收养（Room 补登记）。
+     * relPath 直接来自磁盘发现（不按日期重derive，尊重物理位置）。
+     */
+    fun adoptExisting(relPath: String): Boolean {
+        val file = fileOf(relPath)
+        if (!file.exists()) return false
+        if (inventory.findByRelPath(relPath) != null) return false
+        // dateKey 取路径内第二段（按布局契约）；取不到回退修改日期
+        val dateKey = relPath.removePrefix("Master/").substringBefore('/').takeIf { it.length == 10 }
+            ?: MasterPaths.dateKeyOf(null, file.lastModified())
+        inventory.insert(
+            MasterInventoryEntity(
+                relPath = relPath,
+                origFileName = file.name,
+                dateKey = dateKey,
+                sizeBytes = file.length(),
+                ingestedAtMs = System.currentTimeMillis(),
+            ),
+        )
+        return true
+    }
+
     sealed interface RegisterResult {
         data class Registered(val relPath: String) : RegisterResult
         data class AlreadyPresent(val relPath: String) : RegisterResult
