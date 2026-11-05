@@ -344,7 +344,9 @@ class ProbeController(
                 runCatching { ptp.close() }
                 session = null
                 attempt++
-                if (attempt >= 2) {
+                if (attempt >= 1) {
+                    // 本机实证：PTP Data 阶段深水区（tid=0/ZLP 修复后仍哑）——一次即放 MTP，
+                    // 省掉无意义的 12s×N（见 .scratch/m1-ingest-gallery spec 遗留清单）
                     emit(ProbeUiState("读取失败：${humanize(e)}"))
                     listViaMtp(device)
                     return
