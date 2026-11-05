@@ -67,6 +67,11 @@ class ProbeController(
     private var lastGalleryItems: List<GalleryItem> = emptyList()
     private var lastGalleryStatus: String = ""
 
+    /** 最近一次成功渲染的 state：切 Tab / 临时状态发射不得把别的 Tab 数据弄丢 */
+    private val lastEmitted = java.util.concurrent.atomic.AtomicReference<ProbeUiState>(
+        ProbeUiState("未连接 · 请插入相机"),
+    )
+
     private val monitor = UsbCameraMonitor(appContext, usbManager) { monitorState, kind, device ->
         io.execute { react(monitorState, kind, device) }
     }
@@ -433,9 +438,7 @@ class ProbeController(
             if (fetched == 0) {
                 logEvents(listOf("MTP enumeration empty"))
                 emit(
-                    ProbeUiState(
-                        "MTP 兜底：相机此刻没应答（0 个对象）。请重新插拔 OTG 或稍等重试",
-                    ),
+                    ProbeUiState("MTP 兜底：相机此刻没应答（0 个对象）。请重新插拔 OTG 或稍等重试"),
                 )
                 return
             }
@@ -548,7 +551,7 @@ class ProbeController(
         lastIngestStatus = ""
         lastGalleryItems = emptyList()
         lastGalleryStatus = ""
-        emit(ProbeUiState("未连接 · 请插入相机"))
+        emitReplace(ProbeUiState("未连接 · 请插入相机"))
     }
 
     /** 运行期异常 → 人话（类型化，不靠截字符串）。 */
@@ -572,7 +575,24 @@ class ProbeController(
         }
     }
 
-    private fun emit(state: ProbeUiState) = mainThread.post { onState(state) }
+    private fun emit(state: ProbeUiState) {
+        // 保留式合并：文本/状态类发射不把相机页/图库/勾选数据冲掉（切 Tab bug 修复）
+        val base = lastEmitted.get()
+        val merged = state.copy(
+            cameraItems = if (state.cameraItems.isEmpty()) base.cameraItems else state.cameraItems,
+            checkedNames = if (state.checkedNames.isEmpty()) base.checkedNames else state.checkedNames,
+            engineReady = state.engineReady || base.engineReady,
+            galleryItems = if (state.galleryItems.isEmpty()) base.galleryItems else state.galleryItems,
+        )
+        lastEmitted.set(merged)
+        mainThread.post { onState(merged) }
+    }
+
+    /** 全替换（断开等"清场"语义专用）。 */
+    private fun emitReplace(state: ProbeUiState) {
+        lastEmitted.set(state)
+        mainThread.post { onState(state) }
+    }
 
     private companion object {
         const val LOG_TAIL = 8
