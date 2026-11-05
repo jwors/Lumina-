@@ -29,27 +29,17 @@ class PtpSession(
 
     val currentState: State get() = state
 
-    /** OpenSession；成功后进入 Open。（会话负责打开底层传输，契约见 Transport.open）
-     *  连接序列（ptplibrary/gphoto2 结语）：
-     *  ① transport.open：claim + StillImageDeviceReset(0x66) + 清 HALT；
-     *  ② pre-close：清相机残留会话（一切错误码容忍，SESSION_NOT_OPEN=本来就没有）；
-     *  ③ OpenSession；宽容 0x201E SessionAlreadyOpened。
-     *  GetDeviceInfo 挪到会话后（部分相机必须先有 session 才答它——真机实录 probe 探活全挂）。 */
+    /** OpenSession（tid 规范=0x00000000）；成功后主机计数从 1 起算（PIMA/尼康实现共识）。 */
     fun open() {
         check(state == State.Closed) { "session already $state" }
         transport.open()
-        try {
-            send(OpCode.CLOSE_SESSION)
-            log.log("pre-close: stale session cleared cleanly")
-        } catch (e: PtpResponseException) {
-            log.log("pre-close tolerated camera response 0x%04X".format(e.code))
+        transport.write(encodeRequest(OpCode.OPEN_SESSION, tid = 0, params = longArrayOf(1)))
+        val resp = readResponse(OpCode.OPEN_SESSION, 0)
+        logResponse(OpCode.OPEN_SESSION, resp)
+        if (resp.responseCode != RespCode.OK && resp.responseCode != RespCode.SESSION_ALREADY_OPENED) {
+            throw PtpResponseException(resp.responseCode, OpCode.OPEN_SESSION)
         }
-        try {
-            send(OpCode.OPEN_SESSION, longArrayOf(1))
-        } catch (e: PtpResponseException) {
-            if (e.code != RespCode.SESSION_ALREADY_OPENED) throw e
-            log.log("OpenSession: camera reported session already opened (0x201E), reusing")
-        }
+        tid = 1 // OpenSession 之后主机事务从 1 起
         state = State.Open
     }
 
@@ -190,11 +180,20 @@ class PtpSession(
         }
     }
 
-    /** 一次全宽读（4K stage），返回实际收到字节数。 */
+    /** 一次全宽读（4K stage），返回实际收到字节数。
+     *  零长包在 PTP 流里是合法终止符——**必须继续读**（后面的 Response 还在同一条管道上排队，
+     *  michaelzoech/gallery2 同款 `while(res==0) retry` 模式）；真死管道由底层 -1 → 异常报出。 */
     private fun readChunkInto(out: java.io.ByteArrayOutputStream) {
-        val got = transport.read(ByteBuffer.wrap(stage))
-        check(got > 0) { "transport exhausted while reading container (got $got)" }
-        out.write(stage, 0, got)
+        var zeroStreak = 0
+        while (true) {
+            val got = transport.read(ByteBuffer.wrap(stage))
+            if (got > 0) {
+                out.write(stage, 0, got)
+                return
+            }
+            zeroStreak++
+            check(zeroStreak <= 64) { "transport silent: 64 consecutive zero reads" }
+        }
     }
 
     private val stage = ByteArray(READ_STAGE_SIZE)

@@ -12,49 +12,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 02 号工单验收（ptplibrary 对齐的最终时序）：
- * 连接序列 = DeviceReset(0x66，usb 层) → pre-close 清残留（错误全容忍）→ OpenSession（宽容 0x201E）→
- * GetDeviceInfo（必须会话后）。tid 不匹配 = 警告；请求字节、状态机、错误路径钉死。
+ * 02 号工单验收（PTP tid 规范版）：
+ * OpenSession 携带 tid=0x00000000（PIMA/尼康实现共识），之后主机事务从 1 起算；
+ * GetDeviceInfo 必须在会话内；pre-close 取消（DeviceReset 0x66 已清相机状态机）；
+ * ZLP（零长包）= 数据终止符，读到 0 必须继续；
+ * tid 不匹配 = 警告；请求字节形状、状态机、错误路径钉死。
  */
 class PtpSessionTest {
 
     @Test
-    fun `open sequence = preclose then OpenSession`() {
+    fun `open sends OpenSession with tid zero`() {
         val t = FakeTransport(
             listOf(
-                resp(RespCode.OK, 1),   // pre-close（非 OK 也容忍）
-                resp(RespCode.OK, 2),
+                resp(RespCode.OK, tid = 0),
             ),
         )
         val s = PtpSession(t)
         s.open()
         assertEquals(PtpSession.State.Open, s.currentState)
-        assertArrayEquals(encodeRequest(OpCode.CLOSE_SESSION, 1), t.observedWrites()[0])
-        assertArrayEquals(encodeRequest(OpCode.OPEN_SESSION, 2, longArrayOf(1)), t.observedWrites()[1])
-    }
-
-    @Test
-    fun `pre-close tolerated responses keep flow alive`() {
-        val t = FakeTransport(
-            listOf(
-                resp(RespCode.SESSION_NOT_OPEN, 1),   // 本来就没有会话：正常清障结果
-                resp(RespCode.OK, 2),
-            ),
+        assertArrayEquals(
+            encodeRequest(OpCode.OPEN_SESSION, 0, longArrayOf(1)),
+            t.observedWrites()[0],
         )
-        val s = PtpSession(t)
-        s.open()
-        assertEquals(PtpSession.State.Open, s.currentState)
-        assertEquals(true, s.log.snapshot().any { it.contains("pre-close tolerated") })
     }
 
     @Test
     fun `open with error response throws and stays Closed`() {
-        val t = FakeTransport(
-            listOf(
-                resp(RespCode.OK, 1),
-                resp(RespCode.SESSION_NOT_OPEN, 2), // OpenSession 被拒
-            ),
-        )
+        val t = FakeTransport(listOf(resp(RespCode.SESSION_NOT_OPEN, tid = 0)))
         val s = PtpSession(t)
         val ex = assertThrows(PtpResponseException::class.java) { s.open() }
         assertEquals(RespCode.SESSION_NOT_OPEN.toLong(), ex.code.toLong())
@@ -66,10 +50,9 @@ class PtpSessionTest {
     fun `session already opened (0x201E) is tolerated and session proceeds`() {
         val t = FakeTransport(
             listOf(
+                resp(RespCode.SESSION_ALREADY_OPENED, tid = 0),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
-                resp(RespCode.SESSION_ALREADY_OPENED, 2),
-                dataPack(OpCode.GET_DEVICE_INFO, 3, deviceInfo("NIKON Z 30")),
-                resp(RespCode.OK, 3),
             ),
         )
         val s = PtpSession(t)
@@ -78,8 +61,8 @@ class PtpSessionTest {
         assertEquals("NIKON Z 30", s.getModel())
         assertEquals(PtpSession.State.Ready, s.currentState)
         assertArrayEquals(
-            encodeRequest(OpCode.GET_DEVICE_INFO, 3),
-            t.observedWrites()[2], // 写序：close 0 / open 1 / model 2
+            encodeRequest(OpCode.GET_DEVICE_INFO, 1),
+            t.observedWrites()[1],
         )
     }
 
@@ -87,27 +70,25 @@ class PtpSessionTest {
     fun `response tid mismatch is tolerated with ring-log warning (nikon-style quirks)`() {
         val t = FakeTransport(
             listOf(
-                resp(RespCode.OK, 97),                                  // pre-close（相机计数器由系统服务带动）
+                resp(RespCode.OK, tid = 97),                                  // OpenSession：tid 回 97 也只是警告
+                dataPack(OpCode.GET_DEVICE_INFO, 98, deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 99),
-                dataPack(OpCode.GET_DEVICE_INFO, 100, deviceInfo("NIKON Z 30")),
-                resp(RespCode.OK, 101),
             ),
         )
         val s = PtpSession(t)
-        s.open() // tid=97≠1 等全部只是警告
+        s.open()
         assertEquals(PtpSession.State.Open, s.currentState)
         assertEquals("NIKON Z 30", s.getModel())
         assertEquals(true, s.log.snapshot().any { it.contains("TID mismatch") })
     }
 
     @Test
-    fun `get model parses DeviceInfo and reaches Ready`() {
+    fun `get model parses DeviceInfo after session and reaches Ready`() {
         val t = FakeTransport(
             listOf(
+                resp(RespCode.OK, tid = 0),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
                 resp(RespCode.OK, 1),
-                resp(RespCode.OK, 2),
-                dataPack(OpCode.GET_DEVICE_INFO, 3, deviceInfo("NIKON Z 30")),
-                resp(RespCode.OK, 3),
             ),
         )
         val s = PtpSession(t)
@@ -115,8 +96,8 @@ class PtpSessionTest {
         assertEquals("NIKON Z 30", s.getModel())
         assertEquals(PtpSession.State.Ready, s.currentState)
         assertArrayEquals(
-            encodeRequest(OpCode.GET_DEVICE_INFO, 3),
-            t.observedWrites()[2],
+            encodeRequest(OpCode.GET_DEVICE_INFO, 1),
+            t.observedWrites()[1],
         )
     }
 
@@ -125,18 +106,17 @@ class PtpSessionTest {
         val storageIds = FakeCamera.u32Array(1, 0x00010001)
         val t = FakeTransport(
             listOf(
+                resp(RespCode.OK, tid = 0),
+                dataPack(OpCode.GET_STORAGE_IDS, 1, storageIds),
                 resp(RespCode.OK, 1),
-                resp(RespCode.OK, 2),
-                dataPack(OpCode.GET_STORAGE_IDS, 3, storageIds),
-                resp(RespCode.OK, 3),
             ),
         )
         val s = PtpSession(t)
         s.open()
         assertEquals(listOf(1L, 0x00010001L), s.listStorage().map { it.id })
         assertArrayEquals(
-            encodeRequest(OpCode.GET_STORAGE_IDS, 3),
-            t.observedWrites()[2],
+            encodeRequest(OpCode.GET_STORAGE_IDS, 1),
+            t.observedWrites()[1],
         )
     }
 
@@ -148,36 +128,38 @@ class PtpSessionTest {
     }
 
     @Test
-    fun `fragmented container across reads is reassembled`() {
-        val whole = resp(RespCode.OK, 1)
-        val cut = 5
+    fun `zero-length terminator packets do not break reads`() {
+        // OpenSession 应答 = 12 字节整（若协议场景要求 ZLP 终止，fake 用脚本模拟零长包）
+        val whole = resp(RespCode.OK, tid = 0)
         val t = FakeTransport(
             listOf(
-                whole.copyOfRange(0, cut),
-                whole.copyOfRange(cut, whole.size),
-                resp(RespCode.OK, 2),
+                whole.copyOfRange(0, 5),
+                ByteArray(0), // 模拟零长包（ZLP）——必须继续读而不是报死
+                whole.copyOfRange(5, whole.size),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, 1),
             ),
         )
         val s = PtpSession(t)
-        s.open() // pre-close 跨两个 read 重组
+        s.open() // 零长包被容忍，重组继续；state Open
         assertEquals(PtpSession.State.Open, s.currentState)
+        assertEquals("NIKON Z 30", s.getModel())
     }
 
     @Test
-    fun `close sends CloseSession and after close everything is dead`() {
+    fun `close sends CloseSession with tid after open and everything is dead`() {
         val t = FakeTransport(
             listOf(
-                resp(RespCode.OK, 1),
-                resp(RespCode.OK, 2),
-                resp(RespCode.OK, 3), // 用户 close 的应答
+                resp(RespCode.OK, tid = 0),
+                resp(RespCode.OK, tid = 1), // 用户 close 的应答（tid=1）
             ),
         )
         val s = PtpSession(t)
         s.open()
         s.close()
         assertArrayEquals(
-            encodeRequest(OpCode.CLOSE_SESSION, 3),
-            t.observedWrites()[2], // 写序：close 0 / open 1 / 用户 close 2
+            encodeRequest(OpCode.CLOSE_SESSION, 1),
+            t.observedWrites()[1], // 写序：open 0 / user close 1
         )
         assertThrows(IllegalStateException::class.java) { s.open() }
     }
@@ -188,37 +170,50 @@ class PtpSessionTest {
     fun `failed transaction still consumes its transaction id`() {
         val t = FakeTransport(
             listOf(
-                resp(RespCode.OK, 1),
-                resp(RespCode.OK, 2),               // open 成功
-                resp(RespCode.SESSION_NOT_OPEN, 3), // listStorage 收到错误
-                resp(RespCode.OK, 4),               // close 用 t4 发请求
+                resp(RespCode.OK, tid = 0),                              // open 成功
+                resp(RespCode.SESSION_NOT_OPEN, tid = 1),                // listStorage 收到错误
+                resp(RespCode.OK, tid = 2),                              // close 用 t2 发请求（tid 消费不重用）
             ),
         )
         val s = PtpSession(t)
         s.open()
         assertThrows(PtpResponseException::class.java) { s.listStorage() }
-        s.close() // 失败不重用 tid
+        s.close()
         assertArrayEquals(
-            encodeRequest(OpCode.CLOSE_SESSION, 4),
-            t.observedWrites()[3], // close 0 / open 1 / storage 2 / user close 3
+            encodeRequest(OpCode.CLOSE_SESSION, 2),
+            t.observedWrites()[2], // open 0 / storage 1 / user close 2
         )
     }
 
     @Test
     fun `hostile container length claim is rejected without allocation`() {
-        val opData = container(ContainerType.DATA, OpCode.GET_DEVICE_INFO, 3, byteArrayOf())
+        val opData = container(ContainerType.DATA, OpCode.GET_DEVICE_INFO, 1, byteArrayOf())
         opData[0] = 0x7F.toByte(); opData[1] = 0x7F.toByte(); opData[2] = 0x7F.toByte(); opData[3] = 0x7F.toByte()
         val t = FakeTransport(
             listOf(
-                resp(RespCode.OK, 1),   // pre-close 应答
-                resp(RespCode.OK, 2),   // OpenSession 应答
-                opData,                 // getModel 的 Data 容器长度被篡改
+                resp(RespCode.OK, tid = 0),   // OpenSession 应答
+                opData,                       // getModel 的 Data 容器长度被篡改
             ),
         )
         val s = PtpSession(t)
         s.open()
         val ex = assertThrows(IllegalStateException::class.java) { s.getModel() }
         assertEquals(true, ex.message!!.contains("sane range"))
+    }
+
+    @Test
+    fun `hostile ZLP flood cannot wedge reads`() {
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, tid = 0),
+                ByteArray(0), ByteArray(0), ByteArray(0),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, 1),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        assertEquals("NIKON Z 30", s.getModel())
     }
 
     @Test
