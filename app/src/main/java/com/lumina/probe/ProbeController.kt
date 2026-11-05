@@ -370,8 +370,17 @@ class ProbeController(
             if (!mtp.open(conn)) {
                 throw UsbTransportException("open", "MTP openConnection failed")
             }
+            // 引擎在会话 open 的瞬间就位（不等枚举）+ 从 Room 重建队列：
+            // "引擎未就绪"永远不该出现在 MTP 会话存活期间
+            engine = MtpImportEngine(mtp, masterStore)
+            for (row in queueDao.all()) {
+                engine?.enqueue(
+                    IngestItem(row.handle, row.name, row.sizeBytes, row.captureMs, row.modifiedMs),
+                )
+            }
             val files = mutableListOf<CameraObject>()
             val folders = mutableListOf<CameraObject>()
+            val infoExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
             for (storageId in mtp.getStorageIds() ?: IntArray(0)) {
                 val seen = mutableSetOf<Int>()
                 val handles = mutableListOf<Int>()
@@ -385,8 +394,23 @@ class ProbeController(
                 logEvents(
                     listOf("MTP storage=0x%08X handles=%d".format(storageId, handles.size)),
                 )
+                // 相机枚举期间先给 UI 一个"进行中"快照（引擎已就位，导出按钮当场可用）
+                emit(ProbeUiState(
+                    "MTP 枚举 ${handles.size} 个句柄…（弱供电相机可能提前沉默）",
+                    busy = true,
+                    engineReady = true,
+                ))
                 for (handle in handles) {
-                    val info = mtp.getObjectInfo(handle)
+                    val info = try {
+                        val fut = infoExecutor.submit<android.mtp.MtpObjectInfo?> { mtp.getObjectInfo(handle) }
+                        fut.get(3, java.util.concurrent.TimeUnit.SECONDS)
+                    } catch (e: java.util.concurrent.TimeoutException) {
+                        // 相机哑了：native 调用无限期阻塞——立即收摊，带着已有清单发货
+                        logEvents(listOf("MTP scan stopped at $handle (${files.size} files after timeout)"))
+                        break
+                    } catch (e: Exception) {
+                        null
+                    }
                     if (info == null) {
                         // 相机中途哑（弱供电实证 ~131 后沉默）：不再按铃，带着已拿到的直接上屏
                         logEvents(listOf("MTP scan stopped at $handle (${files.size} files + ${folders.size} folders so far)"))
@@ -404,6 +428,7 @@ class ProbeController(
                 }
             }
             val summary = CatalogSummary(files, folders)
+            infoExecutor.shutdown()
             val fetched = files.size + folders.size
             if (fetched == 0) {
                 logEvents(listOf("MTP enumeration empty"))
