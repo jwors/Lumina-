@@ -470,9 +470,14 @@ class ProbeController(
             infoExecutor.shutdown()
             val fetched = files.size + folders.size
             if (fetched == 0) {
-                logEvents(listOf("MTP enumeration empty"))
+                logEvents(listOf("MTP enumeration empty (camera silent this round)"))
                 emit(
-                    ProbeUiState("MTP 兜底：相机此刻没应答（0 个对象）。请重新插拔 OTG 或稍等重试"),
+                    ProbeUiState(
+                        "相机静默（0 个新对象）：已列出的 ${cameraItems.size} 张保持可用。可重试或直接导出",
+                        cameraItems = cameraItems,
+                        checkedNames = checkedNames,
+                        engineReady = true,
+                    ),
                 )
                 return
             }
@@ -531,6 +536,7 @@ class ProbeController(
     }
 
     private fun emitCameraPage() {
+        logEvents(listOf("ui emit: cameraItems=${cameraItems.size} checked=${checkedNames.size} engine=${engine != null} progress=${progressTotal > 0}"))
         refreshCheckedFromDb()
         val summaryOut = lastSummary
         val title = if (lastSummary != null) {
