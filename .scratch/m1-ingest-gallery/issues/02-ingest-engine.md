@@ -7,7 +7,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] IngestEngine 接口 + Fake 实装（JVM 单测 4+ 例：顺序、失败混入、汇总）
 - [ ] MtpImportEngine：importFile 调用 + 同名跳过 + 失败计数

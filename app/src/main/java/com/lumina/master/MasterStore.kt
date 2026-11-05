@@ -91,6 +91,9 @@ class MasterStore(
 
     fun fileOf(relPath: String): File = File(root, relPath)
 
+    /** 同名/同路径是否已登记（去重判断用）。 */
+    fun findByRelPath(relPath: String): MasterInventoryEntity? = inventory.findByRelPath(relPath)
+
     /** 图库快照（日期分组由调用方基于 dateKey/re者 path 干）。 */
     fun snapshot(): List<MasterInventoryEntity> = inventory.all().sortedWith(
         compareByDescending<MasterInventoryEntity> { it.dateKey }.thenBy { it.origFileName },
