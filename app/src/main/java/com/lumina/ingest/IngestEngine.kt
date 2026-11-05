@@ -40,4 +40,7 @@ interface IngestEngine {
 
     /** 批次完成后队列清空（成功/跳过）；失败文件按 spec 保留供重试（MtpImport/Fake 一致语义）。 */
     fun pendingFails(): List<IngestItem>
+
+    /** 工单 05：失败文件的单独重试（一次只处理这一个，不走整轮）。 */
+    fun retryOne(item: IngestItem, callback: IngestCallback)
 }

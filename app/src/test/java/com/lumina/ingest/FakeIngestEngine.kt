@@ -10,7 +10,7 @@ import java.io.File
  */
 class FakeIngestEngine(
     private val store: MasterStore,
-    private val outcomes: Map<String, Outcome> = emptyMap(),
+    var outcomes: Map<String, Outcome> = emptyMap(),
 ) : IngestEngine {
 
     sealed interface Outcome {
@@ -35,6 +35,33 @@ class FakeIngestEngine(
     override fun queueSize(): Int = queue.size - consumed.size - failed.size
 
     override fun pendingFails(): List<IngestItem> = failed.values.toList()
+
+    /** 工单 05：单文件重试 = 复制一支（忽略已消费标记，结局仍走脚本，可以先改 outcomes）。 */
+    override fun retryOne(item: IngestItem, callback: IngestCallback) {
+        callback.onFileStart(item)
+        val rel = MasterPaths.relativePath(item.captureMs, item.modifiedMs, item.name)
+        when (val outcome = outcomes[item.name] ?: Outcome.Success) {
+            is Outcome.Fail -> {
+                failed[item.name] = item
+                callback.onFileFail(item, outcome.reason)
+            }
+            is Outcome.Skip -> {
+                consumed.add(item.name)
+                failed.remove(item.name)
+                callback.onFileSkipped(item, rel)
+            }
+            is Outcome.Success -> {
+                if (copyIntoStore(item, rel)) {
+                    consumed.add(item.name)
+                    failed.remove(item.name)
+                    callback.onFileSuccess(item, rel)
+                } else {
+                    failed[item.name] = item
+                    callback.onFileFail(item, "register failed")
+                }
+            }
+        }
+    }
 
     override fun drain(callback: IngestCallback) {
         var success = 0

@@ -124,16 +124,16 @@ class ProbeController(
         }
     }
 
-    /** Ingest 一轮（工单 05 会把这段换成进度条视图） */
+    /** Ingest 一轮；导出按钮走这里（弱供电自动重试循环保持） */
     fun startIngest() {
         io.execute {
-            val engineReady = engine
-            if (engineReady == null) {
+            val ready = engine
+            if (ready == null) {
                 emit(ProbeUiState("没有可用的复制引擎（需要 MTP 会话）：请重插相线", engineReady = false))
             } else if (checkedNames.isEmpty()) {
                 emit(ProbeUiState("队列是空的：先勾选对象", engineReady = true))
             } else {
-                runIngestRound(engineReady)
+                runIngestRound(ready)
             }
         }
     }
@@ -182,29 +182,100 @@ class ProbeController(
 
     /** 图库根目录（= filesDir；布局约束见 ADR-0004）——已并入 loadGallery 的 walkTopDown */
 
+    // ---------- Ingest 进度（工单 05） ----------
+
+    private var ingestRunning = false
+    private var progressDone = 0
+    private var progressTotal = 0
+    private var progressCurrent = ""
+    private val fileStatuses = linkedMapOf<String, String>()
+
+    fun ingestRowsForUi(): Map<String, String> = fileStatuses.toMap()
+
+    /** 每文件状态语义映射进 UI；失败文件带按钮。 */
+    private fun registerStatus(name: String, text: String) {
+        fileStatuses[name] = text
+    }
+
+    private fun resetProgress(total: Int) {
+        ingestRunning = total > 0
+        progressDone = 0
+        progressTotal = total
+        progressCurrent = ""
+    }
+
+    /** Ingest 一轮（真机弱供电自动重试循环已于 02 号实现）。 */
     private fun runIngestRound(engine: IngestEngine) {
-        var success = 0
-        var skipped = 0
-        var failed = 0
+        if (ingestRunning) return
+        resetProgress(engine.queueSize())
+        if (!ingestRunning) {
+            emitCameraPage()
+            return
+        }
         engine.drain(object : IngestCallback {
-            override fun onFileStart(item: IngestItem) = Unit
+            override fun onFileStart(item: IngestItem) {
+                progressCurrent = item.name
+                registerStatus(item.name, "复制中…")
+                emitCameraPage()
+            }
             override fun onFileSuccess(item: IngestItem, relPath: String) {
                 queueDao.deleteByName(item.name)
-                success++
+                progressDone++
+                registerStatus(item.name, "✓ 已入库")
+                emitCameraPage()
             }
             override fun onFileSkipped(item: IngestItem, relPath: String) {
                 queueDao.deleteByName(item.name)
-                skipped++
+                progressDone++
+                registerStatus(item.name, "已在库（跳过）")
+                emitCameraPage()
             }
             override fun onFileFail(item: IngestItem, reason: String) {
-                logEvents(listOf("ingest fail: ${item.name} — $reason"))
-                failed++
+                failedFilesOfRound[item.name] = item
+                registerStatus(item.name, "✗ $reason")
+                emitCameraPage()
             }
-            override fun onBatchDone(s: Int, sk: Int, f: Int) = Unit
+            override fun onBatchDone(s: Int, sk: Int, f: Int) {
+                ingestRunning = false
+                lastIngestStatus = "Ingest：成功 $s · 跳过 $sk · 失败 $f"
+                emitCameraPage()
+            }
         })
-        lastIngestStatus = "Ingest：成功 $success · 跳过 $skipped · 失败 $failed"
-        emitCameraPage()
     }
+
+    /** 单文件重试（失败行上的按钮）。 */
+    fun retryOne(item: CameraItem) {
+        io.execute {
+            val engineReady = engine
+            if (engineReady == null) {
+                emit(ProbeUiState("没有可用的复制引擎（需要 MTP 会话）"))
+                return@execute
+            }
+            registerStatus(item.name, "重试中…")
+            emitCameraPage()
+            engineReady.retryOne(ingestItemOf(item), object : IngestCallback {
+                override fun onFileStart(item: IngestItem) = Unit
+                override fun onFileSuccess(i: IngestItem, relPath: String) {
+                    queueDao.deleteByName(item.name)
+                    registerStatus(item.name, "✓ 已入库")
+                    lastIngestStatus = "重试成功：${item.name}"
+                }
+                override fun onFileSkipped(i: IngestItem, relPath: String) {
+                    queueDao.deleteByName(item.name)
+                    registerStatus(item.name, "已在库（跳过）")
+                    lastIngestStatus = "已在库：${item.name}"
+                }
+                override fun onFileFail(i: IngestItem, reason: String) {
+                    registerStatus(item.name, "✗ $reason")
+                    lastIngestStatus = "重试失败：${item.name}（$reason）"
+                }
+                override fun onBatchDone(s: Int, sk: Int, f: Int) = Unit
+            })
+            emitCameraPage()
+        }
+    }
+
+    private val failedFilesOfRound = linkedMapOf<String, IngestItem>()
 
     // ---------- 连接反应（照旧） ----------
 
@@ -398,6 +469,17 @@ class ProbeController(
         } else {
             lastTitle ?: "未连接"
         }
+        val progress = if (progressTotal > 0) {
+            IngestProgress(
+                running = ingestRunning,
+                done = progressDone,
+                total = progressTotal,
+                currentName = progressCurrent,
+                statuses = fileStatuses.toMap(),
+            )
+        } else {
+            null
+        }
         mainThread.post {
             onState(
                 ProbeUiState(
@@ -409,7 +491,10 @@ class ProbeController(
                     cameraItems = cameraItems,
                     checkedNames = checkedNames,
                     engineReady = engine != null,
+                    ingestProgress = progress,
                     ingestStatus = lastIngestStatus,
+                    galleryItems = lastGalleryItems,
+                    galleryStatus = lastGalleryStatus,
                 ),
             )
         }
@@ -478,11 +563,23 @@ data class ProbeUiState(
     val checkedNames: Set<String> = emptySet(),
     /** Ingest 引擎可用（= MTP 会话在手） */
     val engineReady: Boolean = false,
+    /** Ingest 进度（工单 05）：非 null 才显示进度条/状态行 */
+    val ingestProgress: IngestProgress? = null,
     /** 上一轮 Ingest 结果文本 */
     val ingestStatus: String = "",
     /** 图库（工单 04）：Room 驱动的 Master 全量快照 */
     val galleryItems: List<GalleryItem> = emptyList(),
     val galleryStatus: String = "",
+)
+
+/** Ingest 进度数据包。 */
+data class IngestProgress(
+    val running: Boolean,
+    val done: Int,
+    val total: Int,
+    val currentName: String,
+    /** 文件名 → 状态文本（✓ / 跳过 / ✗ 原因 / 复制中… / 待复制） */
+    val statuses: Map<String, String>,
 )
 
 /** 图库条目。 */

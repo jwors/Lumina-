@@ -36,6 +36,31 @@ class MtpImportEngine(
 
     override fun pendingFails(): List<IngestItem> = failedItems.values.toList()
 
+    /** 工单 05：单文件重试——不走整轮，直接对学生这一支再发 importFile。 */
+    override fun retryOne(item: IngestItem, callback: IngestCallback) {
+        callback.onFileStart(item)
+        val rel = MasterPaths.relativePath(item.captureMs, item.modifiedMs, item.name)
+        val file = store.fileOf(rel)
+        val existsOnDisk = file.exists()
+        val already = store.findByRelPath(rel) != null
+        if (existsOnDisk || already) {
+            if (existsOnDisk && !already) store.register(item.captureMs, item.modifiedMs, item.name, file.length())
+            consumed.add(item.name)
+            failedItems.remove(item.name)
+            callback.onFileSkipped(item, rel)
+            return
+        }
+        lastReason = "camera refused the copy"
+        if (!importOne(item, file)) {
+            failedItems[item.name] = item
+            callback.onFileFail(item, lastReason)
+        } else {
+            consumed.add(item.name)
+            failedItems.remove(item.name)
+            callback.onFileSuccess(item, rel)
+        }
+    }
+
     override fun drain(callback: IngestCallback) {
         var success = 0
         var skipped = 0

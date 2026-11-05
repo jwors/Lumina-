@@ -276,6 +276,26 @@ private fun CameraPage(
             Spacer(Modifier.height(12.dp))
         }
         Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        state.ingestProgress?.let { progress ->
+            if (progress.running) {
+                LinearProgressIndicator(
+                    progress = {
+                        if (progress.total > 0) progress.done.toFloat() / progress.total else 0f
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = InkTeal,
+                    trackColor = DividerCream,
+                )
+                if (progress.currentName.isNotBlank()) {
+                    Text(
+                        "正在复制：${progress.currentName}",
+                        fontSize = 12.sp,
+                        color = SageText,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
         if (state.pendingPermission) {
             Text(
                 "重试授权",
@@ -315,7 +335,8 @@ private fun CameraPage(
                     }
                 }
                 items(items, key = { "obj-${it.handle}:${it.name}" }) { obj ->
-                    CameraRow(obj, checked = state.checkedNames.contains(obj.name),
+                    CameraRow(state, controller, obj,
+                        checked = state.checkedNames.contains(obj.name),
                         onToggle = { controller.toggleCheck(obj) })
                 }
             }
@@ -375,9 +396,15 @@ private fun CameraPage(
     }
 }
 
-/** 对象行（勾选框 + 文件名 + 体积 + 分隔线）。 */
+/** 对象行（勾选框 + 文件名 + 体积 + 状态/失败重试 + 分隔线）。 */
 @Composable
-private fun CameraRow(obj: CameraItem, checked: Boolean, onToggle: () -> Unit) {
+private fun CameraRow(
+    state: ProbeUiState,
+    controller: ProbeController,
+    obj: CameraItem,
+    checked: Boolean,
+    onToggle: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
         Row(
             modifier = Modifier
@@ -386,7 +413,26 @@ private fun CameraRow(obj: CameraItem, checked: Boolean, onToggle: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = checked, onCheckedChange = { onToggle() })
-            Text(obj.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(obj.name, fontSize = 14.sp, color = InkTeal)
+                state.ingestProgress?.statuses?.get(obj.name)?.let { status ->
+                    when {
+                        status.startsWith("✗") -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(status, fontSize = 11.sp, color = SageText, modifier = Modifier.padding(end = 10.dp))
+                                Text(
+                                    "重试",
+                                    fontSize = 11.sp,
+                                    color = InkTeal,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { controller.retryOne(obj) },
+                                )
+                            }
+                        }
+                        else -> Text(status, fontSize = 11.sp, color = SageText)
+                    }
+                }
+            }
             Text(humanBytes(obj.sizeBytes), fontSize = 12.sp, color = SageText)
         }
         Box(

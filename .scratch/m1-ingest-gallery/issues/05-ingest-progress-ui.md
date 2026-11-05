@@ -7,7 +7,7 @@ IngestEngine 的进度回调经主线程回调进 Compose 状态。
 
 **Blocked by:** 03, 02（引擎依赖）
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 底部固定进度条 + 当前行
 - [ ] 每文件状态行 + 单独重试
