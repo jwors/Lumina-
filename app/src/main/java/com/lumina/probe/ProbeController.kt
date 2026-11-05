@@ -386,7 +386,12 @@ class ProbeController(
                     listOf("MTP storage=0x%08X handles=%d".format(storageId, handles.size)),
                 )
                 for (handle in handles) {
-                    val info = mtp.getObjectInfo(handle) ?: continue
+                    val info = mtp.getObjectInfo(handle)
+                    if (info == null) {
+                        // 相机中途哑（弱供电实证 ~131 后沉默）：不再按铃，带着已拿到的直接上屏
+                        logEvents(listOf("MTP scan stopped at $handle (${files.size} files + ${folders.size} folders so far)"))
+                        break
+                    }
                     val obj = CameraObject(
                         handle = info.objectHandle.toLong(),
                         parent = if (info.parent == 0) ObjectCatalog.PARENT_ROOT else info.parent.toLong(),
