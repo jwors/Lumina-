@@ -66,6 +66,8 @@ class ProbeController(
     private var lastIngestStatus: String = ""
     private var lastGalleryItems: List<GalleryItem> = emptyList()
     private var lastGalleryStatus: String = ""
+    private var productNamePrefix = "MTP 设备"
+    private var prevCount = 0
 
     /** 最近一次成功渲染的 state：切 Tab / 临时状态发射不得把别的 Tab 数据弄丢 */
     private val lastEmitted = java.util.concurrent.atomic.AtomicReference<ProbeUiState>(
@@ -375,6 +377,7 @@ class ProbeController(
             if (!mtp.open(conn)) {
                 throw UsbTransportException("open", "MTP openConnection failed")
             }
+            productNamePrefix = device.productName ?: "MTP 设备"
             // 引擎在会话 open 的瞬间就位（不等枚举）+ 从 Room 重建队列：
             // "引擎未就绪"永远不该出现在 MTP 会话存活期间
             engine = MtpImportEngine(mtp, masterStore)
@@ -430,6 +433,12 @@ class ProbeController(
                         captureEpochMillis = mtpMillis(info),
                     )
                     if (obj.isFolder) folders.add(obj) else files.add(obj)
+                    // 流式：每读到一个对象就上屏一次（用户"不等全部加载"的要求）
+                    publishListing(
+                        title = "$productNamePrefix · MTP 读取中（${files.size + folders.size}/${handles.size + prevCount}）",
+                        summary = CatalogSummary(files.toList(), folders.toList()),
+                        logTail = lastLogTail,
+                    )
                 }
             }
             val summary = CatalogSummary(files, folders)
@@ -464,10 +473,10 @@ class ProbeController(
         }
     }
 
-    /** MTP 日期是 epoch 秒（捕获优先，回退修改，0=无）。 */
+    /** MTP 日期：framework 已是 epoch 毫秒（捕获优先，回退修改，0=无）。 */
     private fun mtpMillis(info: android.mtp.MtpObjectInfo): Long? {
-        val seconds = info.dateCreated.takeIf { it != 0L } ?: info.dateModified.takeIf { it != 0L }
-        return seconds?.times(1000L)
+        val ms = info.dateCreated.takeIf { it != 0L } ?: info.dateModified.takeIf { it != 0L }
+        return ms.takeIf { it != 0L }
     }
 
     // ---------- 清单发布 + 相机页快照 ----------
