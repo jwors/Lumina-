@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 760" width="1000" height="760" role="img" aria-labelledby="t d">
+  <title id="t">Lumina 工具栏三个 UI 方案对比</title>
+  <desc id="d">A 极简线稿图标 / B 展开收缩双态切 / C 常驻双图标按钮</desc>
+  <rect width="1000" height="760" fill="#F4F2EA"/>
+
+  <!-- ============ 方案 A：极简线稿图标 ============ -->
+  <text x="40" y="60" font-family="Georgia, serif" font-size="26" fill="#20251F">A · 极简线稿（F·Grain 线条语言）</text>
+  <!-- 工具栏条 -->
+  <rect x="40" y="84" width="920" height="64" rx="16" fill="#FAF8F2" stroke="#E3DFD3"/>
+  <!-- 排序 icon：竖杆 + 箭头方向（新→旧 = ↓ 加一条短横线代表基线） -->
+  <g stroke="#20251F" stroke-width="3" stroke-linecap="round" fill="none">
+    <line x1="84" y1="102" x2="84" y2="128"/>
+    <path d="M78 122 L84 130 L90 122"/>
+  </g>
+  <!-- 排序方向的小徽标 -->
+  <text x="102" y="122" font-size="15" fill="#767F72">新 → 旧</text>
+  <!-- 全部收缩 icon：双箭头朝上（folds up） -->
+  <g stroke="#767F72" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M826 126 L838 114 L850 126"/>
+    <path d="M826 134 L838 122 L850 134"/>
+  </g>
+  <text x="872" y="127" font-size="14" fill="#767F72">全部收缩</text>
+  <!-- music-bar 说明 -->
+  <text x="40" y="176" font-size="14" fill="#767F72">排序与折叠都是 icon-only；点按即翻转 · 最高密度</text>
+
+  <!-- 示例行：两日分组 -->
+  <g transform="translate(40,196)">
+    <rect x="0" y="0" width="920" height="42" rx="10" fill="#EFECe2"/>
+    <text x="16" y="27" font-size="15" fill="#20251F" font-weight="bold">▾ 2025-09-20　　(7 张)</text>
+    <text x="740" y="27" font-size="14" fill="#767F72">全选本日</text>
+    <rect x="0" y="52" width="920" height="34" rx="8" fill="#F4F2EA"/>
+    <text x="24" y="74" font-size="13" fill="#20251F">DSC_1992.NEF</text>
+    <text x="800" y="74" font-size="13" fill="#767F72">15.4 MB</text>
+  </g>
+
+  <!-- ============ 方案 B：胶囊双态按钮 ============ -->
+  <text x="40" y="320" font-family="Georgia, serif" font-size="26" fill="#20251F">B · 胶囊按钮（图标+短文字，状态分明）</text>
+  <rect x="40" y="344" width="920" height="64" rx="32" fill="#FAF8F2" stroke="#E3DFD3"/>
+  <!-- 排序胶囊：可点态 -->
+  <rect x="56" y="354" width="120" height="44" rx="22" fill="#20251F"/>
+  <g stroke="#F4F2EA" stroke-width="3" stroke-linecap="round" fill="none">
+    <line x1="82" y1="366" x2="82" y2="386"/>
+    <path d="M76 380 L82 388 L88 380"/>
+  </g>
+  <text x="96" y="384" font-size="14" fill="#F4F2EA">新 → 旧</text>
+  <!-- 全部收缩胶囊（fold 状态） -->
+  <rect x="760" y="354" width="160" height="44" rx="22" fill="#E0E5D8"/>
+  <g stroke="#20251F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M780 382 L792 372 L804 382"/>
+    <path d="M780 391 L792 381 L804 391"/>
+  </g>
+  <text x="812" y="383" font-size="14" fill="#20251F">全部收缩</text>
+  <text x="40" y="436" font-size="14" fill="#767F72">实心胶囊 = 当前激活态 · 一眼看清哪个方向在生效</text>
+
+  <!-- ============ 方案 C：常驻双图标 ============ -->
+  <text x="40" y="500" font-family="Georgia, serif" font-size="26" fill="#20251F">C · 常驻双图标（两枚都在，高亮可用）</text>
+  <!-- 工具栏条 -->
+  <rect x="40" y="524" width="920" height="64" rx="16" fill="#FAF8F2" stroke="#E3DFD3"/>
+  <!-- 排序（同 A） -->
+  <g stroke="#20251F" stroke-width="3" stroke-linecap="round" fill="none">
+    <line x1="84" y1="542" x2="84" y2="568"/>
+    <path d="M78 562 L84 570 L90 562"/>
+  </g>
+  <text x="102" y="562" font-size="15" fill="#767F72">新 → 旧</text>
+  <!-- 右侧：两枚常驻图标（收起 = 高亮 / 展开 = 淡） -->
+  <g stroke="#20251F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M816 572 L828 560 L840 572"/>
+    <path d="M816 580 L828 568 L840 580"/>
+  </g>
+  <text x="852" y="578" font-size="13" fill="#20251F">收缩</text>
+  <g stroke="#767F72" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.4">
+    <path d="M916 568 L928 580 L940 568"/>
+    <path d="M916 560 L928 572 L940 560"/>
+  </g>
+  <text x="952" y="578" font-size="13" fill="#767F72" opacity="0.6">展开</text>
+  <text x="40" y="616" font-size="14" fill="#767F72">两枚常驻（透明度区分可用性）· 触点最大 · 免记忆</text>
+
+  <!-- 说明 footer -->
+  <text x="40" y="700" font-family="Georgia, serif" font-size="16" fill="#20251F">三案共用 F·Grain 配色与线条语言；图标全部为矢量路径（无字体依赖）。</text>
+  <text x="40" y="728" font-size="14" fill="#767F72">选定后在 Compose 内以 Canvas/文字字形同款实现（↑↓▾▸ 常用字形 + 自绘双箭头）。</text>
+</svg>

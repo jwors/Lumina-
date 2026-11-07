@@ -314,7 +314,7 @@ private fun CameraPage(
             )
         }
 
-        // 排序 + 分组展开/收缩状态（用户 M1 评审建议：流式列表的时间排序与折叠）
+        // 排序 + 分组展开/收缩（用户决定：纯图标、零文字）
         var newestFirst by remember { mutableStateOf(true) }
         var collapsedDays by remember { mutableStateOf(setOf<String>()) }
 
@@ -322,45 +322,36 @@ private fun CameraPage(
             if (newestFirst) m.entries.sortedByDescending { it.key } else m.entries.sortedBy { it.key }
         }
         Log.i("Lumina.UI", "CameraPage recompose: items=${state.cameraItems.size} groups=${grouped.size} checked=${state.checkedNames.size}")
-        // 排序切换（图标按钮：↓ 新→旧 / ↑ 旧→新）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 排序图标：↓ 新→旧 / ↑ 旧→新（点按翻转）
             Text(
                 if (newestFirst) "↓" else "↑",
-                fontSize = 16.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = InkTeal,
-                modifier = Modifier.clickable { newestFirst = !newestFirst },
-            )
-            Text(
-                if (newestFirst) "新 → 旧" else "旧 → 新",
-                fontSize = 12.sp,
-                color = SageText,
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier
+                    .clickable { newestFirst = !newestFirst }
+                    .padding(6.dp),
             )
             Modifier.weight(1f).let { Spacer(modifier = it) }
-            // 全部收缩 / 全部展开：状态切换按钮
-            if (collapsedDays.isNotEmpty()) {
-                Text(
-                    "全部展开",
-                    fontSize = 12.sp,
-                    color = InkTeal,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { collapsedDays = emptySet() },
-                )
-            } else if (state.cameraItems.isNotEmpty()) {
-                Text(
-                    "全部收缩",
-                    fontSize = 12.sp,
-                    color = InkTeal,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { collapsedDays = state.cameraItems.map { it.dateKey }.toSet() },
-                )
-            }
+            // 全部展开/收缩：单枚状态切换图标（▲=可展开 / ▼=可收缩）
+            Text(
+                if (collapsedDays.isNotEmpty()) "▲" else "▼",
+                fontSize = 16.sp,
+                color = InkTeal,
+                modifier = Modifier
+                    .clickable {
+                        collapsedDays =
+                            if (collapsedDays.isNotEmpty()) emptySet()
+                            else state.cameraItems.map { it.dateKey }.toSet()
+                    }
+                    .padding(6.dp),
+            )
         }
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
             grouped.forEach { (dateKey, items) ->
