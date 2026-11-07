@@ -1,6 +1,6 @@
 # M1 · Ingest 复制 + Master 图库
 
-> Status: ready-for-agent
+> Status: implemented — 06 真机验收达成（9 文件真实 Ingest 落盘 + 图库呈现 + 日期修复迁移）；PTP GetObject 自研引擎与 JPEG 缩略图补录移交 M2（见 retro.md）
 > 上游：`docs/SPEC-Lumina.md` §3.1/§3.2（含 2026-11-04 修订）、`docs/adr/0004`、词汇 `GLOSSARY.md`
 > grilling 结论：用户 7 问已拍板（2026-11-04），见本文"Decisions"
 
