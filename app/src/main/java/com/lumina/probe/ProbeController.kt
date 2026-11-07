@@ -555,24 +555,24 @@ class ProbeController(
         } else {
             null
         }
-        mainThread.post {
-            onState(
-                ProbeUiState(
-                    connectionText = title,
-                    busy = false,
-                    model = lastTitle?.substringBefore(" ·"),
-                    summary = summaryOut,
-                    logTail = lastLogTail.takeLast(LOG_TAIL),
-                    cameraItems = cameraItems,
-                    checkedNames = checkedNames,
-                    engineReady = engine != null,
-                    ingestProgress = progress,
-                    ingestStatus = lastIngestStatus,
-                    galleryItems = lastGalleryItems,
-                    galleryStatus = lastGalleryStatus,
-                ),
-            )
-        }
+        // 经由统一 emit（合并 + 台账登记）——否则相机列表进不了 merge 台账，
+        // 一条文本类 emit 就会把 cameraItems 清零（07 号 bug 实锤根因）
+        emit(
+            ProbeUiState(
+                connectionText = title,
+                busy = false,
+                model = lastTitle?.substringBefore(" ·"),
+                summary = summaryOut,
+                logTail = lastLogTail.takeLast(LOG_TAIL),
+                cameraItems = cameraItems,
+                checkedNames = checkedNames,
+                engineReady = engine != null,
+                ingestProgress = progress,
+                ingestStatus = lastIngestStatus,
+                galleryItems = lastGalleryItems,
+                galleryStatus = lastGalleryStatus,
+            ),
+        )
     }
 
     private fun ingestItemOf(item: CameraItem) =

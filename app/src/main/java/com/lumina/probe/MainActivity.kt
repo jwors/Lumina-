@@ -1,6 +1,7 @@
 package com.lumina.probe
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -50,7 +51,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         var state by mutableStateOf(ProbeUiState("未连接 · 请插入相机"))
-        val controller = ProbeController(this) { next -> state = next }
+        val controller = ProbeController(this) { next ->
+            Log.i("Lumina.UI", "onState: conn='${next.connectionText.take(40)}' " +
+                "cameraItems=${next.cameraItems.size} checked=${next.checkedNames.size} " +
+                "engineReady=${next.engineReady} gallery=${next.galleryItems.size}")
+            state = next
+        }
         setContent {
             Surface(color = FilmBackground) {
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -309,6 +315,7 @@ private fun CameraPage(
         }
 
         val grouped = state.cameraItems.groupBy { it.dateKey }
+        Log.i("Lumina.UI", "CameraPage recompose: items=${state.cameraItems.size} groups=${grouped.size} checked=${state.checkedNames.size}")
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
             grouped.forEach { (dateKey, items) ->
                 item(key = "day-$dateKey") {
