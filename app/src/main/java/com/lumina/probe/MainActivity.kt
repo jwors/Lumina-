@@ -314,37 +314,91 @@ private fun CameraPage(
             )
         }
 
-        val grouped = state.cameraItems.groupBy { it.dateKey }
+        // 排序 + 分组展开/收缩状态（用户 M1 评审建议：流式列表的时间排序与折叠）
+        var newestFirst by remember { mutableStateOf(true) }
+        var collapsedDays by remember { mutableStateOf(setOf<String>()) }
+
+        val grouped = state.cameraItems.groupBy { it.dateKey }.let { m ->
+            if (newestFirst) m.entries.sortedByDescending { it.key } else m.entries.sortedBy { it.key }
+        }
         Log.i("Lumina.UI", "CameraPage recompose: items=${state.cameraItems.size} groups=${grouped.size} checked=${state.checkedNames.size}")
+        // 排序切换行：时间「新→旧 / 旧→新」
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (newestFirst) "排序：新 → 旧" else "排序：旧 → 新",
+                fontSize = 12.sp,
+                color = InkTeal,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { newestFirst = !newestFirst },
+            )
+            Modifier.weight(1f).let { Spacer(modifier = it) }
+            Text(
+                "全部展开" ,
+                fontSize = 12.sp,
+                color = if (collapsedDays.isEmpty()) CreamFaint else InkTeal,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable(enabled = collapsedDays.isNotEmpty()) { collapsedDays = emptySet() }
+                    .padding(start = 12.dp),
+            )
+        }
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
             grouped.forEach { (dateKey, items) ->
+                val collapsed = dateKey in collapsedDays
                 item(key = "day-$dateKey") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, bottom = 4.dp),
+                            .padding(top = 16.dp, bottom = 4.dp)
+                            .clickable {
+                                collapsedDays =
+                                    if (collapsed) collapsedDays - dateKey
+                                    else collapsedDays + dateKey
+                            },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // 展开指示箭头
+                        Text(
+                            if (collapsed) "▸" else "▾",
+                            fontSize = 12.sp,
+                            color = SageText,
+                            modifier = Modifier.padding(end = 6.dp),
+                        )
                         Text(dateKey, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText)
+                        Text(
+                            "　${if (collapsed) "(${items.size} 张)" else ""}",
+                            fontSize = 11.sp,
+                            color = CreamFaint,
+                        )
                         Modifier.weight(1f).let { Spacer(modifier = it) }
                         val dayAllChecked = items.all {
                             state.checkedNames.contains(it.name)
                         }
-                        Text(
-                            if (dayAllChecked) "清空本日" else "全选本日",
-                            fontSize = 12.sp,
-                            color = InkTeal,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable {
-                                controller.toggleDay(dateKey, !dayAllChecked)
-                            },
-                        )
+                        if (!collapsed) {
+                            Text(
+                                if (dayAllChecked) "清空本日" else "全选本日",
+                                fontSize = 12.sp,
+                                color = InkTeal,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clickable {
+                                    controller.toggleDay(dateKey, !dayAllChecked)
+                                },
+                            )
+                        }
                     }
                 }
-                items(items, key = { "obj-${it.handle}:${it.name}" }) { obj ->
-                    CameraRow(state, controller, obj,
-                        checked = state.checkedNames.contains(obj.name),
-                        onToggle = { controller.toggleCheck(obj) })
+                if (!collapsed) {
+                    val ordered = if (newestFirst) items.asReversed() else items
+                    items(ordered, key = { "obj-${it.handle}:${it.name}" }) { obj ->
+                        CameraRow(state, controller, obj,
+                            checked = state.checkedNames.contains(obj.name),
+                            onToggle = { controller.toggleCheck(obj) })
+                    }
                 }
             }
         }
