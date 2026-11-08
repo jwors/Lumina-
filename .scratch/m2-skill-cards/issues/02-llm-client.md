@@ -7,7 +7,15 @@
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
+
+## Comments
+
+- `LlmClient` 缝隙：`complete(cfg, prompt, imageJpeg?)` → `LlmOutcome`（Text(token 透传) / RateLimited(Retry-After) / Http(code+片段) / NetworkTimeout(reason)）——**绿色四通道**，Pass 执行器（04）无逻辑分支歧义。
+- `OkHttpLlmClient` 薄实现：手撸 chat.completions（messages[0].content 数组：text + image_url base64 NO_WRAP）；Authorization Bearer；read 90s；429 提取 Retry-After；usage → prompt/completion tokens。
+- **Ledger 表 v4**：`ledger`（objectName/model/promptChars/withImage/outcome/tokens/时间）+ DAO（insert/recent 200/okCount）——语义=GLOSSARY Ledger（不存 prompt 全文）。
+- `FakeLlmClient`：队列吐出式（缺省 Text("fake")）+ calls 观测；6 例 JVM 测试（顺序吐出/token 速率/原因路径/cfg 传递）。
+- 证据：**56/56 全绿**（+FakeLlmClientTest 6）；`assembleDebug` 通过；装机 Success。
 
 - [ ] LlmClient 接口 + 结果密封类型（Text/RateLimited/Http(x)/NetworkTimeout）
 - [ ] FakeLlmClient 4 路径测试
