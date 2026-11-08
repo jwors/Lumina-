@@ -31,6 +31,8 @@ interface InventoryStore {
     fun findByRelPath(relPath: String): MasterInventoryEntity?
     fun all(): List<MasterInventoryEntity>
     fun deleteByRelPath(relPath: String): Int
+    /** 覆盖 Master 后体积同步（M3 保存收尾用）。 */
+    fun updateSizeBytes(relPath: String, sizeBytes: Long): Int
 }
 
 /** JVM/单测用内存实现（语义与 Room DAO 对齐）。 */
@@ -52,6 +54,13 @@ class InMemoryInventoryStore : InventoryStore {    private val rows = mutableLis
         val count = rows.count { it.relPath == relPath }
         rows.removeAll { it.relPath == relPath }
         return count
+    }
+
+    override fun updateSizeBytes(relPath: String, sizeBytes: Long): Int {
+        val idx = rows.indexOfFirst { it.relPath == relPath }
+        if (idx < 0) return 0
+        rows[idx] = rows[idx].copy(sizeBytes = sizeBytes)
+        return 1
     }
 }
 
@@ -89,6 +98,10 @@ class MasterStore(
     }
 
     fun fileOf(relPath: String): File = File(root, relPath)
+
+    /** 覆盖 Master 后体积同步（M3 保存收尾用）。 */
+    fun updateSizeBytes(relPath: String, sizeBytes: Long): Int =
+        inventory.updateSizeBytes(relPath, sizeBytes)
 
     /** 同名/同路径是否已登记（去重判断用）。 */
     fun findByRelPath(relPath: String): MasterInventoryEntity? = inventory.findByRelPath(relPath)

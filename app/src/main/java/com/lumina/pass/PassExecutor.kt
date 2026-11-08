@@ -22,6 +22,8 @@ class PassExecutor(
     private val sink: PassSink,
     private val retryDelayMs: Long = 2000,
     private val now: () -> Long = System::currentTimeMillis,
+    /** 取消缝：返回 true 时跳过剩余条目（在途请求照常跑完一格）。默认永不取消。 */
+    private val abortCheck: () -> Boolean = { false },
 ) {
 
     /** 内置中文默认 prompt（卡内未带 prompt 的步骤落在这些默认上） */
@@ -43,6 +45,7 @@ class PassExecutor(
         var ok = 0
         var fail = 0
         for (name in items) {
+            if (abortCheck()) break
             var anySuccess = false
             var lastNote = ""
             for (step in card.steps) {

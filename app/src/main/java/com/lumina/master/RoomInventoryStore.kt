@@ -18,4 +18,5 @@ class RoomInventoryStore(private val dao: MasterInventoryDao) : InventoryStore {
     override fun findByRelPath(relPath: String): MasterInventoryEntity? = dao.findByRelPath(relPath)
     override fun all(): List<MasterInventoryEntity> = dao.all()
     override fun deleteByRelPath(relPath: String): Int = dao.deleteByRelPath(relPath)
+    override fun updateSizeBytes(relPath: String, sizeBytes: Long): Int = dao.updateSizeBytes(relPath, sizeBytes)
 }

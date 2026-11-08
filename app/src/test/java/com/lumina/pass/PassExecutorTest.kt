@@ -113,4 +113,27 @@ class PassExecutorTest {
         assertEquals(0, fake.calls.size)
         assertEquals(0, sink.ledgers.size)
     }
+
+    @Test
+    fun `abort check stops between items and leaves rest queued`() {
+        val singleStepCard = CardEngine.parse(
+            """{"name":"单步","version":1,"steps":[{"type":"annotate","prompt":"标注它"}]}""",
+        ) { "card-1s" }
+        val sink = RecordingSink(cfg)
+        sink.jpegs["A.JPG"] = byteArrayOf(1)
+        sink.jpegs["B.JPG"] = byteArrayOf(2)
+        val fake = FakeLlmClient()
+        val cb = rec()
+        // 取消缝：一张处理完成后即停（removed 非空 = 第一张已消费）
+        val executor = PassExecutor(
+            { fake }, { cfg }, sink, retryDelayMs = 0, now = { 0L },
+            abortCheck = { sink.removed.isNotEmpty() },
+        )
+        executor.run(listOf("A.JPG", "B.JPG"), singleStepCard, cb)
+
+        assertEquals(listOf("A.JPG"), sink.removed)  // 第二张未被消费（队列仍含 B.JPG）
+        assertEquals(1, sink.results.size)           // 单步卡：第一张 1 条结果
+        assertEquals(listOf(1 to 0), cb.dones)       // 结算：仅统计已处理（成功 1 · 失败 0）
+        assertEquals(1, cb.items.size)
+    }
 }

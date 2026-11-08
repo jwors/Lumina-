@@ -52,6 +52,9 @@ interface MasterInventoryDao {
     @Query("DELETE FROM master_inventory WHERE relPath = :relPath")
     fun deleteByRelPath(relPath: String): Int
 
+    @Query("UPDATE master_inventory SET sizeBytes = :sizeBytes WHERE relPath = :relPath")
+    fun updateSizeBytes(relPath: String, sizeBytes: Long): Int
+
     @Query("DELETE FROM master_inventory")
     fun clear()
 }

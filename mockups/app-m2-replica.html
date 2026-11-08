@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumina M2 · 界面复刻 v3（现代操作习惯）</title>
+<style>
+  :root{
+    --film:#F4F2EA; --ink:#20251F; --sage:#767F72; --cream:#B9B3A6;
+    --divider:#E3DFD3; --pill:#E0E5D8; --row:rgba(185,179,166,.08);
+    --warn:#8a4a2a; --ok:#5c7a4e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    background:#2b2b28; min-height:100vh; display:flex; align-items:center;
+    justify-content:center; padding:24px; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  .phone{
+    width:390px; height:800px; background:var(--film); border-radius:36px;
+    box-shadow:0 24px 60px rgba(0,0,0,.5), inset 0 0 0 10px #111;
+    overflow:hidden; display:flex; flex-direction:column; position:relative;
+  }
+  .screen{flex:1; display:flex; flex-direction:column; padding:16px 22px 10px; overflow:hidden}
+
+  /* ── 顶部 ── */
+  .title-row{display:flex; align-items:flex-end}
+  .title-row h1{font-size:26px; font-weight:700; color:var(--ink); line-height:1.1}
+  .title-row .spacer{flex:1}
+  .title-row .ver{font-size:10px; color:var(--cream)}
+  .tabs{display:flex; background:var(--divider); padding:4px; margin:8px 0 0}
+  .tab{flex:1; text-align:center; padding:8px 0; font-size:16px; color:var(--sage); cursor:pointer; user-select:none; border-radius:2px}
+  .tab.active{background:var(--pill); color:var(--ink); font-weight:600}
+  .page{flex:1; overflow:hidden; display:flex; flex-direction:column; margin-top:6px; position:relative}
+
+  /* ── 通用 ── */
+  .conn{font-size:14px; color:var(--sage)}
+  .faint{font-size:12px; color:var(--cream)}
+  .sage12{font-size:12px; color:var(--sage)}
+  .sep{height:1px; background:var(--divider); width:100%}
+  .row{display:flex; align-items:center}
+  .bar{height:4px; background:var(--divider); width:100%; overflow:hidden; border-radius:2px}
+  .bar>i{display:block; height:100%; background:var(--ink); width:0%; transition:width .3s}
+  .bar.thin{height:3px}
+  .center-empty{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px}
+  .clicky{cursor:pointer; user-select:none}
+  .btn-dark{background:var(--ink); color:var(--film); font-size:14px; font-weight:600; padding:10px 24px; display:inline-block; cursor:pointer; user-select:none; border-radius:3px}
+  .btn-pill{background:var(--ink); color:var(--film); font-size:14px; font-weight:600; padding:12px 0; text-align:center; border-radius:22px; cursor:pointer; flex:1}
+  .btn-pill.ghost{background:transparent; color:var(--sage); flex:0 0 auto; padding:12px 18px}
+  .btn-pill.disabled{opacity:.35; pointer-events:none}
+  .banner{background:var(--pill); color:var(--ink); font-size:13px; font-weight:600; padding:8px 12px; cursor:pointer; border-radius:3px}
+
+  /* ══ 全局浮标（后台执行提示，现代 App 的"轻通知"位） ══ */
+  .float-chip{
+    position:absolute; top:0; left:0; right:0; z-index:60;
+    display:flex; align-items:center; gap:8px;
+    background:var(--ink); color:var(--film);
+    padding:9px 14px; font-size:13px; cursor:pointer;
+    animation:drop .25s ease;
+  }
+  @keyframes drop{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+  .float-chip .bar{flex:1; height:3px; background:rgba(244,242,234,.25)}
+  .float-chip .bar>i{background:var(--film)}
+  .float-chip.done{background:var(--ok)}
+
+  /* ── 相机页 ── */
+  .day-gap{height:14px}
+  .day-head{display:flex; align-items:center; padding:0 0 4px; cursor:pointer}
+  .day-head .arrow{font-size:12px; color:var(--sage); margin-right:6px}
+  .day-head .dname{font-size:12px; font-weight:600; color:var(--sage)}
+  .day-head .cnt{font-size:11px; color:var(--cream)}
+  .day-head .flex{flex:1}
+  .day-head .sel{font-size:12px; font-weight:600; color:var(--ink)}
+  .cam-row{display:flex; align-items:center; background:var(--row); padding:8px 4px 8px 0}
+  .cbx{width:22px; height:22px; border:2px solid var(--sage); border-radius:4px; margin:0 8px 0 4px; flex:none; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; font-weight:700; background:transparent}
+  .cbx.checked{background:var(--ink); border-color:var(--ink)}
+  .fname{flex:1; font-size:14px; color:var(--ink)}
+  .fstat{font-size:11px; color:var(--sage)}
+  .fsize{font-size:12px; color:var(--sage); margin-left:8px}
+  .tools-row{display:flex; align-items:center; padding:2px 0 8px}
+  .pager{padding:6px 0 0; display:flex; align-items:center}
+  .pager .sort{font-size:20px; font-weight:700; color:var(--ink); cursor:pointer; padding:4px 6px}
+  .pager .fold{font-size:16px; color:var(--ink); cursor:pointer; padding:4px 6px; margin-left:auto}
+  .statusbar{background:var(--divider); padding:4px 8px; margin-top:8px; border-radius:3px}
+  .logtail{font-size:10px; font-family:Consolas,monospace; color:var(--sage); line-height:1.5}
+
+  /* ── 图库（多选模式 + 底部操作栏） ── */
+  .gal-tools{display:flex; align-items:center; margin-bottom:2px; min-height:30px}
+  .gal-tools .feed{font-size:13px; font-weight:600; color:var(--ink)}
+  .gal-tools .mode-hint{font-size:12px; color:var(--sage); margin-left:auto}
+  .gal-tools .in-multiselect{font-size:13px; font-weight:700; color:var(--ink)}
+  .select-all{font-size:12px; font-weight:600; color:var(--ink); margin-left:14px}
+  .thumb{width:56px; height:52px; flex:none; margin:0 12px 0 2px; border-radius:3px; background:linear-gradient(135deg,#9aa598,#5d6b60 60%,#3c443e); display:flex; align-items:center; justify-content:center; color:#e8ead9; font-size:10px; letter-spacing:1px}
+  .thumb.work{background:linear-gradient(135deg,#c98a3e,#a9542e 55%,#6d3a24)}
+  .raw-ph{background:var(--pill); padding:9px 13px; text-align:center; margin:0 12px 0 2px; border-radius:3px}
+  .raw-ph b{display:block; font-size:14px; color:var(--ink)}
+  .raw-ph span{font-size:10px; color:var(--sage)}
+  .badge{color:var(--cream); font-size:11px; margin-left:6px}
+  .check-circle{width:22px; height:22px; border:2px solid var(--sage); border-radius:50%; flex:none; margin-right:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:700; background:rgba(244,242,234,.6)}
+  .check-circle.checked{background:var(--ink); border-color:var(--ink)}
+  .feed-item{background:var(--row); padding:8px 4px; margin-bottom:2px}
+  .feed-item .fn{font-size:14px; font-weight:600; color:var(--ink)}
+  .feed-item .kind{font-size:11px; color:var(--cream)}
+  .feed-item .ftxt{font-size:13px; color:var(--ink); padding:4px 0 8px; line-height:1.6}
+
+  /* 底部固定操作栏（多选场景，相册类 App 的标准位） */
+  .bottom-bar{
+    position:absolute; left:0; right:0; bottom:0; z-index:50;
+    background:var(--film); border-top:1px solid var(--divider);
+    padding:10px 22px 16px; display:flex; align-items:center; gap:12px;
+    animation:up .2s ease;
+  }
+  @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+
+  /* ── 滤镜库（卡片化：封面 + 名称 + 右箭头） ── */
+  .card{
+    background:var(--row); border-radius:10px; padding:12px; margin-bottom:12px;
+    display:flex; gap:12px; cursor:pointer; position:relative;
+  }
+  .card .cover{
+    width:84px; height:84px; border-radius:8px; flex:none;
+    display:flex; align-items:flex-end; padding:6px;
+    color:rgba(255,255,255,.85); font-size:10px; letter-spacing:1px;
+  }
+  .card .c1{background:linear-gradient(160deg,#7a8a80,#45544b 55%,#2c352f)}
+  .card .c2{background:linear-gradient(160deg,#c9a06a,#8a5a3a 55%,#4d3222)}
+  .card .info{flex:1; display:flex; flex-direction:column; padding-top:2px}
+  .card .name{font-size:16px; font-weight:600; color:var(--ink)}
+  .card .meta{font-size:12px; color:var(--sage); margin-top:4px}
+  .card .steps-line{font-size:11.5px; color:var(--sage); margin-top:auto}
+  .card .chev{align-self:center; color:var(--cream); font-size:18px}
+  .mode-switch{display:flex; border:1px solid var(--sage); border-radius:14px; overflow:hidden; width:fit-content; margin:6px 0 10px}
+  .mode-switch span{padding:5px 13px; font-size:12px; color:var(--sage); cursor:pointer}
+  .mode-switch span.on{background:var(--ink); color:var(--film); font-weight:600}
+  .note{font-size:11.5px; line-height:1.6; border-radius:6px; padding:7px 10px; margin-top:4px}
+  .note.warn{color:var(--warn); background:rgba(138,74,42,.07); border-left:3px solid var(--warn)}
+  .note.good{color:var(--ok); background:rgba(92,122,78,.08); border-left:3px solid var(--ok)}
+
+  /* ── 底部半屏弹层（现代 App 承载执行过程的容器） ── */
+  .sheet-mask{position:absolute; inset:0; z-index:70; background:rgba(20,20,18,.4)}
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:71;
+    background:var(--film); border-radius:18px 18px 0 0;
+    padding:14px 20px calc(20px + 8px);
+    animation:rise .25s ease;
+  }
+  @keyframes rise{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .sheet .grab{width:36px; height:4px; background:var(--divider); border-radius:2px; margin:0 auto 12px}
+  .sheet .head{display:flex; align-items:center}
+  .sheet .head h3{font-size:17px; font-weight:700; color:var(--ink)}
+  .sheet .head .x{margin-left:auto; color:var(--sage); font-size:15px; padding:4px 6px; cursor:pointer}
+  .sheet .sub{font-size:12.5px; color:var(--sage); margin-top:4px; line-height:1.6}
+  .sheet .cta-row{display:flex; gap:10px; margin-top:16px}
+  .sheet .runlist{margin-top:12px; max-height:180px; overflow-y:auto; border:1px solid var(--divider); border-radius:8px; padding:2px 0}
+  .sheet .runlist::-webkit-scrollbar{width:0}
+  .runlist .rl{display:flex; align-items:center; gap:8px; padding:7px 12px; font-size:12.5px; color:var(--ink)}
+  .runlist .rl .tick{width:16px; text-align:center; font-size:12px}
+  .runlist .rl.now{font-weight:600}
+  .runlist .rl .spin{display:inline-block; width:12px; height:12px; border:2px solid var(--divider); border-top-color:var(--ink); border-radius:50%; animation:rot .8s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .runlist .rl .kind{margin-left:auto; font-size:11px; color:var(--cream)}
+  .save-opt{display:flex; align-items:center; gap:10px; border:1.5px solid var(--divider); border-radius:10px; padding:10px 12px; margin:8px 0; cursor:pointer}
+  .save-opt.on{border-color:var(--ink); background:var(--row)}
+  .save-opt .dot{width:16px; text-align:center; color:var(--ink); font-size:14px; flex:none}
+  .save-opt .tag{margin-left:auto; font-size:11px; flex:none}
+  .result-hero{text-align:center; margin:14px 0 4px}
+  .result-hero .big{font-size:30px}
+  .result-hero .desc{font-size:13px; color:var(--sage); margin-top:4px}
+
+  /* ── 设置页 ── */
+  .set-scroll{flex:1; overflow-y:auto; padding-bottom:12px}
+  .set-scroll::-webkit-scrollbar{width:0}
+  .h2{font-size:14px; font-weight:600; color:var(--ink); margin:16px 0 6px}
+  .tpl{display:flex; background:rgba(185,179,166,.4); margin:4px 0; padding:8px 12px; cursor:pointer; border-radius:3px}
+  .tpl.on{background:var(--pill)}
+  .tpl .dot{margin-right:6px; color:var(--ink)}
+  .tpl .tname{font-size:13px; color:var(--sage)}
+  .tpl.on .tname{color:var(--ink)}
+  .inp{width:100%; border:1px solid var(--sage); background:transparent; padding:10px 12px; font-size:14px; margin:8px 0; color:var(--ink); border-radius:3px}
+  .inp::placeholder{color:var(--cream)}
+  .switch{width:46px; height:26px; background:var(--divider); border-radius:13px; position:relative; cursor:pointer; transition:.2s; flex:none}
+  .switch::after{content:""; position:absolute; width:22px; height:22px; border-radius:50%; background:#fff; top:2px; left:2px; transition:.2s}
+  .switch.on{background:var(--ink)}
+  .switch.on::after{left:22px}
+  .ledger{font-size:10px; font-family:Consolas,monospace; color:var(--sage); line-height:1.6}
+  .privacy{font-size:11px; color:var(--cream); line-height:1.7; margin-bottom:12px}
+
+  /* ── 详情弹窗（居中，适合看整篇结果） ── */
+  .dlg-mask{position:absolute; inset:0; background:rgba(20,20,18,.35); z-index:70; display:flex; align-items:center; justify-content:center; padding:28px}
+  .dlg{background:var(--film); border-radius:10px; padding:18px; width:100%; box-shadow:0 16px 40px rgba(0,0,0,.35)}
+  .dlg h3{font-size:16px; font-weight:600; color:var(--ink)}
+  .dlg .actions{display:flex; margin-top:12px; border-top:1px solid var(--divider); padding-top:6px}
+  .dlg .actions span{padding:8px 10px; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer}
+  .dlg .actions .close{margin-left:auto; font-size:14px; font-weight:400}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <!-- 补跑横幅 -->
+  <div id="banner" class="banner hidden" style="margin:10px 16px 0" onclick="runCatchUp()">队列还有 2 张照片没跑完 · 点此补跑</div>
+  <!-- 全局执行浮标（现代 App：任务可离开页继续，浮标永远可见） -->
+  <div id="chip" class="float-chip hidden" onclick="openSheetForActive()"></div>
+
+  <div class="screen">
+    <div class="title-row">
+      <h1>Lumina</h1><div class="spacer"></div><div class="ver">M2</div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div class="page" id="page"></div>
+  </div>
+
+  <div class="sheet-mask hidden" id="mask" onclick="dismissSheet()"></div>
+  <div class="sheet hidden" id="sheet"></div>
+  <div class="bottom-bar hidden" id="bottombar"></div>
+
+  <div class="dlg-mask hidden" id="dlg-mask">
+    <div class="dlg">
+      <h3 id="dlg-title"></h3>
+      <div style="font-size:13px;color:var(--sage);margin-top:4px" id="dlg-meta"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--ink);margin-top:10px">智能（M2）</div>
+      <div id="dlg-smart" class="sage12" style="line-height:1.6;width:300px"></div>
+      <div id="dlg-busy" class="busy sage12 hidden" style="margin-top:8px"></div>
+      <div class="actions">
+        <span onclick="runStep('标注')">标注</span>
+        <span onclick="runStep('文案')">文案</span>
+        <span onclick="runStep('滤镜')">滤镜</span>
+        <span class="close" onclick="closeDlg()">关闭</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="position:fixed;left:24px;top:24px;color:#8d8d85;font-size:13px;max-width:290px;line-height:1.8">
+  <b style="color:#c8c8bd">Lumina M2 复刻 v3</b><br>
+  对标主流修图/相册 App 的三件套：<br>
+  ① 图库多选 → 底部固定操作栏<br>
+  ② 滤镜包卡片 → 点击开半屏弹层再执行<br>
+  ③ 执行可后台，顶部浮标持续可见
+</div>
+
+<script>
+// ══════════ 演示数据 ══════════
+const OUT = 'https://api.deepseek.com/v1';
+const camItems = [
+  {name:'DCP_5821.JPG', size:9123840,  date:'2026-11-08'},
+  {name:'DCP_5822.JPG', size:9216000,  date:'2026-11-08'},
+  {name:'DCP_5823.NEF', size:29360128, date:'2026-11-08'},
+  {name:'DCP_5809.JPG', size:8847360,  date:'2026-11-02'},
+  {name:'DCP_5810.JPG', size:8963072,  date:'2026-11-02'},
+  {name:'DCP_5811.NEF', size:30408704, date:'2026-11-02'},
+];
+const gallery = [
+  {name:'DCP_5821.JPG', date:'2026-11-08', size:'8.7 MB',  kind:'jpg',
+   smart:['山雾压低机位，雾在 z 字形木栈道上勾出视线第二级台阶。建议保留，重点传播位。',
+          '「雾没进门，栈道先让了一条路。」',
+          '滤镜：提亮雾面高光 +0.3EV，压深栈道阴影；省 -1 对比保持颗粒。'], smartCount:3},
+  {name:'DCP_5822.JPG', date:'2026-11-08', size:'8.8 MB',  kind:'jpg', smart:[], smartCount:0},
+  {name:'DCP_5823.NEF', date:'2026-11-08', size:'28.0 MB', kind:'raw', smart:[], smartCount:0},
+  {name:'DCP_5809.JPG', date:'2026-11-02', size:'8.4 MB',  kind:'jpg', smart:[], smartCount:0, work:true},
+  {name:'DCP_5810.JPG', date:'2026-11-02', size:'8.5 MB',  kind:'jpg', smart:[], smartCount:0},
+  {name:'DCP_5811.NEF', date:'2026-11-02', size:'29.0 MB', kind:'raw', smart:[], smartCount:0},
+];
+const cards = [
+  {id:'c1', name:'山雾 zine', version:1, steps:['标注','文案','滤镜建议'], imported:false, desc:'冷调低饱和，适合雾天/阴天徒步山景，输出 zine 排版口吻。'},
+  {id:'c2', name:'街角胶片', version:2, steps:['文案','滤镜建议'], imported:true, desc:'暖调颗粒，城市街拍/村落手记口吻。'},
+];
+const templates = [
+  {name:'通用 OpenAI', model:'gpt-4o-mini'},
+  {name:'DeepSeek', model:'deepseek-flash'},
+  {name:'智谱 GLM', model:'glm-4v-flash'},
+  {name:'Kimi 月之暗面', model:'moonshot-v1-8k-vision-preview'},
+];
+
+// ══════════ 状态 ══════════
+let tab = 'camera';
+let checked = new Set();
+let newestFirst = true, collapsedAll = false, collapsedDays = new Set();
+let passSelected = new Set();       // 图库多选
+let camStatus = {};
+let cloudOn = false, tplIdx = -1;
+let logs = ['[usb] attach: Nikon Z30 (PTP) session ok','[ing] queue persisted: 3 objects'];
+let galleryMode = 'list';           // list | feed
+let runQueue = null;                // {cardId, targets[i], done, fail, running, lines, sheet:'run'|'done', callerTab}
+let sheets = [];                    // 半屏弹层常量画
+let sheetOpenState = null;          // {cardId, phase:'confirm'|'run'|'done'}
+let dlgItem = null, dlgBusy = null;
+let catchUpDone = false;
+let multiMode = false;              // 图库是否进入多选模式
+
+// ══════════ Tab 框架 ══════════
+const TABS = [['camera','相机'],['gallery','图库'],['recipe','滤镜'],['settings','设置']];
+function renderTabs(){
+  document.getElementById('tabs').innerHTML = TABS.map(([k,l]) =>
+    `<span class="tab ${tab===k?'active':''}" onclick="go('${k}')">${l}</span>`).join('');
+}
+function go(k){
+  if(tab==='gallery' && k!=='gallery' && multiMode){ multiMode=false; }
+  tab = k; renderTabs(); renderPage(); renderChip(); renderBar();
+}
+const esc = s => String(s).replace(/</g,'&lt;');
+function render(){ renderTabs(); renderPage(); renderChip(); }
+
+// ══════════ 相机页 ══════════
+function renderCamera(){
+  const dates = [...new Set(camItems.map(i=>i.date))].sort((a,b)=> newestFirst ? b.localeCompare(a) : a.localeCompare(b));
+  const head = dates.length ? `<div class="pager">
+      <span class="sort" onclick="newestFirst=!newestFirst;renderPage()">${newestFirst?'↓':'↑'}</span>
+      <span class="fold" onclick="foldAll()">${collapsedAll?'▲':'▼'}</span></div>` : '';
+  const body = dates.map(d=>{
+    const items = camItems.filter(i=>i.date===d);
+    const collapsed = collapsedAll || collapsedDays.has(d);
+    const allChecked = items.every(i=>checked.has(i.name));
+    let rows='';
+    if(!collapsed){
+      const ord = newestFirst ? [...items].reverse() : items;
+      rows = ord.map(i=>{
+        const st = camStatus[i.name]||'';
+        return `<div class="cam-row">
+          <div class="cbx ${checked.has(i.name)?'checked':''}" onclick="toggleCam('${i.name}')" style="color:#fff">${checked.has(i.name)?'✓':''}</div>
+          <div><div class="fname">${i.name}</div>
+            ${st?`<div class="fstat">${st.startsWith('✗')?`${esc(st)} <span class="clicky" style="color:var(--ink);font-weight:600" onclick="retryOne('${i.name}')">重试</span>`:esc(st)}</div>`:''}
+          </div><div class="fsize">${humanBytes(i.size)}</div></div><div class="sep"></div>`;
+      }).join('');
+    }
+    return `<div class="day-gap"></div>
+      <div class="day-head" onclick="toggleDay('${d}')">
+        <span class="arrow">${collapsed?'▸':'▾'}</span><span class="dname">${d}</span>
+        ${collapsed?`<span class="cnt">　(${items.length} 张)</span>`:''}
+        <span class="flex"></span>
+        ${collapsed?'':`<span class="sel" onclick="event.stopPropagation();selectDay('${d}',${!allChecked})">${allChecked?'清空本日':'全选本日'}</span>`}
+      </div>${rows||'<div class="sep"></div>'}`;
+  }).join('') || `<div class="center-empty"><div style="font-size:16px;color:var(--sage)">尚未连接相机</div><div class="faint">插入相机后自动枚举</div></div>`;
+  const n = checked.size;
+  return `${head}<div style="flex:1;overflow-y:auto">${body}</div>
+    <div class="row" style="margin-top:8px"><span class="btn-dark ${n?'':'disabled'}" onclick="startIngest()">
+      ${n?`导出 ${n} 个`:'引擎未就绪（需 MTP 会话）'}</span></div>
+    <div class="statusbar logtail">${logs.map(esc).join('<br>')}</div>`;
+}
+function foldAll(){ collapsedAll=!collapsedAll; if(collapsedAll) collapsedDays=new Set(camItems.map(i=>i.date)); else collapsedDays.clear(); renderPage(); }
+function toggleDay(d){ collapsedDays.has(d)?collapsedDays.delete(d):collapsedDays.add(d); collapsedAll=false; renderPage(); }
+function selectDay(d,on){ camItems.filter(i=>i.date===d).forEach(i=> on?checked.add(i.name):checked.delete(i.name)); renderPage(); }
+function toggleCam(n){ checked.has(n)?checked.delete(n):checked.add(n); renderPage(); }
+function humanBytes(b){
+  if(b>=1<<30) return (b/(1<<30)).toFixed(2)+' GB';
+  if(b>=1<<20) return (b/(1<<20)).toFixed(1)+' MB';
+  if(b>=1<<10) return Math.round(b/(1<<10))+' KB';
+  return b+' B';
+}
+function startIngest(){
+  const names=[...checked]; if(!names.length) return;
+  names.forEach(n=>camStatus[n]='待复制'); let i=0;
+  const tick=()=>{ if(i>=names.length){ logs.push(`[ing] ingest done: ${names.length} ok`); renderPage(); return; }
+    camStatus[names[i]]='复制中…'; renderPage();
+    setTimeout(()=>{ camStatus[names[i]]='✓ 已入库 Master'; i++; tick(); },500); };
+  tick();
+}
+function retryOne(n){ camStatus[n]='复制中…'; renderPage(); setTimeout(()=>{camStatus[n]='✓ 已入库 Master'; renderPage();},700); }
+
+// ══════════ 图库页 ══════════
+function renderGallery(){
+  if(galleryMode==='feed'){
+    const smart = gallery.filter(g=>g.smartCount).flatMap(g=>g.smart.map((s,idx)=>({name:g.name, text:s})));
+    const body = !smart.length ? `<div class="center-empty" style="height:100%">
+        <div style="font-size:15px;color:var(--sage)">还没有智能结果</div>
+        <div class="faint">先在滤镜 Tab 应用一个滤镜包</div></div>`
+      : smart.map(x=>`<div class="feed-item">
+          <div class="row"><span class="fn">${x.name}</span><span class="kind">annotate</span></div>
+          <div class="ftxt">${esc(x.text)}</div><div class="sep"></div></div>`).join('');
+    return `<div class="gal-tools"><span class="feed clicky" onclick="galleryMode='list';renderPage()">← 返回图库</span></div>
+      <div style="flex:1;overflow-y:auto;margin-top:4px">${body}</div>`;
+  }
+
+  const total = gallery.length;
+  const rows = gallery.map(g=>{
+    const mine = passSelected.has(g.name);
+    const thumb = (g.kind==='raw' && !g.work && g.saved!=='over')
+      ? `<div class="raw-ph"><b>RAW</b><span>胶片框</span></div>`
+      : `<div class="thumb ${(g.work||g.saved==='over')?'work':''}">${(g.work||g.saved==='over')?'Work':'JPEG'}</div>`;
+    const saveTag = g.saved==='over' ? `<span class="badge" style="color:var(--warn)">原图已覆盖</span>`
+      : g.saved==='copy' ? `<span class="badge" style="color:var(--ok)">已另存 Work</span>` : '';
+    return `<div class="cam-row">
+      <div class="check-circle ${mine?'checked':''}" onclick="pick('${g.name}')" style="color:#fff">${mine?'✓':''}</div>
+      ${thumb}
+      <div style="flex:1;cursor:pointer" onclick="openDlg('${g.name}')">
+        <div class="fname">${g.name}${g.smartCount?`<span class="badge">⚡ ${g.smartCount}</span>`:''}${saveTag}</div>
+        <div class="faint">${g.date}</div>
+      </div><div class="fsize">${g.size}</div></div><div class="sep"></div>`;
+  }).join('');
+
+  return `
+    <div class="gal-tools">
+      ${multiMode
+        ? `<span class="in-multiselect">已选 ${passSelected.size}/${total}</span>
+           <span class="select-all clicky" onclick="pickAllToggle()">${passSelected.size===total?'清空全选':'全选'}</span>
+           <span class="mode-hint clicky" onclick="multiMode=false;renderPage();renderBar()">取消</span>`
+        : `<span class="feed clicky" onclick="galleryMode='feed';renderPage()">⚡ 智能结果全文</span>
+           <span class="mode-hint faint">长按/勾选进入多选</span>`}
+    </div>
+    <div style="flex:1;overflow-y:auto;margin-top:4px">${rows}</div>`;
+}
+function pick(n){
+  passSelected.has(n)?passSelected.delete(n):passSelected.add(n);
+  multiMode = passSelected.size>0;
+  renderPage(); renderBar();
+}
+function pickAllToggle(){
+  if(passSelected.size===gallery.length) passSelected.clear();
+  else gallery.forEach(g=>passSelected.add(g.name));
+  renderPage(); renderBar();
+}
+
+// 底部固定操作栏：相册类 App 多选伙伴（选中 N 张 → 下一步带去用滤镜包）
+function renderBar(){
+  const bar = document.getElementById('bottombar');
+  if(tab!=='gallery' || galleryMode!=='list' || !passSelected.size){ bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    <span class="btn-pill ghost" onclick="passSelected.clear();multiMode=false;renderPage();renderBar()">取消</span>
+    <span class="btn-pill" style="max-width:230px" onclick="goRecipeWithSelection()">用滤镜包处理 ${passSelected.size} 张 →</span>`;
+}
+function goRecipeWithSelection(){
+  multiMode=false; tab='recipe'; renderTabs(); renderPage(); renderChip(); renderBar();
+}
+
+// ══════════ 滤镜库（卡片化 + 半屏弹层） ══════════
+function renderRecipe(){
+  const busyNow = runQueue && runQueue.running;
+  const sel = passSelected.size;
+  const cardsHtml = cards.map(c=>{
+    const cover = c.id==='c1' ? 'c1' : 'c2';
+    return `<div class="card" onclick="openSheet('${c.id}','confirm')">
+      <div class="cover ${cover}">F/4 · Demo Shot</div>
+      <div class="info">
+        <div class="name">${c.name}${c.imported?'（导入）':''}　<span class="faint">v${c.version}</span></div>
+        <div class="meta">${c.steps.length} 步 · ${c.desc}</div>
+        <div class="steps-line">${c.steps.join(' → ')}</div>
+      </div>
+      <span class="chev">›</span>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="conn">已连接 · Nikon Z30（PTP 会话）</div>
+    <div class="row" style="margin:10px 0 2px">
+      <span style="font-size:13px;font-weight:600;color:var(--ink)">滤镜包</span>
+      ${sel?`<span class="faint" style="margin-left:auto">图库已选 ${sel} 张 · 点卡片可直接"应用到已选"</span>`:''}
+    </div>
+    ${cardsHtml}
+    <div class="note good" style="margin-top:2px">
+      交互对标：<b>① 卡片即入口</b>（像 VSCO/醒图，点包看详情）；<b>② 执行走半屏弹层</b>（像 Lightroom 批量处理，底部 CTA 明确）；<b>③ 可关掉弹层后台继续</b>，顶部浮标提示进度（微信文件/相册导出的习惯）。
+    </div>`;
+}
+
+function renderChip(){
+  const chip = document.getElementById('chip'); if(!chip) return;
+  if(!runQueue){ chip.classList.add('hidden'); return; }
+  chip.classList.remove('hidden');
+  const c = cards.find(x=>x.id===runQueue.cardId);
+  const i = runQueue.done+runQueue.fail, t = runQueue.targets.length;
+  const pct = Math.round(i/t*100);
+  if(runQueue.running && !sheetOpenState){
+    chip.classList.remove('done');
+    chip.innerHTML = `<span>⏳</span><span>${c.name}（${i}/${t}）</span><span class="bar"><i style="width:${pct}%"></i></span>`;
+  }else if(!runQueue.running){
+    chip.classList.add('done');
+    chip.innerHTML = `<span>✓ ${c.name} 完成</span><span style="margin-left:auto;opacity:.7">待保存 · 点此继续</span>
+      <span class="clicky" style="padding-left:8px" onclick="event.stopPropagation();runQueue=null;renderChip()">✕</span>`;
+    if(runQueue.autohide){
+      setTimeout(()=>{ if(runQueue && runQueue.autohide && !sheetOpenState){ runQueue=null; renderChip(); } }, 6000);
+    }
+  }else{
+    chip.classList.add('hidden'); // 弹层开着时不重复
+  }
+}
+
+// ── 半屏弹层 ──
+function sheetHtml(){
+  const st = sheetOpenState; if(!st) return '';
+  const c = cards.find(x=>x.id===st.cardId);
+  const sel = passSelected.size, all = gallery.length;
+
+  if(st.phase==='confirm'){
+    return `<div class="grab"></div>
+      <div class="head"><h3>${c.name}</h3><span class="x" onclick="dismissSheet()">✕</span></div>
+      <div class="sub">v${c.version} · ${c.steps.length} 步（${c.steps.join(' → ')}）<br>${c.desc}<br>
+        对所选 Master 依次执行约 ${Math.round((st.scope==='sel'?sel:all)*1.5)} 秒不等，可中途返回（后台继续）。</div>
+      <div class="cta-row">
+        <div class="btn-pill ${sel?'':'disabled'}" onclick="${sel?`execCard('${c.id}','sel')`:'void 0'}">应用到已选 ${sel} 张</div>
+      </div>
+      <div class="cta-row" style="margin-top:8px">
+        <div class="btn-pill" style="background:transparent;color:var(--ink);outline:1.5px solid var(--ink)" onclick="execCard('${c.id}','all')">应用到全部 ${all} 张</div>
+      </div>`;
+  }
+
+  const r = runQueue, i = r.done+r.fail, t = r.targets.length, pct = Math.round(i/t*100);
+  if(st.phase==='run'){
+    return `<div class="grab"></div>
+      <div class="head"><h3>正在处理 · ${c.name}</h3><span class="x" onclick="dismissSheet()">收起 ↓</span></div>
+      <div class="sub">${i}/${t} · 可点"收起"返回图库，任务后台继续</div>
+      <div class="bar" style="margin-top:10px"><i style="width:${pct}%"></i></div>
+      <div class="runlist">${r.targets.map((nm,idx)=>{
+        if(idx<i && !r.failNames.has(nm)) return `<div class="rl"><span class="tick" style="color:var(--ok)">✓</span>${nm}<span class="kind">ok</span></div>`;
+        if(r.failNames.has(nm)) return `<div class="rl"><span class="tick" style="color:var(--warn)">✗</span>${nm}<span class="kind">失败·可重试</span></div>`;
+        if(idx===i) return `<div class="rl now"><span class="tick"><span class="spin"></span></span>${nm}<span class="kind">处理中</span></div>`;
+        return `<div class="rl" style="color:var(--cream)"><span class="tick">·</span>${nm}</div>`;
+      }).join('')}</div>
+      <div class="cta-row"><div class="btn-pill" style="background:transparent;color:var(--warn);outline:1.5px solid var(--warn)" onclick="cancelRun()">取消任务</div></div>`;
+  }
+
+  // save：处理已完成，收尾 —— 保存方式（对标 Snapseed 导出的"保存 / 保存副本"双分支）
+  const q = runQueue, ok = q.done, bad = q.fail;
+  const selMod = q.saveChoice==='copy' ? 0 : q.saveChoice==='over' ? 1 : -1;
+  return `<div class="grab"></div>
+    <div class="head"><h3>${c.name}</h3><span class="x" onclick="dismissSheet()">✕</span></div>
+    <div class="result-hero" style="margin:8px 0 2px"><div class="big">✅</div>
+      <div class="desc">成功 ${ok} · 失败 ${bad}　成片已暂存为 Work 预览</div></div>
+    ${bad?`<div class="runlist">${[...q.failNames].map(n=>`<div class="rl"><span class="tick" style="color:var(--warn)">✗</span>${n}<span class="kind">失败·可重试</span></div>`).join('')}</div>`:''}
+    <div style="font-size:14px;font-weight:600;color:var(--ink);margin:14px 0 6px">保存方式</div>
+    <div class="save-opt ${selMod===0?'on':''}" onclick="r_saveChoice('copy')">
+      <span class="dot">${selMod===0?'●':''}</span>
+      <div><b style="font-size:13.5px;color:var(--ink)">另存副本（推荐）</b>
+        <div class="faint">原图保留不动；Work 成片入库，与原图并存（对比/双版本导出）</div></div>
+      <span class="tag" style="color:var(--ok)">无损</span></div>
+    <div class="save-opt ${selMod===1?'on':''}" onclick="r_saveChoice('over')">
+      <span class="dot">${selMod===1?'●':''}</span>
+      <div><b style="font-size:13.5px;color:var(--warn)">覆盖原图</b>
+        <div class="faint">Master 原文件替换为 Work 成片；此项不可恢复</div></div>
+      <span class="tag" style="color:var(--warn)">谨慎</span></div>
+    <div class="cta-row" style="margin-top:14px">
+      <div class="btn-pill ghost" onclick="doneAndGo()">暂不保存</div>
+      <div class="btn-pill ${selMod<0?'disabled':''}" onclick="confirmSave()">${selMod===1?'确认覆盖 '+ok+' 张':'保存 '+ok+' 张 →'}</div>
+    </div>`;
+}
+function openSheet(cardId, phase, scope){
+  sheetOpenState = {cardId, phase, scope};
+  const m=document.getElementById('mask'), s=document.getElementById('sheet');
+  s.innerHTML = sheetHtml(); m.classList.remove('hidden'); s.classList.remove('hidden');
+  renderChip();
+}
+function dismissSheet(){ sheetOpenState=null; renderAfterSheet(); }
+function renderAfterSheet(){
+  document.getElementById('mask').classList.add('hidden');
+  document.getElementById('sheet').classList.add('hidden');
+  renderPage(); renderChip(); renderBar();
+}
+function openSheetForActive(){
+  if(!runQueue) return;
+  openSheet(runQueue.cardId, runQueue.running?'run':'save', runQueue.scope);
+  document.getElementById('mask').classList.remove('hidden');
+  document.getElementById('sheet').classList.remove('hidden');
+}
+
+// ── 执行引擎（统一走队列；弹层/浮标/页面三者共用同一状态） ──
+function execCard(cardId, scope){
+  const targets = scope==='sel' ? gallery.filter(g=>passSelected.has(g.name)).map(g=>g.name)
+                                : gallery.map(g=>g.name);
+  if(!targets.length) return;
+  runQueue = {cardId, scope, targets, done:0, fail:0, running:true, failNames:new Set(), autohide:false, saveChoice:null};
+  if(scope==='sel'){ /* 已选只处理选中，保持多选以便回来还能看 */ }
+  passSelected.clear(); multiMode=false; renderBar();
+  openSheet(cardId,'run',scope);
+  tickRun();
+}
+function tickRun(){
+  const r = runQueue; if(!r) return;
+  const i = r.done+r.fail;
+  if(i>=r.targets.length){
+    r.running=false; r.autohide=true;
+    // 写入智能结果
+    const cardName = cards.find(c=>c.id===r.cardId).name;
+    gallery.filter(g=>r.targets.includes(g.name)).forEach(g=>{
+      if(!g.smartCount){ g.smartCount=1; g.smart=[`${g.name}：【${cardName}】雾面高光 +0.3EV、阴影 -8，保留颗粒（批量结果示例）。`]; }
+    });
+    logs.push(`[pass] ${cardName} 完成（成功 ${r.done} / 失败 ${r.fail}）`);
+    if(sheetOpenState){ sheetOpenState.phase='save'; document.getElementById('sheet').innerHTML=sheetHtml(); }
+    renderPage(); renderChip(); return;
+  }
+  const name = r.targets[i];
+  if(sheetOpenState){ sheetOpenState.phase='run'; document.getElementById('sheet').innerHTML=sheetHtml(); }
+  renderChip();
+  setTimeout(()=>{
+    // 模拟第 4 张失败+自动重试成功的真实感
+    if(i===4){ r.fail++; r.failNames.add(name); r.lines=''; }
+    else r.done++;
+    tickRun();
+  }, Math.random()*350+350);
+}
+function cancelRun(){
+  const r=runQueue; r.running=false;
+  logs.push(`[pass] 用户取消：完成 ${r.done}/${r.targets.length}`);
+  runQueue=null; sheetOpenState=null; dismissSheet(); renderChip();
+}
+function r_saveChoice(v){ runQueue.saveChoice=v; if(sheetOpenState){ document.getElementById('sheet').innerHTML=sheetHtml(); } }
+function confirmSave(){
+  const r = runQueue; const mode = r.saveChoice;
+  const n = r.done;
+  const cardName = cards.find(c=>c.id===r.cardId).name;
+  gallery.filter(g=>r.targets.includes(g.name) && !r.failNames.has(g.name)).forEach(g=>{
+    g.saved = mode==='over' ? 'over' : 'copy';
+  });
+  logs.push(`[save] ${cardName}：${mode==='over'?'覆盖原图':'另存 Work'} × ${n}`);
+  runQueue = null; sheetOpenState = null;
+  dismissSheet(); renderChip();
+  toast(mode==='over' ? `已覆盖 ${n} 张原图 ⚠` : `已另存 ${n} 张 Work 副本`);
+}
+function doneAndGo(){ runQueue.autohide=true; runQueue=null; sheetOpenState=null; renderAfterSheet(); galleryMode='list'; tab='gallery'; renderTabs(); renderPage(); }
+
+// ══════════ 详情弹窗（单击行内看整篇结果） ══════════
+function openDlg(name){ dlgItem=name; renderDlg(); document.getElementById('dlg-mask').classList.remove('hidden'); }
+function closeDlg(){ document.getElementById('dlg-mask').classList.add('hidden'); dlgBusy=null; }
+function renderDlg(){
+  const g = gallery.find(x=>x.name===dlgItem); if(!g) return;
+  document.getElementById('dlg-title').textContent = g.name;
+  document.getElementById('dlg-meta').textContent = `日期：${g.date}　体积：${g.size}`;
+  document.getElementById('dlg-smart').innerHTML = g.smart.length
+    ? g.smart.map(esc).join('<br>') : `<span class="faint">还没有结果：点下方工具栏跑一步</span>`;
+  const b = document.getElementById('dlg-busy');
+  b.classList.toggle('hidden', !dlgBusy); if(dlgBusy) b.textContent='⏳ '+dlgBusy;
+}
+function runStep(label){
+  const g = gallery.find(x=>x.name===dlgItem);
+  dlgBusy = `${label} 执行中…`; renderDlg();
+  setTimeout(()=>{
+    const line = label==='标注' ? `${g.name}：阵雨初歇，湿沥青反光贡献了 70% 的高光；构图不错，核心观点两条。`
+      : label==='文案' ? `${g.name}：「雨停在入口，光还在往里走。」`
+      : `${g.name}：滤镜：压高光保细节，阴影 +8 提地面纹理；颗粒 +12。`;
+    g.smart.push(line); g.smartCount++;
+    dlgBusy=null; renderDlg(); logs.push(`[llm] ${g.name} ${label.toLowerCase()} ok 1 req`); renderPage();
+  }, 1200);
+}
+
+// ══════════ 设置页 ══════════
+function renderSettings(){
+  return `<div class="set-scroll">
+    <div class="conn">已连接 · Nikon Z30（PTP 会话）</div>
+    <div class="h2" style="margin-top:14px">云处理总开关</div>
+    <div class="sage12">${cloudOn?'开启中：联网模型仅租用你配置的 API 域':'关闭中：所有云端请求挂起（回网也不跑）'}</div>
+    <div class="row" style="margin-top:8px">
+      <span class="switch ${cloudOn?'on':''}" onclick="cloudOn=!cloudOn;renderPage()"></span>
+      <span style="font-size:14px;color:var(--ink);margin-left:8px">${cloudOn?'开':'关'}</span>
+    </div>
+    <div class="h2">平台模板（一键填表）</div>
+    ${templates.map((t,i)=>`<div class="tpl ${tplIdx===i?'on':''}" onclick="tplIdx=(tplIdx===i?-1:i);pageNumber();renderPage()">
+      <span class="dot">${tplIdx===i?'●':'○'}</span><span class="tname">${t.name}　${t.model}</span></div>`).join('')}
+    <div class="h2"></div>
+    <input class="inp" placeholder="base_url（OpenAI 兼容）" value="">
+    <input class="inp" type="password" placeholder="api_key">
+    <input class="inp" placeholder="model" value="">
+    <div class="row"><span class="btn-dark" onclick="toast('已保存 ✓')">保存配置</span></div>
+    <div class="h2" style="margin-top:18px">连接测试</div>
+    <span class="btn-dark" style="font-size:13px;padding:8px 16px" onclick="toast('测试 ok：1 req · 214 tokens')">测试连接 LLM</span>
+    <div class="h2">明细日志（最近 200 内）</div>
+    <div class="ledger">2026-11-08 10:12　chat 1 req · 214 tok · ¥0.004<br>2026-11-08 10:12　retry:1 · 4s 后成功<br>（滤镜执行后才产生更多行）</div>
+    <div class="privacy" style="margin-top:14px">隐私姿态（ADR-0005）：联网仅指向你配置的模型 API 域；App 无自有服务器；App 无其他任何敏感权限（无定位/媒体/相机/麦克风）。</div>
+  </div>`;
+}
+function pageNumber(){} // 模板反选占位
+function toast(msg){
+  const d=document.createElement('div'); d.textContent=msg;
+  d.style.cssText='position:absolute;left:50%;bottom:60px;transform:translateX(-50%);background:var(--ink);color:var(--film);font-size:13px;padding:9px 16px;border-radius:20px;z-index:90;transition:opacity .4s';
+  document.querySelector('.phone').appendChild(d);
+  setTimeout(()=>{d.style.opacity='0'; setTimeout(()=>d.remove(),400);},1600);
+}
+
+// ══════════ 补跑横幅 ══════════
+function renderBannerSpeed(){ document.getElementById('banner').classList.toggle('hidden', catchUpDone); }
+function runCatchUp(){
+  catchUpDone=true;
+  gallery.forEach(g=>{ if(!g.smartCount){ g.smartCount=1; g.smart=[`${g.name}：补跑队列完成（2 → 0）。`]; } });
+  logs.push('[catchup] pass queue drained (2)');
+  renderPage(); renderBannerSpeed();
+}
+
+// ══════════ 路由 ══════════
+function renderPage(){
+  const p=document.getElementById('page');
+  if(tab==='camera') p.innerHTML=renderCamera();
+  else if(tab==='gallery') p.innerHTML=renderGallery();
+  else if(tab==='recipe') p.innerHTML=renderRecipe();
+  else p.innerHTML=renderSettings();
+}
+renderTabs(); renderPage(); renderBannerSpeed(); renderChip();
+</script>
+</body>
+</html>

@@ -83,6 +83,9 @@ class ProbeController(
     private var cardsLoading = false
     /** 图库→滤镜的勾选通道（用户 M1/M2 评审期望流：图库选中 ↘ 滤镜执行） */
     private val passSelection = linkedSetOf<String>()
+    /** M3 交互：滤镜包卡片执行（半屏弹层 → 串行执行 → 保存收尾）的进行中状态 */
+    private var activeCardRun: CardRunUi? = null
+    private var abortRequested = false
     private var productNamePrefix = "MTP 设备"
     private var prevCount = 0
 
@@ -245,20 +248,12 @@ class ProbeController(
             val row = rows.firstOrNull { it.origFileName == name } ?: run {
                 emit(lastEmitted.get().copy(passStatus = "Master 中无 $name")); return@execute
             }
-            val src = fileOfRowOrMaster(row.relPath)
-            if (src == null) { emit(lastEmitted.get().copy(passStatus = "源文件不存在")); return@execute }
-            val suggestion = resultsDao.recent()
-                .lastOrNull { r -> r.name == name && r.kind == "filter_suggest" }?.text ?: ""
-            val bytes = runCatching { com.lumina.work.WorkRenderer(src, suggestion).bytes() }.getOrNull()
-            if (bytes == null) {
+            val rel = renderWorkFor(row, name)
+            if (rel == null) {
                 emit(lastEmitted.get().copy(passStatus = "Work 生成失败"))
                 logEvents(listOf("work fail: $name"))
                 return@execute
             }
-            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
-            val out = java.io.File(appContext.filesDir, rel)
-            out.parentFile?.mkdirs()
-            out.writeBytes(bytes)
             logEvents(listOf("work: generated $rel"))
             lastGalleryItems = buildGalleryItems()
             emit(lastEmitted.get().copy(
@@ -266,6 +261,19 @@ class ProbeController(
                 passStatus = "Work 预览已生成：$rel",
             ))
         }
+    }
+
+    /** 为一张 Master 渲染成片并写入 Work 层；返回 Work 触达路径（失败 null，语义=不可保存）。 */
+    private fun renderWorkFor(row: com.lumina.master.MasterInventoryEntity, name: String): String? {
+        val src = fileOfRowOrMaster(row.relPath) ?: return null
+        val suggestion = resultsDao.recent()
+            .lastOrNull { r -> r.name == name && r.kind == "filter_suggest" }?.text ?: ""
+        val bytes = runCatching { com.lumina.work.WorkRenderer(src, suggestion).bytes() }.getOrNull() ?: return null
+        val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
+        val out = File(appContext.filesDir, rel)
+        out.parentFile?.mkdirs()
+        out.writeBytes(bytes)
+        return rel
     }
 
     /** 打开应用时的网络监听：回网 + 队列非空 → 补跑横幅 */
@@ -312,19 +320,24 @@ class ProbeController(
         io.execute { passSelection.clear(); emit(lastEmitted.get().copy(passSelectedNames = emptySet())) }
     }
 
-    fun runCardPass(cardId: String) {
+    fun runCardPass(cardId: String) = startCardRun(cardId, selectedOnly = false)
+
+    /** 滤镜包执行（M3 半屏弹层流）：确认范围 → 入队 → 串行执行（逐张反馈）→ AWAIT_SAVE 等收尾。 */
+    fun startCardRun(cardId: String, selectedOnly: Boolean) {
         io.execute {
+            val ent = cardDao().byId(cardId)
+            if (ent == null) { emit(ProbeUiState("卡不存在")); return@execute }
             if (!(llmConfigDao.active()?.cloudEnabled ?: false)) {
-                emit(ProbeUiState("云处理总开关是关的：先开它"))
+                emit(ProbeUiState("云处理总开关是关的：先开它（设置 Tab）"))
                 return@execute
             }
-            val chosen = if (passSelection.isEmpty()) {
-                masterStore.snapshot()
-                    .filter { it.origFileName.uppercase().endsWith(".JPG") || it.origFileName.uppercase().endsWith(".JPEG") }
-                    .map { it.origFileName }
-            } else {
+            val chosen = if (selectedOnly) {
                 // 只收 JPEG 源（NEF 自动捎带其同名 JPG 的成片权益由图库显示层处理）
-                passSelection.filter { it.uppercase().endsWith(".JPG") || it.uppercase().endsWith(".JPEG") }
+                passSelection.filter { isJpegName(it) }
+            } else {
+                masterStore.snapshot()
+                    .filter { isJpegName(it.origFileName) }
+                    .map { it.origFileName }
             }
             if (chosen.isEmpty()) {
                 emit(ProbeUiState("Master 里没有可读的 JPEG。先从相机勾几张 .JPG 导出"))
@@ -336,9 +349,170 @@ class ProbeController(
                     com.lumina.pass.PassQueueEntity(name = name, cardId = cardId, queuedAtMs = t),
                 )
             }
-            logEvents(listOf("pass: queued ${chosen.size} for card=$cardId (selection=${passSelection.size})"))
+            logEvents(listOf("pass: queued ${chosen.size} for card=$cardId (selectedOnly=$selectedOnly)"))
             passSelection.clear()
-            runCatchUpInternal()
+            abortRequested = false
+            activeCardRun = CardRunUi(
+                cardId = cardId, cardName = ent.name, version = ent.version,
+                targets = chosen, phase = com.lumina.probe.CardRunPhase.RUNNING,
+                currentItem = chosen.first(),
+            )
+            emitCardRun(activeCardRun)
+
+            // 串行执行（PassExecutor 驱动；逐张回调推进 cardRun 状态）
+            val sink = passSink()
+            val card = CardEngine.parse(ent.stepsJson) { ent.cardId }
+            PassExecutor(
+                clientProvider = { com.lumina.llm.OkHttpLlmClient() },
+                cfgProvider = { llmConfigDao.active() },
+                sink = sink, retryDelayMs = 2000, now = System::currentTimeMillis,
+                abortCheck = { abortRequested },
+            ).run(chosen, card, cardRunRecorder())
+
+            // 执行完（或取消生效）：先逐张把成功条目的 Work 成片渲染出来
+            //（AWAIT_SAVE 弹层/浮标宣称的"成片已暂存为 Work 预览"从此为真；"暂不保存"=成片留 Work 层）
+            val finished = activeCardRun
+            if (finished != null && finished.phase == com.lumina.probe.CardRunPhase.RUNNING) {
+                val rowsByRoot = masterStore.snapshot().associateBy { it.origFileName }
+                var workFail = 0
+                finished.targets.filter { finished.itemStatus[it] == true }.forEach { name ->
+                    val row = rowsByRoot[name]
+                    if (row != null && renderWorkFor(row, name) == null) workFail++
+                }
+                if (workFail > 0) logEvents(listOf("work: $workFail items failed to render at await-save"))
+                lastGalleryItems = buildGalleryItems()
+                activeCardRun = finished.copy(
+                    phase = com.lumina.probe.CardRunPhase.AWAIT_SAVE,
+                    currentItem = null,
+                    cancelRequested = abortRequested,
+                )
+                emitCardRun(activeCardRun)
+                updateCatchupBanner()
+            }
+        }
+    }
+
+    /** 用户点了"取消执行"：在途条目跑完后停在收尾（未处理项留在队列 → 补跑横幅接管）。 */
+    fun cancelCardRun() {
+        io.execute {
+            val cur = activeCardRun ?: return@execute
+            if (cur.phase == com.lumina.probe.CardRunPhase.RUNNING) {
+                abortRequested = true
+                emitCardRun(cur.copy(cancelRequested = true))
+                logEvents(listOf("pass: user requested cancel (${cur.doneOk} ok so far)"))
+            }
+        }
+    }
+
+    /** 保存收尾（AWAIT_SAVE 决策）：COPY_WORK=成片留在 Work 层；OVERWRITE=写回 JPEG Master 位置。 */
+    fun finalizeCardRun(mode: SaveMode) {
+        io.execute {
+            val run = activeCardRun ?: return@execute
+            if (run.phase != com.lumina.probe.CardRunPhase.AWAIT_SAVE) return@execute
+            val okTargets = run.targets.filter { run.itemStatus[it] == true }
+            val rowsByRoot = masterStore.snapshot().associateBy { it.origFileName }
+            var saved = 0
+            var skipped = 0
+            for (name in okTargets) {
+                val row = rowsByRoot[name]
+                if (row == null) { skipped++; continue }
+                // 成片在执行完成时已渲染进 Work 层；缺失则补一次渲染（防御兜底）
+                val workRel = workExist(row, name) ?: renderWorkFor(row, name)
+                if (workRel == null) { logEvents(listOf("save: work render fail, skip $name")); skipped++; continue }
+                when (mode) {
+                    SaveMode.COPY_WORK -> saved++ // 成片在 Work 层（_w.jpg），与 Master 并存
+                    SaveMode.OVERWRITE -> {
+                        // 覆盖只发生在 JPEG Master（入队层已滤；这里再按 ADR-0002 修订段守门）
+                        if (!isJpegName(name)) { skipped++; continue }
+                        val workFile = File(appContext.filesDir, workRel)
+                        val master = masterStore.fileOf(row.relPath)
+                        if (!workFile.exists()) { skipped++; continue }
+                        runCatching {
+                            workFile.copyTo(master, overwrite = true)
+                            masterStore.updateSizeBytes(row.relPath, master.length())
+                        }.onSuccess {
+                            saved++
+                            logEvents(listOf("save: overwrote ${row.relPath} (${master.length()}B)"))
+                        }.onFailure {
+                            skipped++
+                            logEvents(listOf("save fail: ${it.message}"))
+                        }
+                    }
+                }
+            }
+            val noun = if (mode == SaveMode.OVERWRITE) "已覆盖 Master" else "已另存 Work"
+            val summary = "$noun × $saved" + if (skipped > 0) " · 跳过 $skipped" else ""
+            logEvents(listOf("save: mode=$mode × $saved (skipped $skipped)"))
+            activeCardRun = null
+            lastGalleryItems = buildGalleryItems()
+            lastGalleryStatus = summary
+            val next = lastEmitted.get().copy(
+                cardRun = null,
+                galleryItems = lastGalleryItems,
+                galleryStatus = summary,
+                passStatus = summary,
+            )
+            lastEmitted.set(next)
+            mainThread.post { onState(next) }
+        }
+    }
+
+    /** 该 Master 的 Work 成片是否已在盘（相对路径命中即返回）。 */
+    private fun workExist(
+        row: com.lumina.master.MasterInventoryEntity,
+        name: String,
+    ): String? {
+        val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
+        return if (File(appContext.filesDir, rel).exists()) rel else null
+    }
+
+    /** 不保存（成片留在 Work 层继续预览），收起弹层。 */
+    fun dismissCardRun() {
+        io.execute {
+            activeCardRun = null
+            emitCardRun(null)
+        }
+    }
+
+    /** 卡片执行共用回调：逐张把成败写进 cardRun 状态（UI 弹层/浮标同源）。 */
+    private fun cardRunRecorder() = object : com.lumina.pass.PassCallback {
+        override fun onStart(total: Int) {}
+        override fun onItemDone(name: String, ok: Boolean, note: String) {
+            val cur = activeCardRun ?: return
+            val st = cur.itemStatus + (name to ok)
+            val nextIdx = cur.targets.indexOfFirst { !st.containsKey(it) }
+            val doneOk = st.values.count { it }
+            val doneFail = st.size - doneOk
+            passStatus = "处理中：$doneOk 成功 / $doneFail 失败"
+            activeCardRun = cur.copy(
+                itemStatus = st, doneOk = doneOk, doneFail = doneFail,
+                currentItem = cur.targets.getOrNull(nextIdx),
+            )
+            emitCardRun(activeCardRun)
+        }
+        override fun onAllDone(s: Int, f: Int) {}
+    }
+
+    /** Pass 落库外套（与补跑路径同一套：结果/台账/队列删除）。 */
+    private fun passSink() = object : com.lumina.pass.PassSink {
+        override fun jpegFor(name: String): ByteArray? = jpegBytesFor(name)
+        override fun saveResult(name: String, cardId: String, kind: String, text: String, model: String, createdAtMs: Long) {
+            resultsDao.insert(
+                com.lumina.pass.SmartResultEntity(
+                    0, name, cardId, kind, text, model, createdAtMs,
+                ),
+            )
+        }
+        override fun saveLedger(name: String, model: String, promptChars: Int, withImage: Boolean, outcome: String, promptTokens: Int?, completionTokens: Int?) {
+            ledgerDaoX.insert(
+                com.lumina.llm.LedgerEntity(
+                    0, name, model, promptChars, withImage, outcome, promptTokens, completionTokens,
+                    System.currentTimeMillis(),
+                ),
+            )
+        }
+        override fun removeQueued(name: String) {
+            passQueueDao.deleteByName(name)
         }
     }
 
@@ -362,27 +536,7 @@ class ProbeController(
             emit(ProbeUiState("当前无网络：队列 ${rows.size} 项保留，回网自动补跑"))
             return
         }
-        val sink = object : com.lumina.pass.PassSink {
-            override fun jpegFor(name: String): ByteArray? = jpegBytesFor(name)
-            override fun saveResult(name: String, cardId: String, kind: String, text: String, model: String, createdAtMs: Long) {
-                resultsDao.insert(
-                    com.lumina.pass.SmartResultEntity(
-                        0, name, cardId, kind, text, model, createdAtMs,
-                    ),
-                )
-            }
-            override fun saveLedger(name: String, model: String, promptChars: Int, withImage: Boolean, outcome: String, promptTokens: Int?, completionTokens: Int?) {
-                ledgerDaoX.insert(
-                    com.lumina.llm.LedgerEntity(
-                        0, name, model, promptChars, withImage, outcome, promptTokens, completionTokens,
-                        System.currentTimeMillis(),
-                    ),
-                )
-            }
-            override fun removeQueued(name: String) {
-                passQueueDao.deleteByName(name)
-            }
-        }
+        val sink = passSink()
         val cardIdGroups = rows.groupBy { it.cardId }
         var totalOK = 0
         var totalFail = 0
@@ -674,10 +828,7 @@ class ProbeController(
                     logEvents(listOf("cards: seeded ${CardEngine.builtIns().size} built-ins"))
                 }
             }
-            lastCards = cardDao().all().map {
-                val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
-                CardUi(it.cardId, it.name, it.version, steps.size, it.imported)
-            }
+            lastCards = loadCardRows()
             cardsLoading = false
             publishCards(lastCards, lastCardStatus)
         }
@@ -742,7 +893,15 @@ class ProbeController(
 
     private fun loadCardRows(): List<CardUi> = cardDao().all().map {
         val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
-        CardUi(it.cardId, it.name, it.version, steps.size, it.imported)
+        CardUi(it.cardId, it.name, it.version, steps.size, it.imported, steps.map { s -> stepLabelZh(s.kind) })
+    }
+
+    /** 步骤类型 → 中文链路名（确认弹层的执行顺序展示）。 */
+    internal fun stepLabelZh(kind: com.lumina.cards.StepKind): String = when (kind) {
+        com.lumina.cards.StepKind.ANNOTATE -> "标注"
+        com.lumina.cards.StepKind.CAPTION -> "文案"
+        com.lumina.cards.StepKind.FILTER_SUGGEST -> "滤镜建议"
+        com.lumina.cards.StepKind.GENERATIVE -> "生成"
     }
 
     // ---------- 设置页（M2 工单 01） ----------
@@ -1182,9 +1341,18 @@ class ProbeController(
             checkedNames = if (state.checkedNames.isEmpty()) base.checkedNames else state.checkedNames,
             engineReady = state.engineReady || base.engineReady,
             galleryItems = if (state.galleryItems.isEmpty()) base.galleryItems else state.galleryItems,
+            // 卡片执行状态：新发射未带（null）则保留上一个（弹层/浮标在任何 Tab 都不能闪没）
+            cardRun = if (state.cardRun == null) base.cardRun else state.cardRun,
         )
         lastEmitted.set(merged)
         mainThread.post { onState(merged) }
+    }
+
+    /** 卡片执行状态专用发射：不走 emit 合并语义（本轮明确"清空/翻转"要生效）。 */
+    private fun emitCardRun(run: CardRunUi?) {
+        val next = lastEmitted.get().copy(cardRun = run)
+        lastEmitted.set(next)
+        mainThread.post { onState(next) }
     }
 
     /** 全替换（断开等"清场"语义专用）。 */
@@ -1241,6 +1409,8 @@ data class ProbeUiState(
     val cardsLoading: Boolean = false,
     /** 图库→滤镜的勾选（M2 UX 流：图库选中 ↘ 滤镜执行） */
     val passSelectedNames: Set<String> = emptySet(),
+    /** M3 交互：滤镜包卡片执行的进行中状态（RUNNING → AWAIT_SAVE → 用户收尾后 null） */
+    val cardRun: CardRunUi? = null,
 )
 
 /** 配方页卡条目。 */
@@ -1250,6 +1420,32 @@ data class CardUi(
     val version: Int,
     val stepsCount: Int,
     val imported: Boolean,
+    /** 步骤链显示名（确认弹层用；顺序即执行顺序） */
+    val steps: List<String> = emptyList(),
+)
+
+/** 保存方式（M3 收尾）：另存 Work 副本 / 覆盖 Master（仅 JPEG Master 允许覆盖） */
+enum class SaveMode { COPY_WORK, OVERWRITE }
+
+/** 滤镜包执行阶段：RUNNING（弹层执行视图） / AWAIT_SAVE（处理完，等用户决定保存方式） */
+enum class CardRunPhase { RUNNING, AWAIT_SAVE }
+
+/** 卡片执行进行中的 UI 数据（emit 全量快照式；phase 推进由 controller 驱动） */
+data class CardRunUi(
+    val cardId: String,
+    val cardName: String,
+    val version: Int,
+    /** 执行目标（JPEG Master 文件名，执行顺序） */
+    val targets: List<String>,
+    val phase: CardRunPhase,
+    val doneOk: Int = 0,
+    val doneFail: Int = 0,
+    /** name → 成败（false=失败可重试；未出现的 = 待处理/未处理） */
+    val itemStatus: Map<String, Boolean> = emptyMap(),
+    /** 当前在跑的文件名（RUNNING 态高亮行） */
+    val currentItem: String? = null,
+    /** 用户点了"取消执行"：在途条目跑完后停在收尾 */
+    val cancelRequested: Boolean = false,
 )
 
 /** 智能结果全文流条目。 */
