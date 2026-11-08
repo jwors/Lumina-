@@ -8,7 +8,7 @@
 
 **Blocked by:** 无（与 01 并行可做）
 
-**Status:** claimed（2026-11-08；主干+黑屏修复 done；2026-11-09 预设扩容至 12 家族 + 用户点名三张风格卡进入内置卡库（gc-minimal-zine-poster v3 / pixel-style-poster-skill v1 / scenes-gathered-zine v3，生成式步 M4 占位），播种升级为按名对账"缺哪补哪"；DB v7 lut_library 表与迁移已就绪；用户报"一点击应用滤镜列表空" → emit 合并清单补 cards 字段（M1-07 同族第 3 例）——SAF 导入 UI 与 GL/CPU 对拍余项未完）
+**Status:** claimed（2026-11-08/09 记账：主干+黑屏修复+预设 12 家族+三张用户点名卡+DB v7 迁移纪律护栏+确认弹层闸门前置全部 done；**用户 2026-11-09 复验通过：重填 key 后进度/浮标/保存收尾全链恢复**；余项 = SAF 导入 UI 与 GL/CPU 对拍留证）
 
 - [ ] .cube 解析 JVM 测试全绿（好/坏/1D 拒收/维度异常）
 - [ ] 真机：同一 JPEG 旧 ColorMatrix vs 新 LUT 出片对人眼可辨（像素差留证）
