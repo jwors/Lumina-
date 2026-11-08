@@ -11,13 +11,14 @@
 
 ## Comments
 
-- 图库层：GalleryItem 附 `smartCount + smartTexts`（Smart Result 按 objectName 聚合）；详细对话框“智能（M2）”段全视；日期头 ⚡ 徽章。
+- 图库层：GalleryItem 附 `smartCount + smartTexts`（Smart Result 按 name 聚合）；详细对话框“智能（M2）”段**可滚动**全视（内容底部截断修复）；日期头 ⚡ 徽章。
 - 补跑横幅（AppScaffold 顶部）：ConnectivityManager 网络回调 + 云开关 + 队列计数三重联门（关/空/网络都不弹）；点击 → runCatchUp()。
 - 队列入队：配方页每卡「执行 Pass（全部 Master）」→ 自动挑 JPEG Master 全量入队 → `MtpImport` 之外的独立通道（这 C 路不需相机在场）。
 - jpegBytesFor：🎞长边 1024 inSampleSize 重编译（规格 Q2 决定）+ NEF 歲 JPEG 收养。
 - Ledger 页：设置页尾显示 recent 12 条（日期/对象/模型/状态/prompt tokens）。
 - 通道错误教训：字段名混淆（objectName vs name）在源代码留痕一轮——修复已并入（那是一场**自黑自白**式的 bash 应战记录；代码质量从教训中来）。
-- 证据：**61/61 全绿**（PassExecutorTest 5 + FakeLlmClient 6 等全套）；`assembleDebug` 通过；APK 装机 Success。
+- **UX 修复（2026-11-08 用户反馈：切 Tab“像空了”）**：`galleryLoading/cardsLoading` 可见加载指示 + 防重入 + 保留式 emit 覆盖。
+- 证据：**62/62 全绿**（PassExecutorTest 5 + FakeLlmClient 6 等全套）；`assembleDebug` 通过；APK 装机 Success。
 
 - [ ] 图库徽章 + 详情"智能"段
 - [ ] Ledger 列表页 + 数据
