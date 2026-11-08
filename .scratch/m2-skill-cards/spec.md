@@ -1,6 +1,6 @@
 # M2 · LLM 配置 + Skill Card 引擎
 
-> Status: ready-for-agent
+> Status: implemented — 票 01–05 全 resolved；06 真机验收轻量收尾（2 张 JPEG 全链实证 + 相册导出，10 张批量与断网补跑降载遗留，见 issues/06 与 retro.md）
 > 上游：`docs/SPEC-Lumina.md` §3.3/3.4/§5/§7、ADR-0005、词汇 `GLOSSARY.md`
 > grilling 结论：用户 6 问全部拍板（2026-11-08），见 Decisions
 
