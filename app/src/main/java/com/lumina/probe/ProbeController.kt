@@ -268,7 +268,16 @@ class ProbeController(
         val src = fileOfRowOrMaster(row.relPath) ?: return null
         val suggestion = resultsDao.recent()
             .lastOrNull { r -> r.name == name && r.kind == "filter_suggest" }?.text ?: ""
-        val bytes = runCatching { com.lumina.work.WorkRenderer(src, suggestion).bytes() }.getOrNull() ?: return null
+        val bytes = runCatching {
+            val preset = com.lumina.work.LutPresets.pickFor(suggestion)
+            if (preset != null) {
+                // M3-02 GL 路线：滤镜建议命中预设家族 → .cube LUT 真渲染；失败回退 CPU ColorMatrix
+                com.lumina.work.WorkRendererGpu(appContext).bytes(src, preset.lut)
+                    ?: com.lumina.work.WorkRenderer(src, suggestion).bytes()
+            } else {
+                com.lumina.work.WorkRenderer(src, suggestion).bytes()
+            }
+        }.getOrNull() ?: return null
         val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
         val out = File(appContext.filesDir, rel)
         out.parentFile?.mkdirs()

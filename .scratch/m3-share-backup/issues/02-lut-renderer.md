@@ -8,7 +8,7 @@
 
 **Blocked by:** 无（与 01 并行可做）
 
-**Status:** ready-for-agent
+**Status:** claimed（2026-11-08；解析器/图集/预设/shader/渲染器主干落地——SAF 导入 UI 与真机对拍余项未完）
 
 - [ ] .cube 解析 JVM 测试全绿（好/坏/1D 拒收/维度异常）
 - [ ] 真机：同一 JPEG 旧 ColorMatrix vs 新 LUT 出片对人眼可辨（像素差留证）
