@@ -443,18 +443,57 @@ class ProbeController(
             val noun = if (mode == SaveMode.OVERWRITE) "已覆盖 Master" else "已另存 Work"
             val summary = "$noun × $saved" + if (skipped > 0) " · 跳过 $skipped" else ""
             logEvents(listOf("save: mode=$mode × $saved (skipped $skipped)"))
+            // 用户指认的缺口：成片要与"看得见"绑定。保存时把 Work 成片一并写入系统相册
+            // （MediaStore Pictures/Lumina；无运行时权限需求则为 API29+）——ADR-0004 的库内真相不变，
+            // 系统相册是"导出的影子"，M3 正式导出会扩展这一通道。
+            var exported = 0
+            if (saved > 0) {
+                for (name in okTargets) {
+                    if (run.itemStatus[name] != true) continue
+                    val row = rowsByRoot[name] ?: continue
+                    val rel = workExist(row, name) ?: continue
+                    val f = File(appContext.filesDir, rel)
+                    if (exportToSystemGallery(f, "${name.substringBeforeLast('.')}_w.jpg")) exported++
+                }
+                logEvents(listOf("save: exported to system gallery × $exported"))
+            }
+            val summaryFinal = summary + if (exported > 0) " · 相册 Pictures/Lumina ×$exported" else ""
             activeCardRun = null
             lastGalleryItems = buildGalleryItems()
-            lastGalleryStatus = summary
+            lastGalleryStatus = summaryFinal
             val next = lastEmitted.get().copy(
                 cardRun = null,
                 galleryItems = lastGalleryItems,
-                galleryStatus = summary,
-                passStatus = summary,
+                galleryStatus = summaryFinal,
+                passStatus = summaryFinal,
             )
             lastEmitted.set(next)
             mainThread.post { onState(next) }
         }
+    }
+
+    /** Work 成片入库到系统相册（MediaStore，Pictures/Lumina）。
+     *  API29+ 无需任何运行时权限（应用创建自己的图像）；更低版本静默跳过（私有库照旧可用）。
+     *  语义 = 导出影子：删 App 不会删相册里的这张，但不承诺反向来。 */
+    internal fun exportToSystemGallery(src: File, displayName: String): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return false
+        return runCatching {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Lumina")
+            }
+            val uri = appContext.contentResolver.insert(
+                android.provider.MediaStore.Images.Media.getContentUri(
+                    android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY,
+                ),
+                values,
+            ) ?: return false
+            appContext.contentResolver.openOutputStream(uri)?.use { out ->
+                src.inputStream().use { it.copyTo(out) }
+            } ?: return false
+            true
+        }.getOrDefault(false)
     }
 
     /** 该 Master 的 Work 成片是否已在盘（相对路径命中即返回）。 */

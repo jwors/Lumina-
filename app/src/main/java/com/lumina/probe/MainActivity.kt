@@ -617,6 +617,14 @@ private fun GalleryRow(
                 }
             }
             Text(item.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
+            if (showWork) {
+                Text(
+                    "Work ✓",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF5C7A4E),
+                )
+            }
             Text(humanBytes(item.sizeBytes), fontSize = 12.sp, color = SageText)
         }
         Box(
