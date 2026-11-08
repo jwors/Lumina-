@@ -631,8 +631,8 @@ class ProbeController(
             val msg: String
             when (outcome) {
                 is com.lumina.llm.LlmOutcome.Text -> {
-                    msg = "✓ LLM 可用（模型 ${cfg.model}）：日月结果 [回复=${outcome.text.take(12)}…]"
-                    ledgDao.insert(
+                    msg = "✓ LLM 可用（模型 ${cfg.model}）：[回复=${outcome.text.take(12)}…]"
+                    ledgerDaoX.insert(
                         com.lumina.llm.LedgerEntity(
                             0, "_test", cfg.model, 7, false, "OK",
                             outcome.promptTokens, outcome.completionTokens,
@@ -647,7 +647,8 @@ class ProbeController(
                 is com.lumina.llm.LlmOutcome.NetworkTimeout ->
                     msg = "✗ 网络不可达：${outcome.reason}"
             }
-            emit(ProbeUiState("LLM 测试：$msg", llmConfig = state.llmConfig, cameraItems = cameraItems))
+            val stale = lastEmitted.get()
+            emit(stale.copy(connectionText = "LLM 测试：$msg", testResult = msg, llmConfig = stale.llmConfig))
         }
     }
 
