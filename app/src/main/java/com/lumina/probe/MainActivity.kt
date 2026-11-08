@@ -266,7 +266,9 @@ private fun SmartFeedPage(modifier: Modifier = Modifier, state: ProbeUiState) {
 /** JPEG 缩略图行 / NEF RAW 占位行。 */
 @Composable
 private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
-    val isRaw = !item.name.uppercase().endsWith(".JPG") && !item.name.uppercase().endsWith(".JPEG")
+    val isRawImg = !item.name.uppercase().endsWith(".JPG") && !item.name.uppercase().endsWith(".JPEG")
+    val showWork = item.workRelPath != null
+    val isRaw = isRawImg && !showWork
     Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
         Row(
             modifier = Modifier
@@ -281,7 +283,14 @@ private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
                     .padding(end = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                if (isRaw) {
+                if (showWork || !isRaw) {
+                    if (showWork) {
+                        // Work 成片缩略（滤镜已应用）
+                        WorkThumb(item.workRelPath!!)
+                    } else {
+                        GalleryThumb(item)
+                    }
+                } else {
                     Box(
                         modifier = Modifier
                             .background(PillActive)
@@ -292,8 +301,6 @@ private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
                             Text("胶片框", fontSize = 10.sp, color = SageText)
                         }
                     }
-                } else {
-                    GalleryThumb(item)
                 }
             }
             Text(item.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
@@ -328,7 +335,40 @@ private fun GalleryThumb(item: GalleryItem) {
     )
 }
 
+/** 就地解码缩略图（BitmapFactory inSampleSize）。 */
 private fun decodeSampled(path: String, target: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) sample *= 2
+    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    return android.graphics.BitmapFactory.decodeFile(path, opts)
+}
+
+@Composable
+private fun WorkThumb(workRelPath: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = workRelPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            WorkThumbDecode(java.io.File(context.filesDir, workRelPath).absolutePath, target = 160)
+        }
+    }
+    bitmap?.let {
+        androidx.compose.foundation.Image(
+            bitmap = it.asImageBitmap(),
+            contentDescription = "Work",
+            modifier = Modifier.height(56.dp),
+        )
+    } ?: CircularProgressIndicator(
+        modifier = Modifier.height(24.dp),
+        color = InkTeal,
+        trackColor = DividerCream,
+        strokeWidth = 2.dp,
+    )
+}
+
+private fun WorkThumbDecode(path: String, target: Int): android.graphics.Bitmap? {
     val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
     android.graphics.BitmapFactory.decodeFile(path, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null

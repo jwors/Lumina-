@@ -50,6 +50,11 @@ dependencies {
     // M2 工单 02：OpenAI 兼容管线（OkHttp）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // M2 Work 预览：GPUImage（滤镜 fHistory 文档，M2 卡片化先走 ColorMatrix）
+
+    // Work 预览渲染（滤镜即刻出片；.cube LUT 全量渲染 M3）
+    implementation("jp.co.cyberagent.android:gpuimage:2.1.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

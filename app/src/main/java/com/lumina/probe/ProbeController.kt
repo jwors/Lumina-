@@ -427,6 +427,9 @@ class ProbeController(
                     fallbackRelPath = fallbackRel,
                     smartCount = mine.size,
                     smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
+                    workRelPath = appContext.filesDir.walkTopDown()
+                        .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" }
+                        ?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
                 )
             }
             lastGalleryItems = items
@@ -881,6 +884,9 @@ class ProbeController(
                     )
                     if (obj.isFolder) folders.add(obj) else files.add(obj)
                     // 流式：每读到一个对象就上屏一次（用户"不等全部加载"的要求）
+                    if (obj.name.uppercase().endsWith(".JPG") || obj.name.uppercase().endsWith(".JPEG")) {
+                        generateWorkQuiet(obj)
+                    }
                     publishListing(
                         title = "$productNamePrefix · MTP 读取中（${files.size + folders.size}/${handles.size + prevCount}）",
                         summary = CatalogSummary(files.toList(), folders.toList()),
@@ -929,6 +935,35 @@ class ProbeController(
     private fun mtpMillis(info: android.mtp.MtpObjectInfo): Long? {
         val ms = info.dateCreated.takeIf { it != 0L } ?: info.dateModified.takeIf { it != 0L }
         return ms.takeIf { it != 0L }
+    }
+
+    /** Work 静默预生成：读到 JPEG 就按智能滤镜建议出 Work 预览（失败不打扰，日志有因） */
+    private fun generateWorkQuiet(obj: CameraObject) {
+        runCatching {
+            val rows = masterStore.snapshot()
+            val row = rows.firstOrNull { it.origFileName == obj.name } ?: return
+            val src = fileOfRowOrMaster(row.relPath) ?: return
+            val suggestion = resultsDao.recent()
+                .lastOrNull { r -> r.name == obj.name && r.kind == "filter_suggest" }?.text ?: ""
+            val bytes = com.lumina.work.WorkRenderer(src, suggestion).bytes() ?: return
+            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, obj.name)
+            val out = java.io.File(appContext.filesDir, rel)
+            out.parentFile?.mkdirs()
+            out.writeBytes(bytes)
+            logEvents(listOf("work: generated $rel"))
+        }.onFailure { e ->
+            logEvents(listOf("work: fail ${obj.name} — ${e.message}"))
+        }
+    }
+
+    /** 由 relPath 找真实文件（兼容历史坏目录） */
+    private fun fileOfRowOrMaster(relPath: String): File? {
+        val f = File(appContext.filesDir, relPath)
+        return f.takeIf { f.exists() } ?: runCatching {
+            // 找坏目录同名搬家文件
+            File(appContext.filesDir, "Master").walkTopDown()
+                .firstOrNull { it.name == File(relPath).name }
+        }.getOrNull()
     }
 
     // ---------- 清单发布 + 相机页快照 ----------
@@ -1148,6 +1183,8 @@ data class GalleryItem(
     /** 智能结果（M2）：条数 + 全文行 */
     val smartCount: Int = 0,
     val smartTexts: List<String> = emptyList(),
+    /** Work 成片（智能滤镜渲染预览） */
+    val workRelPath: String? = null,
 )
 
 /** 相机页的可勾对象（UI 直接消费）。 */
