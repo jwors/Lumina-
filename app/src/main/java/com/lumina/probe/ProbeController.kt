@@ -869,17 +869,20 @@ class ProbeController(
             cardsLoading = true
             emit(ProbeUiState("配方库盘点中…", cardsLoading = true))
             cardDao().let { dao ->
-                if (dao.count() == 0) {
-                    CardEngine.builtIns().forEach { card ->
-                        dao.upsert(
-                            CardEntity(
-                                cardId = card.cardId, name = card.name, version = card.version,
-                                stepsJson = CardEngine.toJson(card), imported = false,
-                                createdAtMs = System.currentTimeMillis(),
-                            ),
-                        )
-                    }
-                    logEvents(listOf("cards: seeded ${CardEngine.builtIns().size} built-ins"))
+                // M3 起点：内置卡播种升级为"缺哪补哪"——按名字对账，新版本内置卡也能补进旧设备库
+                val existingNames = dao.all().map { it.name }.toSet()
+                val missing = CardEngine.builtIns().filter { it.name !in existingNames }
+                missing.forEach { card ->
+                    dao.upsert(
+                        CardEntity(
+                            cardId = card.cardId, name = card.name, version = card.version,
+                            stepsJson = CardEngine.toJson(card), imported = false,
+                            createdAtMs = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                if (missing.isNotEmpty()) {
+                    logEvents(listOf("cards: seeded ${missing.size} missing built-ins (${missing.joinToString { it.name }})"))
                 }
             }
             lastCards = loadCardRows()

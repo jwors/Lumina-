@@ -84,7 +84,7 @@ object CardEngine {
             .toString(2)
     }
 
-    /** 三张内置示例卡（规格 §3.4：内置若干示例卡）。 */
+    /** 内置示例卡（规格 §3.4；2026-11-09 按用户点名追加三张风格卡，生成式步均标注 M4 占位。） */
     fun builtIns(): List<SkillCard> = listOf(
         parse(
             """{
@@ -112,6 +112,42 @@ object CardEngine {
                 "steps": [
                     {"type": "filter_suggest", "prompt": "在候选滤镜清单里给这张照片一个建议并说明理由（一句话）。"},
                     {"type": "generative", "prompt": "极简 zine 海报风：粗颗粒、低饱和、留白构图（M4 执行占位）。"}
+                ]
+            }""",
+        ) { CardEngine.newId() },
+        parse(
+            """{
+                "name": "gc-minimal-zine-poster",
+                "version": 3,
+                "steps": [
+                    {"type": "annotate", "prompt": "用中文为这张照片写 2-3 句现场观察：光线与雾气层次、地形、装备状态；最后给一个主标题选题方向。"},
+                    {"type": "caption", "prompt": "zine 海报文案：一句主标题钩子（≤14字，排版用大字）+ 一行小注（地名+日期，≤18字）。"},
+                    {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
+                    {"type": "generative", "prompt": "极简 zine 海报 v0.3：粗颗粒、双压色（去中间调）、大字压角、右下刻意留白；排版 = 主标题占上 2/3，小注贴底；日期角标右下（M4 执行占位）。"}
+                ]
+            }""",
+        ) { CardEngine.newId() },
+        parse(
+            """{
+                "name": "pixel-style-poster-skill",
+                "version": 1,
+                "steps": [
+                    {"type": "annotate", "prompt": "按【主体/构图/色板倾向（适合 16-bit 色阶化的区域）】三段中文短行标注。"},
+                    {"type": "caption", "prompt": "像素游戏开场白：一句 12-20 字的 SFC 游戏 loading 提示风格文案 + 两个话题标签。"},
+                    {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
+                    {"type": "generative", "prompt": "像素风海报：16-bit 色板色阶化、单色块面 doodle、轻微 RGB 分离高光、扫描线点缀（M4 执行占位）。"}
+                ]
+            }""",
+        ) { CardEngine.newId() },
+        parse(
+            """{
+                "name": "scenes-gathered-zine",
+                "version": 3,
+                "steps": [
+                    {"type": "annotate", "prompt": "场景聚束标注：指出这张照片属于当日行程的哪一段（出发/路线/登顶/下撤/营地），并用中文 2 句点出该场景的山野或地表特征。"},
+                    {"type": "caption", "prompt": "场景聚束图注：场景名（≤6字）+ 一句衔接语（用于多章 zine 串联，≤16字）。"},
+                    {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
+                    {"type": "generative", "prompt": "场景聚束 zine 分镜：网点/扎染纹理、场景名标注 + 拼贴序号（第 N 幕）；成片为多张拼贴的 zine 页（M4 执行占位）。"}
                 ]
             }""",
         ) { CardEngine.newId() },

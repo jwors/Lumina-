@@ -8,7 +8,7 @@
 
 **Blocked by:** 无（与 01 并行可做）
 
-**Status:** claimed（2026-11-08；主干+黑屏修复 done；2026-11-09 预设扩容至 12 家族（波塔/浓彩/褪色/银盐/金黄/青橙/拍立得）→ LLM 候选清单同步扩容；SAF 导入与 GL/CPU 对拍余项未完）
+**Status:** claimed（2026-11-08；主干+黑屏修复 done；2026-11-09 预设扩容至 12 家族 + 用户点名三张风格卡进入内置卡库（gc-minimal-zine-poster v3 / pixel-style-poster-skill v1 / scenes-gathered-zine v3，生成式步 M4 占位），播种升级为按名对账"缺哪补哪"；DB v7 lut_library 表与迁移已就绪——SAF 导入 UI 与 GL/CPU 对拍余项未完）
 
 - [ ] .cube 解析 JVM 测试全绿（好/坏/1D 拒收/维度异常）
 - [ ] 真机：同一 JPEG 旧 ColorMatrix vs 新 LUT 出片对人眼可辨（像素差留证）
