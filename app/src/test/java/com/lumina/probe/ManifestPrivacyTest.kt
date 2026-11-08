@@ -22,12 +22,13 @@ class ManifestPrivacyTest {
     }
 
     @Test
-    fun `no other permissions beyond internet`() {
+    fun `no dangerous permissions beyond network pair`() {
         val declared = Regex("""android\.permission\.([A-Z_]+)""")
             .findAll(manifest)
             .map { it.groupValues[1] }
             .toSet()
-        assertEquals("清单必须只有 INTERNET 一个权限", setOf("INTERNET"), declared)
+        // 白名单：INTERNET（模型 API）+ ACCESS_NETWORK_STATE（补跑横幅判定，普通级）
+        assertEquals(setOf("INTERNET", "ACCESS_NETWORK_STATE"), declared)
     }
 
     @Test

@@ -2,8 +2,9 @@
 <!--  M1 隐私叙事：完全离线（M2 引入 INTERNET，见 ADR-0005：仅用户配置的模型 API 域） -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- M2（ADR-0005）：仅用户配置的模型 API 域联网；无任何其他敏感权限 -->
+    <!-- M2（ADR-0005）：模型 API 域联网 + 网络状态（补跑横幅判定用，普通级权限）-->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:label="Lumina"
