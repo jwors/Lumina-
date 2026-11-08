@@ -9,7 +9,7 @@ SAF 导入导出（.json 文件）；
 
 **Blocked by:** 无（引擎独立，可并行 02）
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] schema + 解析校验（纯 JVM）
 - [ ] Room 表 + 卡片页

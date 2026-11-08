@@ -6,6 +6,10 @@ import android.hardware.usb.UsbManager
 import android.mtp.MtpDevice
 import android.os.Handler
 import android.os.Looper
+import com.lumina.cards.CardEngine
+import com.lumina.cards.CardEntity
+import com.lumina.cards.SkillCard
+import com.lumina.cards.SkillCardException
 import com.lumina.ingest.IngestCallback
 import com.lumina.ingest.IngestEngine
 import com.lumina.ingest.IngestItem
@@ -314,6 +318,97 @@ class ProbeController(
     }
 
     private val failedFilesOfRound = linkedMapOf<String, IngestItem>()
+
+    // ---------- 卡库（M2 工单 03） ----------
+
+    private var lastCards: List<CardUi> = emptyList()
+    private var lastCardStatus: String = ""
+
+    fun loadCards() {
+        io.execute {
+            cardDao().let { dao ->
+                if (dao.count() == 0) {
+                    CardEngine.builtIns().forEach { card ->
+                        dao.upsert(
+                            CardEntity(
+                                cardId = card.cardId, name = card.name, version = card.version,
+                                stepsJson = CardEngine.toJson(card), imported = false,
+                                createdAtMs = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                    logEvents(listOf("cards: seeded ${CardEngine.builtIns().size} built-ins"))
+                }
+            }
+            lastCards = cardDao().all().map {
+                val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
+                CardUi(it.cardId, it.name, it.version, steps.size, it.imported)
+            }
+            publishCards(lastCards, lastCardStatus)
+        }
+    }
+
+    /** 卡片 UI 数据发布（合并式，相机/图库数据不冲掉） */
+    private fun publishCards(cards: List<CardUi>, cardStatus: String) {
+        lastCards = cards
+        lastCardStatus = cardStatus
+        emit(
+            ProbeUiState(
+                connectionText = "配方库 · ${cards.size} 张卡",
+                cards = cards,
+                cardStatus = cardStatus,
+            ),
+        )
+    }
+
+    /** SAF 导入：uri JSON → 校验解析 → 入库（cardId 撞库=替换，导入语义为"更新配方"） */
+    fun importCard(uri: android.net.Uri) {
+        io.execute {
+            try {
+                val json = appContext.contentResolver.openInputStream(uri)
+                    ?.readBytes()?.toString(Charsets.UTF_8)
+                    ?: throw SkillCardException("读不到文件内容")
+                val card = CardEngine.parse(json) { CardEngine.newId() }
+                cardDao().upsert(
+                    CardEntity(
+                        cardId = card.cardId, name = card.name, version = card.version,
+                        stepsJson = CardEngine.toJson(card), imported = true,
+                        createdAtMs = System.currentTimeMillis(),
+                    ),
+                )
+                logEvents(listOf("cards: imported \"${card.name}\" (${card.steps.size} steps)"))
+                publishCards(loadCardRows(), cardStatus = "已导入：${card.name}")
+            } catch (e: SkillCardException) {
+                publishCards(loadCardRows(), cardStatus = "导入失败：${e.reason}")
+            } catch (e: Exception) {
+                publishCards(loadCardRows(), cardStatus = "导入失败：${e.message}")
+            }
+        }
+    }
+
+    /** SAF 导出：cardId → 规整 JSON 写 uri。 */
+    fun exportCardTo(uri: android.net.Uri, cardId: String) {
+        io.execute {
+            try {
+                val ent = cardDao().byId(cardId) ?: throw SkillCardException("卡不存在")
+                val card = CardEngine.parse(ent.stepsJson) { ent.cardId }
+                appContext.contentResolver.openOutputStream(uri, "wt")
+                    ?.write(CardEngine.toJson(card).toByteArray(Charsets.UTF_8))
+                    ?: throw SkillCardException("输出流打开失败")
+                logEvents(listOf("cards: exported \"${card.name}\""))
+                publishCards(loadCardRows(), cardStatus = "已导出：${card.name}")
+            } catch (e: Exception) {
+                publishCards(loadCardRows(), cardStatus = "导出失败：${e.message}")
+            }
+        }
+    }
+
+    private fun cardDao() = db.cardDao()
+
+    private fun loadCardRows(): List<CardUi> = cardDao().all().map {
+        val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
+        CardUi(it.cardId, it.name, it.version, steps.size, it.imported)
+    }
 
     // ---------- 设置页（M2 工单 01） ----------
 
@@ -722,6 +817,18 @@ data class ProbeUiState(
     /** M2 设置页：LLM 三元组 + 云处理开关 */
     val llmConfig: LlmUiConfig? = null,
     val cloudEnabled: Boolean = false,
+    /** 配方库（M2 工单 03） */
+    val cards: List<CardUi> = emptyList(),
+    val cardStatus: String = "",
+)
+
+/** 配方页卡条目。 */
+data class CardUi(
+    val cardId: String,
+    val name: String,
+    val version: Int,
+    val stepsCount: Int,
+    val imported: Boolean,
 )
 
 /** 设置页展示的 LLM 三元组（不含开关，开关单列）。 */

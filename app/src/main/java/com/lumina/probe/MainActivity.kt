@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -99,6 +100,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         ) {
             TabPill("相机", tab, onSelect = { tab = it; if (it == "相机") controller.emitCameraUiRefresh() })
             TabPill("图库", tab, onSelect = { tab = it; if (it == "图库") controller.loadGallery() })
+            TabPill("配方", tab, onSelect = { tab = it; if (it == "配方") controller.loadCards() })
             TabPill("设置", tab, onSelect = { tab = it; if (it == "设置") controller.loadSettings() })
         }
 
@@ -106,6 +108,8 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
             CameraPage(Modifier.weight(1f), state, controller)
         } else if (tab == "图库") {
             GalleryPage(Modifier.weight(1f), state)
+        } else if (tab == "配方") {
+            RecipePage(Modifier.weight(1f), state, controller)
         } else {
             SettingsPage(Modifier.weight(1f), state, controller)
         }
@@ -513,6 +517,94 @@ private fun CameraRow(
                 .height(1.dp)
                 .background(DividerCream),
         )
+    }
+}
+
+/** 配方页（M2 工单 03）：卡列表 + SAF 导入导出。 */
+@Composable
+private fun RecipePage(
+    modifier: Modifier = Modifier,
+    state: ProbeUiState,
+    controller: ProbeController,
+) {
+    // 导出双段流程：先记下要导的卡，launcher 回调再把 JSON 写 uri
+    var pendingExport: CardUi? by remember { mutableStateOf<CardUi?>(null) }
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri: android.net.Uri? ->
+        pendingExport?.let { card -> uri?.let { u -> controller.exportCardTo(u, card.cardId) } }
+        pendingExport = null
+    }
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri: android.net.Uri? -> uri?.let { controller.importCard(it) } }
+
+    Column(modifier = modifier) {
+        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        if (state.cardStatus.isNotBlank()) {
+            Text(state.cardStatus, fontSize = 12.sp, color = InkTeal,
+                modifier = Modifier.padding(top = 4.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .background(InkTeal)
+                    .clickable {
+                        importLauncher.launch(arrayOf("application/json", "text/*"))
+                    }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text("导入卡片 (.json)", fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, color = FilmBackground)
+            }
+            Spacer(Modifier.width(12.dp))
+            Text("共享的配方属于文件（无自有服务器）", fontSize = 11.sp, color = CreamFaint)
+        }
+        Spacer(Modifier.height(8.dp))
+        if (state.cards.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("配方库已空", fontSize = 15.sp, color = SageText)
+            }
+            return@Column
+        }
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(state.cards, key = { it.cardId }) { card ->
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(CreamFaint.copy(alpha = 0.08f))
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                card.name + if (card.imported) "（导入）" else "",
+                                fontSize = 15.sp, color = InkTeal,
+                            )
+                            Text(
+                                "v${card.version} · ${card.stepsCount} 步",
+                                fontSize = 11.sp, color = SageText,
+                            )
+                        }
+                        Text(
+                            "导出",
+                            fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clickable {
+                                    pendingExport = card
+                                    exportLauncher.launch("${card.name}.json")
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(DividerCream))
+                }
+            }
+        }
     }
 }
 

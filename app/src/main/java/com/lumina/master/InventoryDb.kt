@@ -10,6 +10,8 @@ import androidx.room.RoomDatabase
 import android.content.Context
 import androidx.room.Room
 
+import com.lumina.cards.CardDao
+import com.lumina.cards.CardEntity
 import com.lumina.llm.LedgerDao
 import com.lumina.llm.LedgerEntity
 import com.lumina.llm.LlmConfigDao
@@ -51,8 +53,8 @@ interface MasterInventoryDao {
 }
 
 @Database(
-    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class],
-    version = 4,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class],
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,6 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ingestQueueDao(): IngestQueueDao
     abstract fun llmConfigDao(): LlmConfigDao
     abstract fun ledgerDao(): LedgerDao
+    abstract fun cardDao(): CardDao
 
     companion object {
         @Volatile
