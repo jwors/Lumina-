@@ -7,7 +7,7 @@
 
 **Blocked by:** 03, 04
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 图库徽章 + 详情"智能"段
 - [ ] Ledger 列表页 + 数据

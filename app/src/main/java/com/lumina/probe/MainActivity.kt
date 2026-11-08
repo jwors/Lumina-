@@ -81,6 +81,18 @@ val PillActive = Color(0xFFE0E5D8)
 @Composable
 fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
     var tab by remember { mutableStateOf("相机") }
+    // 补跑横幅（顶部：网络可用 + 队列非空 + 总开关联动）
+    state.catchupBanner?.let { banner ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(PillActive)
+                .clickable { controller.runCatchUp() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(banner, fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -155,11 +167,12 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
             return@Column
         }
         var selected by remember { mutableStateOf<GalleryItem?>(null) }
+        // 智能徽章：有结果的行打角标
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
             state.galleryItems.groupBy { it.dateKey }.forEach { (dateKey, items) ->
                 item(key = "gday-$dateKey") {
                     Text(
-                        dateKey,
+                        dateKey + if (items.any { it.smartCount > 0 }) "  ⚡" else "",
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText,
                         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
                     )
@@ -179,6 +192,13 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
                         Spacer(Modifier.height(8.dp))
                         Text("日期：${sel.dateKey}", fontSize = 13.sp, color = SageText)
                         Text("体积：${humanBytes(sel.sizeBytes)}", fontSize = 13.sp, color = SageText)
+                        if (sel.smartTexts.isNotEmpty()) {
+                            Spacer(Modifier.height(10.dp))
+                            Text("智能（M2）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                            sel.smartTexts.forEach { line ->
+                                Text(line, fontSize = 12.sp, color = SageText, modifier = Modifier.padding(top = 2.dp))
+                            }
+                        }
                         if (sel.relPath.uppercase().endsWith(".NEF") || sel.relPath.uppercase().endsWith(".MP4")) {
                             Spacer(Modifier.height(8.dp))
                             Text("仅存原片（不解析 RAW）", fontSize = 12.sp, color = CreamFaint)
@@ -580,27 +600,36 @@ private fun RecipePage(
                         .padding(vertical = 10.dp, horizontal = 4.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                card.name + if (card.imported) "（导入）" else "",
-                                fontSize = 15.sp, color = InkTeal,
-                            )
-                            Text(
-                                "v${card.version} · ${card.stepsCount} 步",
-                                fontSize = 11.sp, color = SageText,
-                            )
-                        }
-                        Text(
-                            "导出",
-                            fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clickable {
-                                    pendingExport = card
-                                    exportLauncher.launch("${card.name}.json")
-                                }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
+            Text(card.name + if (card.imported) "（导入）" else "",
+                fontSize = 15.sp, color = InkTeal, modifier = Modifier.weight(1f))
+            Text(
+                "v${card.version} · ${card.stepsCount} 步",
+                fontSize = 11.sp, color = SageText,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "执行 Pass（全部 Master）",
+                fontSize = 13.sp,
+                color = InkTeal,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable { controller.runCardPass(card.cardId) }
+                    .padding(4.dp),
+            )
+            Modifier.weight(1f).let { Spacer(modifier = it) }
+            Text(
+                "导出",
+                fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable {
+                        pendingExport = card
+                        exportLauncher.launch("${card.name}.json")
                     }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
                     Box(Modifier.fillMaxWidth().height(1.dp).background(DividerCream))
                 }
             }
@@ -728,6 +757,16 @@ private fun SettingsPage(
             Text(saved, fontSize = 12.sp, color = InkTeal, modifier = Modifier.padding(top = 8.dp))
         }
 
+        Spacer(Modifier.height(16.dp))
+        Text("明细日志（最近 200 内）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Spacer(Modifier.height(4.dp))
+        if (state.ledgerRecent.isEmpty()) {
+            Text("还没有云端调用", fontSize = 12.sp, color = CreamFaint)
+        } else {
+            state.ledgerRecent.forEach { line ->
+                Text(line, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SageText)
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Text(
             "隐私姿态（ADR-0005）：联网仅指向你配置的模型 API 域；App 无自有服务器；" +

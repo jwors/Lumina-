@@ -18,6 +18,7 @@ import com.lumina.master.AppDatabase
 import com.lumina.master.IngestQueueEntity
 import com.lumina.master.MasterStore
 import com.lumina.master.RoomInventoryStore
+import com.lumina.pass.PassExecutor
 import com.lumina.ptp.CameraObject
 import com.lumina.ptp.CatalogSummary
 import com.lumina.ptp.ObjectCatalog
@@ -71,6 +72,13 @@ class ProbeController(
     private var lastIngestStatus: String = ""
     private var lastGalleryItems: List<GalleryItem> = emptyList()
     private var lastGalleryStatus: String = ""
+    // M2：补跑队列/智能层
+    private val passQueueDao = db.passQueueDao()
+    private val resultsDao = db.smartResultsDao()
+    private val ledgerDaoX = db.ledgerDao()
+    private var catchupBanner: String? = null
+    private var passStatus: String = ""
+    private var lastLedgerLines: List<String> = emptyList()
     private var productNamePrefix = "MTP 设备"
     private var prevCount = 0
 
@@ -85,6 +93,8 @@ class ProbeController(
 
     init {
         io.execute { emit(ProbeUiState("未连接 · 请插入相机")) }
+        watchNetwork()
+        io.execute { updateCatchupBanner() }
     }
 
     // ---------- 公共动作（UI 入口，工单 03） ----------
@@ -162,6 +172,184 @@ class ProbeController(
         }
     }
 
+    // ---------- M2 智能层（工单 05） ----------
+
+    /** 打开应用时的网络监听：回网 + 队列非空 → 补跑横幅 */
+    fun watchNetwork() {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val request = android.net.NetworkRequest.Builder()
+            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                io.execute { updateCatchupBanner() }
+            }
+        })
+    }
+
+    private fun networkAvailable(): Boolean {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val nw = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(nw) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** 补跑横幅：云开关开 + 队列非空 + 网络可用 */
+    fun updateCatchupBanner() {
+        val enabled = llmConfigDao.active()?.cloudEnabled ?: false
+        val count = passQueueDao.count()
+        catchupBanner = when {
+            !enabled || count == 0 || !networkAvailable() -> null
+            else -> "检测到网络：$count 个 Master 待处理 [补跑]"
+        }
+        passStatus = catchupBanner ?: passStatus
+        emitCameraPage()
+    }
+
+    /** 配方页：一键入队（该卡 × 全部 Master 的 JPEG） */
+    fun runCardPass(cardId: String) {
+        io.execute {
+            if (!(llmConfigDao.active()?.cloudEnabled ?: false)) {
+                emit(ProbeUiState("云处理总开关是关的：先开它")) 
+                return@execute
+            }
+            val jpegNames = masterStore.snapshot()
+                .filter { it.origFileName.uppercase().endsWith(".JPG") || it.origFileName.uppercase().endsWith(".JPEG") }
+                .map { it.origFileName }
+            if (jpegNames.isEmpty()) {
+                emit(ProbeUiState("Master 里没有可读的 JPEG。先从相机勾几张 .JPG 导出"))
+                return@execute
+            }
+            val t = System.currentTimeMillis()
+            jpegNames.forEach { name ->
+                passQueueDao.upsert(
+                    com.lumina.pass.PassQueueEntity(name = name, cardId = cardId, queuedAtMs = t),
+                )
+            }
+            logEvents(listOf("pass: queued ${jpegNames.size} for card=$cardId"))
+            runCatchUpInternal()
+        }
+    }
+
+    /** 横幅 [补跑]：串行执行队列 × 各卡 */
+    fun runCatchUp() {
+        io.execute { runCatchUpInternal() }
+    }
+
+    private fun runCatchUpInternal() {
+        val rows = passQueueDao.all()
+        if (rows.isEmpty()) {
+            emit(ProbeUiState("处理队列为空", cameraItems = cameraItems, checkedNames = checkedNames))
+            updateCatchupBanner()
+            return
+        }
+        if (!(llmConfigDao.active()?.cloudEnabled ?: false)) {
+            emit(ProbeUiState("云处理总开关关闭中：队列挂起"))
+            return
+        }
+        if (!networkAvailable()) {
+            emit(ProbeUiState("当前无网络：队列 ${rows.size} 项保留，回网自动补跑"))
+            return
+        }
+        val sink = object : com.lumina.pass.PassSink {
+            override fun jpegFor(name: String): ByteArray? = jpegBytesFor(name)
+            override fun saveResult(name: String, cardId: String, kind: String, text: String, model: String, createdAtMs: Long) {
+                resultsDao.insert(
+                    com.lumina.pass.SmartResultEntity(
+                        0, name, cardId, kind, text, model, createdAtMs,
+                    ),
+                )
+            }
+            override fun saveLedger(name: String, model: String, promptChars: Int, withImage: Boolean, outcome: String, promptTokens: Int?, completionTokens: Int?) {
+                ledgerDaoX.insert(
+                    com.lumina.llm.LedgerEntity(
+                        0, name, model, promptChars, withImage, outcome, promptTokens, completionTokens,
+                        System.currentTimeMillis(),
+                    ),
+                )
+            }
+            override fun removeQueued(name: String) {
+                passQueueDao.deleteByName(name)
+            }
+        }
+        val cardIdGroups = rows.groupBy { it.cardId }
+        var totalOK = 0
+        var totalFail = 0
+        for ((cardId, group) in cardIdGroups) {
+            val ent = cardDao().byId(cardId) ?: continue
+            val card = CardEngine.parse(ent.stepsJson) { ent.cardId }
+            val recorder = object : com.lumina.pass.PassCallback {
+                override fun onStart(total: Int) {}
+                override fun onItemDone(name: String, ok: Boolean, note: String) {
+                    if (ok) totalOK++ else totalFail++
+                    emit(ProbeUiState("智能处理：$totalOK 成功 / $totalFail 失败", engineReady = true,
+                        cameraItems = cameraItems, checkedNames = checkedNames))
+                }
+                override fun onAllDone(s: Int, f: Int) {}
+            }
+            PassExecutor(
+                clientProvider = { com.lumina.llm.OkHttpLlmClient() },
+                cfgProvider = { llmConfigDao.active() },
+                sink = sink, retryDelayMs = 2000, now = System::currentTimeMillis,
+            ).run(group.map { it.name }, card, recorder)
+        }
+        lastIngestStatus = "Pass 完成：成功 $totalOK · 失败 $totalFail"
+        updateCatchupBanner()
+        // 带结果的图库快照刷新
+        publishGalleryWithResults()
+    }
+
+    /** Master 行按名字找 JPEG 字节（长边 1024 重编码；仅设备层） */
+    private fun jpegBytesFor(name: String): ByteArray? {
+        val rows = masterStore.snapshot()
+        val direct = rows.firstOrNull { it.origFileName.equals(name, true) }
+            ?.takeIf { it.origFileName.uppercase().endsWith(".JPG") || it.origFileName.uppercase().endsWith(".JPEG") }
+        val row = direct ?: rows.firstOrNull { e ->
+            val base = name.substringBeforeLast('.')
+            e.origFileName.substringBeforeLast('.').equals(base, true) &&
+                (e.origFileName.uppercase().endsWith(".JPG") || e.origFileName.uppercase().endsWith(".JPEG"))
+        } ?: return null
+        val file = masterStore.fileOf(row.relPath)
+        if (!file.exists()) return null
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= 1024 && bounds.outHeight / (sample * 2) >= 1024) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = maxOf(1, sample) }
+        val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        return out.toByteArray()
+    }
+
+    /** 刷新图库（附智能结果行） */
+    private fun publishGalleryWithResults() {
+        val rows = masterStore.snapshot()
+        val results = resultsDao.recent()
+        val items = rows.map {
+            val mine = results.filter { r -> r.name == it.origFileName }
+            GalleryItem(
+                relPath = it.relPath, name = it.origFileName,
+                dateKey = it.dateKey, sizeBytes = it.sizeBytes,
+                fallbackRelPath = if (it.origFileName.uppercase().endsWith(".NEF")) {
+                    val cand = it.relPath.replaceAfterLast('.', "JPG")
+                    java.io.File(appContext.filesDir, cand).takeIf { f -> f.exists() }?.let { f ->
+                        it.relPath.replaceAfterLast('.', "JPG")
+                    }
+                } else null,
+                smartCount = mine.size,
+                smartTexts = mine.map { "${it.kind}：${it.text}" },
+            )
+        }
+        lastGalleryItems = items
+        emit(ProbeUiState(
+            "Master 图库 · ${items.size} 个对象 · ${humanBytes(items.sumOf { it.sizeBytes })}",
+            galleryItems = items,
+            galleryStatus = if (items.any { it.smartCount > 0 }) "已有智能结果 ✓" else "",
+        ))
+    }
+
     // ---------- 图库（工单 04） ----------
 
     /** 打开图库 Tab 时调用：pruneAbsent + 收养孤儿 + 快照上屏 */
@@ -197,7 +385,15 @@ class ProbeController(
                     if (masterStore.adoptExistingDiskFile(rel)) adopted++
                 }
             val rows = masterStore.snapshot()
+            val recentResults = resultsDao.recent()
+            val resultsByRow = HashMap<String, List<com.lumina.pass.SmartResultEntity>>()
+            for (r in recentResults) {
+                val key = r.name
+                val cur = resultsByRow[key] ?: emptyList<com.lumina.pass.SmartResultEntity>()
+                resultsByRow[key] = cur + r
+            }
             val items = rows.map {
+                val mine = resultsByRow[it.origFileName] ?: emptyList<com.lumina.pass.SmartResultEntity>()
                 val fallbackRel = if (it.origFileName.uppercase().endsWith(".NEF")) {
                     val candidate = it.relPath.replaceAfterLast('.', "JPG")
                     val asFile = java.io.File(appContext.filesDir, candidate)
@@ -209,15 +405,22 @@ class ProbeController(
                     relPath = it.relPath, name = it.origFileName,
                     dateKey = it.dateKey, sizeBytes = it.sizeBytes,
                     fallbackRelPath = fallbackRel,
+                    smartCount = mine.size,
+                    smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
                 )
             }
             lastGalleryItems = items
             lastGalleryStatus = if (pruned > 0 || adopted > 0)
                 "对账：清理失效 $pruned · 收养新 $adopted" else ""
+            updateCatchupBanner()
+            // 发图库专用画布（保留式合并补全其它 Tab 字段）
             emit(ProbeUiState(
                 "Master 图库 · ${items.size} 个对象 · ${humanBytes(items.sumOf { it.sizeBytes })}",
                 galleryItems = items,
                 galleryStatus = lastGalleryStatus,
+                cameraItems = cameraItems,
+                checkedNames = checkedNames,
+                engineReady = engine != null,
             ))
         }
     }
@@ -415,6 +618,10 @@ class ProbeController(
     fun loadSettings() {
         io.execute {
             val cfg = llmConfigDao.active()
+            lastLedgerLines = ledgerDaoX.recent().take(12).map { e ->
+                "${dateOf(e.createdAtMs)} · ${e.objectName.take(18)} · ${e.model} · ${e.outcome}" +
+                    (e.promptTokens?.let { " · p=$it" } ?: "")
+            }
             emit(
                 ProbeUiState(
                     "LLM 设置",
@@ -426,10 +633,16 @@ class ProbeController(
                     checkedNames = checkedNames,
                     engineReady = engine != null,
                     galleryItems = lastGalleryItems,
+                    ledgerRecent = lastLedgerLines,
+                    catchupBanner = catchupBanner,
                 ),
             )
         }
     }
+
+    private fun dateOf(ms: Long): String =
+        DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneOffset.UTC)
+            .format(Instant.ofEpochMilli(ms))
 
     fun saveLlmConfig(baseUrl: String, apiKey: String, model: String, templateName: String, cloudEnabled: Boolean) {
         io.execute {
@@ -814,6 +1027,11 @@ data class ProbeUiState(
     /** 图库（工单 04）：Room 驱动的 Master 全量快照 */
     val galleryItems: List<GalleryItem> = emptyList(),
     val galleryStatus: String = "",
+    /** M2 智能层 */
+    val catchupBanner: String? = null,
+    val passStatus: String = "",
+    /** Ledger 最近行（设置页展示） */
+    val ledgerRecent: List<String> = emptyList(),
     /** M2 设置页：LLM 三元组 + 云处理开关 */
     val llmConfig: LlmUiConfig? = null,
     val cloudEnabled: Boolean = false,
@@ -857,6 +1075,9 @@ data class GalleryItem(
     val sizeBytes: Long,
     /** NEF 行的同名 JPEG（在盘）——用它出真缩略图；null = 真占位卡 */
     val fallbackRelPath: String? = null,
+    /** 智能结果（M2）：条数 + 全文行 */
+    val smartCount: Int = 0,
+    val smartTexts: List<String> = emptyList(),
 )
 
 /** 相机页的可勾对象（UI 直接消费）。 */
