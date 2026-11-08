@@ -128,7 +128,8 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
 
         when (tab) {
             TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
-            TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller)
+            TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
+                onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
             TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller)
             else -> SettingsPage(Modifier.weight(1f), state, controller)
         }
@@ -155,7 +156,12 @@ private fun TabPill(key: String, label: String, currentKey: String, onSelect: (S
 }
 
 @Composable
-private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, controller: ProbeController) {
+private fun GalleryPage(
+    modifier: Modifier = Modifier,
+    state: ProbeUiState,
+    controller: ProbeController,
+    onGoRecipe: () -> Unit = {},
+) {
     Column(modifier = modifier) {
         if (state.galleryLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth(),
@@ -184,7 +190,7 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, cont
         }
         var selected by remember { mutableStateOf<GalleryItem?>(null) }
         var viewFeed by remember { mutableStateOf(false) }
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (viewFeed) "← 返回图库" else "⚡ 智能结果全文",
                 fontSize = 13.sp,
@@ -192,6 +198,16 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, cont
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clickable { controller.loadSmartFeed(); viewFeed = !viewFeed },
             )
+            Modifier.weight(1f).let { Spacer(modifier = it) }
+            if (!viewFeed && state.passSelectedNames.isNotEmpty()) {
+                Text(
+                    "已选 ${state.passSelectedNames.size} · 去滤镜执行",
+                    fontSize = 13.sp,
+                    color = InkTeal,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { controller.clearPassSelection(); onGoRecipe() },
+                )
+            }
         }
         if (viewFeed) {
             SmartFeedPage(Modifier.weight(1f), state)
@@ -208,41 +224,62 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, cont
                     )
                 }
                 items(items, key = { "g-${it.relPath}" }) { gi ->
-                    GalleryRow(gi, onClick = { selected = gi })
+                    GalleryRow(
+                        gi, state,
+                        checked = state.passSelectedNames.contains(gi.name),
+                        onCheck = { controller.togglePassSelection(gi.name) },
+                        onClick = { selected = gi },
+                    )
                 }
             }
         }
         selected?.let { sel ->
+            var busyStep by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { selected = null },
-                title = { Text("详情", fontSize = 14.sp, color = SageText) },
+                title = { Text(sel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = InkTeal) },
                 text = {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        Text(sel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-                        Spacer(Modifier.height(8.dp))
-                        Text("日期：${sel.dateKey}", fontSize = 13.sp, color = SageText)
-                        Text("体积：${humanBytes(sel.sizeBytes)}", fontSize = 13.sp, color = SageText)
-                        if (sel.smartTexts.isNotEmpty()) {
-                            Spacer(Modifier.height(10.dp))
-                            Text("智能（M2）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-                            sel.smartTexts.forEach { line ->
-                                Text(line, fontSize = 12.sp, color = SageText, modifier = Modifier.padding(top = 2.dp))
-                            }
+                        Text("日期：${sel.dateKey}　体积：${humanBytes(sel.sizeBytes)}", fontSize = 13.sp, color = SageText)
+                        if (sel.workRelPath != null) {
+                            Text("+ Work 预览已生成", fontSize = 12.sp, color = SageText)
                         }
-                        if (sel.relPath.uppercase().endsWith(".NEF") || sel.relPath.uppercase().endsWith(".MP4")) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("智能（M2）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                        if (sel.smartTexts.isEmpty()) {
+                            Text("还没有结果：点下方工具栏跑一步", fontSize = 12.sp, color = CreamFaint)
+                        }
+                        sel.smartTexts.forEach { line ->
+                            Text(line, fontSize = 12.sp, color = InkTeal, modifier = Modifier.padding(top = 4.dp))
+                        }
+                        if (busyStep.isNotBlank()) {
                             Spacer(Modifier.height(8.dp))
-                            Text("仅存原片（不解析 RAW）", fontSize = 12.sp, color = CreamFaint)
+                            Text("⏳ $busyStep", fontSize = 12.sp, color = SageText)
                         }
                     }
                 },
                 confirmButton = {
-                    Text(
-                        "关闭",
-                        fontSize = 14.sp,
-                        color = InkTeal,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { selected = null }.padding(8.dp),
-                    )
+                    Row {
+                        listOf(
+                            "标注" to com.lumina.cards.StepKind.ANNOTATE,
+                            "文案" to com.lumina.cards.StepKind.CAPTION,
+                            "滤镜" to com.lumina.cards.StepKind.FILTER_SUGGEST,
+                        ).forEach { (label, kind) ->
+                            Text(
+                                label,
+                                fontSize = 13.sp, color = InkTeal,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clickable {
+                                        busyStep = "$label 执行中…"
+                                        controller.runSingleStep(sel.name, kind)
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 10.dp),
+                            )
+                        }
+                        Text("关闭", fontSize = 14.sp, color = InkTeal,
+                            modifier = Modifier.clickable { selected = null }.padding(8.dp))
+                    }
                 },
             )
         }
@@ -279,9 +316,15 @@ private fun SmartFeedPage(modifier: Modifier = Modifier, state: ProbeUiState) {
     }
 }
 
-/** JPEG 缩略图行 / NEF RAW 占位行。 */
+/** JPEG 缩略图行 / NEF RAW 占位行（+ 智能处理勾选，M2 UX 流）。 */
 @Composable
-private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
+private fun GalleryRow(
+    item: GalleryItem,
+    state: ProbeUiState,
+    checked: Boolean,
+    onCheck: () -> Unit,
+    onClick: () -> Unit,
+) {
     val isRawImg = !item.name.uppercase().endsWith(".JPG") && !item.name.uppercase().endsWith(".JPEG")
     val showWork = item.workRelPath != null
     val isRaw = isRawImg && !showWork
@@ -289,10 +332,10 @@ private fun GalleryRow(item: GalleryItem, onClick: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onClick() }
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Checkbox(checked = checked, onCheckedChange = { onCheck() })
             Box(
                 modifier = Modifier
                     .height(64.dp)

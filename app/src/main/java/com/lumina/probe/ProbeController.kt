@@ -81,6 +81,8 @@ class ProbeController(
     private var lastLedgerLines: List<String> = emptyList()
     private var galleryLoading = false
     private var cardsLoading = false
+    /** 图库→滤镜的勾选通道（用户 M1/M2 评审期望流：图库选中 ↘ 滤镜执行） */
+    private val passSelection = linkedSetOf<String>()
     private var productNamePrefix = "MTP 设备"
     private var prevCount = 0
 
@@ -176,6 +178,96 @@ class ProbeController(
 
     // ---------- M2 智能层（工单 05） ----------
 
+    private val runningSingle = mutableSetOf<String>()
+
+    /** 编辑界面单步执行：对一张 Master 即时跑某类步骤（标注/文案/滤镜建议） */
+    fun runSingleStep(name: String, kind: com.lumina.cards.StepKind) {
+        io.execute {
+            val cfg = llmConfigDao.active()
+            if (cfg == null) { emit(lastEmitted.get().copy(passStatus = "先配置 LLM")); return@execute }
+            val jpeg = jpegBytesFor(name)
+            if (jpeg == null) { emit(lastEmitted.get().copy(passStatus = "$name 无 JPEG 源")); return@execute }
+            runningSingle.add(name)
+            emit(lastEmitted.get().copy(passStatus = "$name ${kind.name.lowercase()} 执行中…"))
+            // prompt：启用卡里同名步骤的 prompt，否则默认模板
+            val prompt = firstCard()?.steps?.firstOrNull { it.kind == kind }?.prompt
+                ?: com.lumina.pass.PassExecutor.Prompts.annotate.takeIf { kind == com.lumina.cards.StepKind.ANNOTATE }
+                    ?: com.lumina.pass.PassExecutor.Prompts.caption.takeIf { kind == com.lumina.cards.StepKind.CAPTION }
+                    ?: com.lumina.pass.PassExecutor.Prompts.filter
+            val outcome = com.lumina.llm.OkHttpLlmClient().complete(cfg, prompt, jpeg)
+            when (val o = outcome) {
+                is com.lumina.llm.LlmOutcome.Text -> {
+                    resultsDao.insert(com.lumina.pass.SmartResultEntity(
+                        0, name, "_direct", kind.name.lowercase(), o.text, cfg.model, System.currentTimeMillis(),
+                    ))
+                    ledgerDaoX.insert(com.lumina.llm.LedgerEntity(
+                        0, name, cfg.model, prompt.length, jpeg != null,
+                        "OK", o.promptTokens, o.completionTokens, System.currentTimeMillis(),
+                    ))
+                }
+                is com.lumina.llm.LlmOutcome.RateLimited -> ledgDaoSafe("RateLimited", cfg, prompt, jpeg != null)
+                is com.lumina.llm.LlmOutcome.Http -> ledgDaoSafe("Http_${o.code}", cfg, prompt, jpeg != null)
+                is com.lumina.llm.LlmOutcome.NetworkTimeout -> ledgDaoSafe("NetworkTimeout", cfg, prompt, jpeg != null)
+            }
+            runningSingle.remove(name)
+            lastGalleryItems = buildGalleryItems()
+            emit(lastEmitted.get().copy(
+                galleryItems = lastGalleryItems,
+                passStatus = if (outcome is com.lumina.llm.LlmOutcome.Text) "" else "执行失败",
+                passSelectedNames = passSelection.toSet(),
+                smartFeed = loadSmartFeedLines(),
+            ))
+        }
+    }
+
+    private fun firstCard(): com.lumina.cards.SkillCard? =
+        cardDao().all().firstOrNull()?.let {
+            CardEngine.parse(it.stepsJson) { it.cardId }
+        }
+
+    private fun loadSmartFeedLines(): List<com.lumina.probe.SmartFeedItem> =
+        resultsDao.recent().map { r ->
+            com.lumina.probe.SmartFeedItem(r.name, r.kind, r.text, r.model, r.createdAtMs)
+        }
+
+    private fun ledgDaoSafe(outcome: String, cfg: com.lumina.llm.LlmConfigEntity, prompt: String, withImage: Boolean) {
+        ledgerDaoX.insert(com.lumina.llm.LedgerEntity(
+            0, "_direct", cfg.model, prompt.length, withImage, outcome, null, null, System.currentTimeMillis(),
+        ))
+    }
+
+    /** Work 静默预生成（按键版，供编辑工具栏「生成 Work」使用） */
+    fun generateWorkFor(name: String) {
+        io.execute {
+            runningSingle.add(name)
+            emit(lastEmitted.get().copy(passStatus = "$name 生成 Work 预览中…"))
+            val rows = masterStore.snapshot()
+            val row = rows.firstOrNull { it.origFileName == name } ?: run {
+                emit(lastEmitted.get().copy(passStatus = "Master 中无 $name")); return@execute
+            }
+            val src = fileOfRowOrMaster(row.relPath)
+            if (src == null) { emit(lastEmitted.get().copy(passStatus = "源文件不存在")); return@execute }
+            val suggestion = resultsDao.recent()
+                .lastOrNull { r -> r.name == name && r.kind == "filter_suggest" }?.text ?: ""
+            val bytes = runCatching { com.lumina.work.WorkRenderer(src, suggestion).bytes() }.getOrNull()
+            if (bytes == null) {
+                emit(lastEmitted.get().copy(passStatus = "Work 生成失败"))
+                logEvents(listOf("work fail: $name"))
+                return@execute
+            }
+            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
+            val out = java.io.File(appContext.filesDir, rel)
+            out.parentFile?.mkdirs()
+            out.writeBytes(bytes)
+            logEvents(listOf("work: generated $rel"))
+            lastGalleryItems = buildGalleryItems()
+            emit(lastEmitted.get().copy(
+                galleryItems = lastGalleryItems,
+                passStatus = "Work 预览已生成：$rel",
+            ))
+        }
+    }
+
     /** 打开应用时的网络监听：回网 + 队列非空 → 补跑横幅 */
     fun watchNetwork() {
         val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
@@ -208,27 +300,44 @@ class ProbeController(
         emitCameraPage()
     }
 
-    /** 配方页：一键入队（该卡 × 全部 Master 的 JPEG） */
+    /** 图库行勾选进/出智能处理队列（独立于 Ingest 的 IngestQueue） */
+    fun togglePassSelection(name: String) {
+        io.execute {
+            if (!passSelection.remove(name)) passSelection.add(name)
+            emit(lastEmitted.get().copy(passSelectedNames = passSelection.toSet()))
+        }
+    }
+
+    fun clearPassSelection() {
+        io.execute { passSelection.clear(); emit(lastEmitted.get().copy(passSelectedNames = emptySet())) }
+    }
+
     fun runCardPass(cardId: String) {
         io.execute {
             if (!(llmConfigDao.active()?.cloudEnabled ?: false)) {
-                emit(ProbeUiState("云处理总开关是关的：先开它")) 
+                emit(ProbeUiState("云处理总开关是关的：先开它"))
                 return@execute
             }
-            val jpegNames = masterStore.snapshot()
-                .filter { it.origFileName.uppercase().endsWith(".JPG") || it.origFileName.uppercase().endsWith(".JPEG") }
-                .map { it.origFileName }
-            if (jpegNames.isEmpty()) {
+            val chosen = if (passSelection.isEmpty()) {
+                masterStore.snapshot()
+                    .filter { it.origFileName.uppercase().endsWith(".JPG") || it.origFileName.uppercase().endsWith(".JPEG") }
+                    .map { it.origFileName }
+            } else {
+                // 只收 JPEG 源（NEF 自动捎带其同名 JPG 的成片权益由图库显示层处理）
+                passSelection.filter { it.uppercase().endsWith(".JPG") || it.uppercase().endsWith(".JPEG") }
+            }
+            if (chosen.isEmpty()) {
                 emit(ProbeUiState("Master 里没有可读的 JPEG。先从相机勾几张 .JPG 导出"))
                 return@execute
             }
             val t = System.currentTimeMillis()
-            jpegNames.forEach { name ->
+            chosen.forEach { name ->
                 passQueueDao.upsert(
                     com.lumina.pass.PassQueueEntity(name = name, cardId = cardId, queuedAtMs = t),
                 )
             }
-            logEvents(listOf("pass: queued ${jpegNames.size} for card=$cardId"))
+            logEvents(listOf("pass: queued ${chosen.size} for card=$cardId (selection=${passSelection.size})"))
+            passSelection.clear()
             runCatchUpInternal()
         }
     }
@@ -280,12 +389,14 @@ class ProbeController(
         for ((cardId, group) in cardIdGroups) {
             val ent = cardDao().byId(cardId) ?: continue
             val card = CardEngine.parse(ent.stepsJson) { ent.cardId }
+            var roundOK = 0
+            var roundFail = 0
             val recorder = object : com.lumina.pass.PassCallback {
                 override fun onStart(total: Int) {}
                 override fun onItemDone(name: String, ok: Boolean, note: String) {
-                    if (ok) totalOK++ else totalFail++
-                    emit(ProbeUiState("智能处理：$totalOK 成功 / $totalFail 失败", engineReady = true,
-                        cameraItems = cameraItems, checkedNames = checkedNames))
+                    if (ok) roundOK++ else roundFail++
+                    // 状态行式发射：不覆盖 connectionText（滤镜/图库各自保有标题）
+                    emit(lastEmitted.get().copy(passStatus = "处理中：$roundOK 成功 / $roundFail 失败"))
                 }
                 override fun onAllDone(s: Int, f: Int) {}
             }
@@ -294,11 +405,17 @@ class ProbeController(
                 cfgProvider = { llmConfigDao.active() },
                 sink = sink, retryDelayMs = 2000, now = System::currentTimeMillis,
             ).run(group.map { it.name }, card, recorder)
+            totalOK += roundOK
+            totalFail += roundFail
         }
         lastIngestStatus = "Pass 完成：成功 $totalOK · 失败 $totalFail"
         updateCatchupBanner()
-        // 带结果的图库快照刷新
-        publishGalleryWithResults()
+        // 结果并入库库快照（保留式：不改 connectionText，不冲掉任何 Tab 内容）
+        lastGalleryItems = buildGalleryItems()
+        emit(lastEmitted.get().copy(
+            galleryItems = lastGalleryItems,
+            ingestStatus = lastIngestStatus,
+        ))
     }
 
     /** Master 行按名字找 JPEG 字节（长边 1024 重编码；仅设备层） */
@@ -325,30 +442,12 @@ class ProbeController(
         return out.toByteArray()
     }
 
-    /** 刷新图库（附智能结果行） */
+    /** 刷新图库快照（附智能结果行；不覆盖连接文本——任何 Tab 都不会被顶掉） */
     private fun publishGalleryWithResults() {
-        val rows = masterStore.snapshot()
-        val results = resultsDao.recent()
-        val items = rows.map {
-            val mine = results.filter { r -> r.name == it.origFileName }
-            GalleryItem(
-                relPath = it.relPath, name = it.origFileName,
-                dateKey = it.dateKey, sizeBytes = it.sizeBytes,
-                fallbackRelPath = if (it.origFileName.uppercase().endsWith(".NEF")) {
-                    val cand = it.relPath.replaceAfterLast('.', "JPG")
-                    java.io.File(appContext.filesDir, cand).takeIf { f -> f.exists() }?.let { f ->
-                        it.relPath.replaceAfterLast('.', "JPG")
-                    }
-                } else null,
-                smartCount = mine.size,
-                smartTexts = mine.map { "${it.kind}：${it.text}" },
-            )
-        }
-        lastGalleryItems = items
-        emit(ProbeUiState(
-            "Master 图库 · ${items.size} 个对象 · ${humanBytes(items.sumOf { it.sizeBytes })}",
-            galleryItems = items,
-            galleryStatus = if (items.any { it.smartCount > 0 }) "已有智能结果 ✓" else "",
+        lastGalleryItems = buildGalleryItems()
+        emit(lastEmitted.get().copy(
+            galleryItems = lastGalleryItems,
+            galleryStatus = if (lastGalleryItems.any { it.smartCount > 0 }) "已有智能结果 ✓" else lastGalleryStatus,
         ))
     }
 
@@ -371,6 +470,33 @@ class ProbeController(
                 "智能结果 · ${lines.size} 条",
                 smartFeed = lines,
             ))
+        }
+    }
+
+    private fun buildGalleryItems(): List<GalleryItem> {
+        val DATE_FMT_L = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC)
+        val rows = masterStore.snapshot()
+        val recentResults = resultsDao.recent()
+        val resultsByRow = HashMap<String, List<com.lumina.pass.SmartResultEntity>>()
+        for (r in recentResults) {
+            resultsByRow[r.name] = (resultsByRow[r.name] ?: emptyList()) + r
+        }
+        return rows.map {
+            val mine = resultsByRow[it.origFileName] ?: emptyList<com.lumina.pass.SmartResultEntity>()
+            val fallbackRel = if (it.origFileName.uppercase().endsWith(".NEF")) {
+                val candidate = it.relPath.replaceAfterLast('.', "JPG")
+                java.io.File(appContext.filesDir, candidate).takeIf { f -> f.exists() }?.let { _ -> candidate }
+            } else null
+            GalleryItem(
+                relPath = it.relPath, name = it.origFileName,
+                dateKey = it.dateKey, sizeBytes = it.sizeBytes,
+                fallbackRelPath = fallbackRel,
+                smartCount = mine.size,
+                smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
+                workRelPath = appContext.filesDir.walkTopDown()
+                    .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" }
+                    ?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
+            )
         }
     }
 
@@ -410,43 +536,15 @@ class ProbeController(
                 .forEach { (_, rel) ->
                     if (masterStore.adoptExistingDiskFile(rel)) adopted++
                 }
-            val rows = masterStore.snapshot()
-            val recentResults = resultsDao.recent()
-            val resultsByRow = HashMap<String, List<com.lumina.pass.SmartResultEntity>>()
-            for (r in recentResults) {
-                val key = r.name
-                val cur = resultsByRow[key] ?: emptyList<com.lumina.pass.SmartResultEntity>()
-                resultsByRow[key] = cur + r
-            }
-            val items = rows.map {
-                val mine = resultsByRow[it.origFileName] ?: emptyList<com.lumina.pass.SmartResultEntity>()
-                val fallbackRel = if (it.origFileName.uppercase().endsWith(".NEF")) {
-                    val candidate = it.relPath.replaceAfterLast('.', "JPG")
-                    val asFile = java.io.File(appContext.filesDir, candidate)
-                    if (asFile.exists()) candidate else null
-                } else {
-                    null
-                }
-                GalleryItem(
-                    relPath = it.relPath, name = it.origFileName,
-                    dateKey = it.dateKey, sizeBytes = it.sizeBytes,
-                    fallbackRelPath = fallbackRel,
-                    smartCount = mine.size,
-                    smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
-                    workRelPath = appContext.filesDir.walkTopDown()
-                        .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" }
-                        ?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
-                )
-            }
-            lastGalleryItems = items
+            lastGalleryItems = buildGalleryItems()
             lastGalleryStatus = if (pruned > 0 || adopted > 0)
                 "对账：清理失效 $pruned · 收养新 $adopted" else ""
             galleryLoading = false
             updateCatchupBanner()
             // 发图库专用画布（保留式合并补全其它 Tab 字段）
             emit(ProbeUiState(
-                "Master 图库 · ${items.size} 个对象 · ${humanBytes(items.sumOf { it.sizeBytes })}",
-                galleryItems = items,
+                "Master 图库 · ${lastGalleryItems.size} 个对象 · ${humanBytes(lastGalleryItems.sumOf { it.sizeBytes })}",
+                galleryItems = lastGalleryItems,
                 galleryStatus = lastGalleryStatus,
                 cameraItems = cameraItems,
                 checkedNames = checkedNames,
@@ -948,23 +1046,9 @@ class ProbeController(
         return ms.takeIf { it != 0L }
     }
 
-    /** Work 静默预生成：读到 JPEG 就按智能滤镜建议出 Work 预览（失败不打扰，日志有因） */
-    private fun generateWorkQuiet(obj: CameraObject) {
-        runCatching {
-            val rows = masterStore.snapshot()
-            val row = rows.firstOrNull { it.origFileName == obj.name } ?: return
-            val src = fileOfRowOrMaster(row.relPath) ?: return
-            val suggestion = resultsDao.recent()
-                .lastOrNull { r -> r.name == obj.name && r.kind == "filter_suggest" }?.text ?: ""
-            val bytes = com.lumina.work.WorkRenderer(src, suggestion).bytes() ?: return
-            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, obj.name)
-            val out = java.io.File(appContext.filesDir, rel)
-            out.parentFile?.mkdirs()
-            out.writeBytes(bytes)
-            logEvents(listOf("work: generated $rel"))
-        }.onFailure { e ->
-            logEvents(listOf("work: fail ${obj.name} — ${e.message}"))
-        }
+    /** Work 静默预生成：流式枚举期间调用·（转发新版 generateWorkFor）。 */
+    private fun generateWorkQuiet(obj: com.lumina.ptp.CameraObject) {
+        generateWorkFor(obj.name)
     }
 
     /** 由 relPath 找真实文件（兼容历史坏目录） */
@@ -1044,6 +1128,8 @@ class ProbeController(
                 galleryLoading = galleryLoading,
                 cardsLoading = cardsLoading,
                 catchupBanner = catchupBanner,
+                passStatus = passStatus,
+                passSelectedNames = passSelection.toSet(),
             ),
         )
     }
@@ -1153,6 +1239,8 @@ data class ProbeUiState(
     /** 页面加载指示（图库对账/滤镜库盘点为秒级 IO，无指示会像"空了"） */
     val galleryLoading: Boolean = false,
     val cardsLoading: Boolean = false,
+    /** 图库→滤镜的勾选（M2 UX 流：图库选中 ↘ 滤镜执行） */
+    val passSelectedNames: Set<String> = emptySet(),
 )
 
 /** 配方页卡条目。 */
