@@ -51,6 +51,7 @@ class ProbeController(
     private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
     private val queueDao = db.ingestQueueDao()
     private val masterStore = MasterStore(appContext.filesDir, inventoryStore)
+    private val llmConfigDao = db.llmConfigDao()
 
     /** Ingest 引擎：仅 MTP 兜底枚举成功时会就位（自研 PTP GetObject 引擎 M2 接管） */
     private var engine: IngestEngine? = null
@@ -89,6 +90,11 @@ class ProbeController(
     }
 
     /** 勾选/取消一条：Room 是真相，引擎是镜像 */
+    /** tab 切回相机时的快照重发（合并发射，无新增数据） */
+    fun emitCameraUiRefresh() {
+        io.execute { emitCameraPage() }
+    }
+
     fun toggleCheck(item: CameraItem) {
         io.execute {
             val obj = ingestItemOf(item)
@@ -308,6 +314,57 @@ class ProbeController(
     }
 
     private val failedFilesOfRound = linkedMapOf<String, IngestItem>()
+
+    // ---------- 设置页（M2 工单 01） ----------
+
+    fun loadSettings() {
+        io.execute {
+            val cfg = llmConfigDao.active()
+            emit(
+                ProbeUiState(
+                    "LLM 设置",
+                    llmConfig = cfg?.let {
+                        LlmUiConfig(it.baseUrl, it.apiKey, it.model, it.templateName)
+                    },
+                    cloudEnabled = cfg?.cloudEnabled ?: false,
+                    cameraItems = cameraItems,
+                    checkedNames = checkedNames,
+                    engineReady = engine != null,
+                    galleryItems = lastGalleryItems,
+                ),
+            )
+        }
+    }
+
+    fun saveLlmConfig(baseUrl: String, apiKey: String, model: String, templateName: String, cloudEnabled: Boolean) {
+        io.execute {
+            llmConfigDao.upsert(
+                com.lumina.llm.LlmConfigEntity(
+                    id = 1,
+                    baseUrl = baseUrl.trim().trimEnd('/'),
+                    apiKey = apiKey.trim(),
+                    model = model.trim(),
+                    templateName = templateName,
+                    cloudEnabled = cloudEnabled,
+                ),
+            )
+            logEvents(listOf("llm config saved: baseUrl=${baseUrl.trim()} model=${model.trim()} cloud=$cloudEnabled"))
+            loadSettings()
+        }
+    }
+
+    fun setCloudEnabled(enabled: Boolean) {
+        io.execute {
+            val cfg = llmConfigDao.active()
+            if (cfg == null) {
+                emit(ProbeUiState("先填 LLM 配置再开云端处理", cameraItems = cameraItems, checkedNames = checkedNames))
+                return@execute
+            }
+            llmConfigDao.upsert(cfg.copy(cloudEnabled = enabled))
+            logEvents(listOf("cloud processing ${if (enabled) "enabled" else "suspended"}"))
+            loadSettings()
+        }
+    }
 
     // ---------- 连接反应（照旧） ----------
 
@@ -662,6 +719,17 @@ data class ProbeUiState(
     /** 图库（工单 04）：Room 驱动的 Master 全量快照 */
     val galleryItems: List<GalleryItem> = emptyList(),
     val galleryStatus: String = "",
+    /** M2 设置页：LLM 三元组 + 云处理开关 */
+    val llmConfig: LlmUiConfig? = null,
+    val cloudEnabled: Boolean = false,
+)
+
+/** 设置页展示的 LLM 三元组（不含开关，开关单列）。 */
+data class LlmUiConfig(
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String,
+    val templateName: String,
 )
 
 /** Ingest 进度数据包。 */

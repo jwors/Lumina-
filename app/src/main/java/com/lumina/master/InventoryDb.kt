@@ -10,6 +10,9 @@ import androidx.room.RoomDatabase
 import android.content.Context
 import androidx.room.Room
 
+import com.lumina.llm.LlmConfigDao
+import com.lumina.llm.LlmConfigEntity
+
 /**
  * Master 盘点表（ADR-0004）：目录布局是物理真相，本表是查询/去重真相；
  * 两者不一致时按"文件在即为准"由 MasterStore.pruneAbsent 做 reconcile。
@@ -46,13 +49,14 @@ interface MasterInventoryDao {
 }
 
 @Database(
-    entities = [MasterInventoryEntity::class, IngestQueueEntity::class],
-    version = 2,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun masterInventoryDao(): MasterInventoryDao
     abstract fun ingestQueueDao(): IngestQueueDao
+    abstract fun llmConfigDao(): LlmConfigDao
 
     companion object {
         @Volatile

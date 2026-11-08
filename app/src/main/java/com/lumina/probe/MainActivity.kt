@@ -19,9 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
@@ -86,7 +89,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text("Lumina", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = InkTeal)
             Modifier.weight(1f).let { Spacer(modifier = it) }
-            Text("M1", fontSize = 10.sp, color = CreamFaint)
+            Text("M2", fontSize = 10.sp, color = CreamFaint)
         }
         Spacer(Modifier.height(8.dp))
         Row(
@@ -94,15 +97,17 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 .background(DividerCream)
                 .padding(4.dp),
         ) {
-            TabPill("相机", tab, onSelect = { tab = it })
-            TabPill("图库", tab, onSelect = { tab = it })
+            TabPill("相机", tab, onSelect = { tab = it; if (it == "相机") controller.emitCameraUiRefresh() })
+            TabPill("图库", tab, onSelect = { tab = it; if (it == "图库") controller.loadGallery() })
+            TabPill("设置", tab, onSelect = { tab = it; if (it == "设置") controller.loadSettings() })
         }
 
         if (tab == "相机") {
             CameraPage(Modifier.weight(1f), state, controller)
-        } else {
-            controller.loadGallery()
+        } else if (tab == "图库") {
             GalleryPage(Modifier.weight(1f), state)
+        } else {
+            SettingsPage(Modifier.weight(1f), state, controller)
         }
     }
 }
@@ -521,5 +526,122 @@ internal fun humanBytes(bytes: Long): String {
         bytes >= MB -> String.format(java.util.Locale.US, "%.1f MB", bytes.toDouble() / MB)
         bytes >= KB -> String.format(java.util.Locale.US, "%.0f KB", bytes.toDouble() / KB)
         else -> "$bytes B"
+    }
+}
+
+// ---------- 设置页（M2 工单 01） ----------
+
+@Composable
+private fun SettingsPage(
+    modifier: Modifier = Modifier,
+    state: ProbeUiState,
+    controller: ProbeController,
+) {
+    val cfg = state.llmConfig
+    var baseUrl by remember(cfg) { mutableStateOf(cfg?.baseUrl ?: "") }
+    var apiKey by remember(cfg) { mutableStateOf(cfg?.apiKey ?: "") }
+    var model by remember(cfg) { mutableStateOf(cfg?.model ?: "") }
+    var templateName by remember(cfg) { mutableStateOf(cfg?.templateName ?: "") }
+    var saved by remember { mutableStateOf("") }
+
+    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
+        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+
+        Spacer(Modifier.height(16.dp))
+        Text("云处理总开关", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Text(
+            if (state.cloudEnabled) "开启中：联网模型仅用于你配置的 API 域" else "关闭中：所有云端请求挂起（回网也不跑）",
+            fontSize = 12.sp,
+            color = if (state.cloudEnabled) InkTeal else CreamFaint,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = state.cloudEnabled,
+                onCheckedChange = { controller.setCloudEnabled(it) },
+            )
+            Text(if (state.cloudEnabled) "开" else "关", fontSize = 14.sp, color = InkTeal,
+                modifier = Modifier.padding(start = 8.dp))
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Text("平台模板（一键填选题）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Spacer(Modifier.height(6.dp))
+        com.lumina.llm.LlmTemplates.presets.forEach { t ->
+            val active = templateName == t.name
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .background(if (active) PillActive else CreamFaint.copy(alpha = 0.4f))
+                    .clickable {
+                        templateName = t.name
+                        baseUrl = t.baseUrl
+                        model = t.model
+                    }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    if (active) "● " else "○ ",
+                    fontSize = 13.sp,
+                    color = InkTeal,
+                )
+                Text(
+                    "${t.name}　${t.model}",
+                    fontSize = 13.sp,
+                    color = if (active) InkTeal else SageText,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = baseUrl,
+            onValueChange = { baseUrl = it },
+            label = { Text("base_url（OpenAI 兼容）") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            label = { Text("api_key") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            label = { Text("model") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .background(InkTeal)
+                .padding(horizontal = 24.dp, vertical = 10.dp)
+                .clickable {
+                    if (baseUrl.isBlank() || model.isBlank()) {
+                        saved = "base_url 与 model 不能为空"
+                    } else {
+                        controller.saveLlmConfig(baseUrl, apiKey, model, templateName, state.cloudEnabled)
+                        saved = "已保存 ✓"
+                    }
+                },
+        ) {
+            Text("保存配置", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = FilmBackground)
+        }
+        if (saved.isNotBlank()) {
+            Text(saved, fontSize = 12.sp, color = InkTeal, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "隐私姿态（ADR-0005）：联网仅指向你配置的模型 API 域；App 无自有服务器；" +
+                "App 无其他任何敏感权限（无定位/媒体/相机/麦克风）。",
+            fontSize = 11.sp,
+            color = CreamFaint,
+        )
     }
 }

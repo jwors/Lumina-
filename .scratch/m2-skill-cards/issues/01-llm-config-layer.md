@@ -7,7 +7,7 @@ manifest 加 INTERNET；`ManifestPrivacyTest` V2（有 INTERNET、无其他危�
 
 **Blocked by:** 无
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Room v3 + llm_configs 表 + DAO
 - [ ] 4 家模板预置（常量词典）

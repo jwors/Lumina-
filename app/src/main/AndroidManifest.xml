@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- M0 隐私断言：探针不声明 INTERNET 权限，App 无任何联网能力 -->
+<!--  M1 隐私叙事：完全离线（M2 引入 INTERNET，见 ADR-0005：仅用户配置的模型 API 域） -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- M2（ADR-0005）：仅用户配置的模型 API 域联网；无任何其他敏感权限 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="Lumina"
