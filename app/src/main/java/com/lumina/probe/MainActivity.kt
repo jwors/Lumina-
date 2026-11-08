@@ -6,22 +6,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +55,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -270,15 +282,15 @@ private fun RunSheetView(run: CardRunUi, controller: ProbeController) {
                 ) {
                     Text(
                         when {
-                            st == true -> "✓"
-                            st == false -> "✗"
+                            st == com.lumina.probe.ItemOutcome.OK -> "✓"
+                            st == com.lumina.probe.ItemOutcome.FAIL -> "✗"
                             current -> "⏳"
                             else -> "·"
                         },
                         fontSize = 13.sp,
                         color = when {
-                            st == true -> SageText
-                            st == false -> WarnBrown
+                            st == com.lumina.probe.ItemOutcome.OK -> SageText
+                            st == com.lumina.probe.ItemOutcome.FAIL -> WarnBrown
                             else -> CreamFaint
                         },
                         modifier = Modifier.width(24.dp),
@@ -416,6 +428,9 @@ private fun GalleryPage(
     controller: ProbeController,
     onGoRecipe: () -> Unit = {},
 ) {
+    // 查看/多选状态放函数体层：查看器覆盖层在 Column 收口后仍要能给整页上盖
+    var viewerStart by remember { mutableStateOf<Int?>(null) }
+    var viewFeed by remember { mutableStateOf(false) }
     Column(modifier = modifier) {
         if (state.galleryLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth(),
@@ -442,7 +457,6 @@ private fun GalleryPage(
             }
             return@Column
         }
-        var selected by remember { mutableStateOf<GalleryItem?>(null) }
         var viewFeed by remember { mutableStateOf(false) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -453,90 +467,77 @@ private fun GalleryPage(
                 modifier = Modifier.clickable { controller.loadSmartFeed(); viewFeed = !viewFeed },
             )
             Modifier.weight(1f).let { Spacer(modifier = it) }
-            if (!viewFeed && state.passSelectedNames.isNotEmpty()) {
-                Text(
-                    "已选 ${state.passSelectedNames.size} · 去滤镜执行",
-                    fontSize = 13.sp,
-                    color = InkTeal,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { controller.clearPassSelection(); onGoRecipe() },
-                )
-            }
+            Text(
+                "${state.galleryItems.count { isJpegName(it.name) }} JPEG · " +
+                    "${state.galleryItems.count { !isJpegName(it.name) }} NEF",
+                fontSize = 11.sp, color = CreamFaint,
+            )
         }
         if (viewFeed) {
             SmartFeedPage(Modifier.weight(1f), state)
             return@Column
         }
-        // 智能徽章：有结果的行打角标
-        LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
+        // M3-01：3 列网格墙（日期=整行头），勾选圈进多选，点格开全屏查看器
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.weight(1f).padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             state.galleryItems.groupBy { it.dateKey }.forEach { (dateKey, items) ->
-                item(key = "gday-$dateKey") {
-                    Text(
-                        dateKey + if (items.any { it.smartCount > 0 }) "  ⚡" else "",
-                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                    )
+                item(key = "gday-$dateKey", span = { GridItemSpan(3) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            dateKey,
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                        )
+                        Text(
+                            "  ${items.size} 张",
+                            fontSize = 11.sp, color = CreamFaint,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        if (items.any { it.smartCount > 0 }) {
+                            Text(
+                                "  ⚡",
+                                fontSize = 11.sp, color = CreamFaint,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                            )
+                        }
+                    }
                 }
-                items(items, key = { "g-${it.relPath}" }) { gi ->
-                    GalleryRow(
-                        gi, state,
-                        checked = state.passSelectedNames.contains(gi.name),
-                        onCheck = { controller.togglePassSelection(gi.name) },
-                        onClick = { selected = gi },
-                    )
+                items.forEach { gi ->
+                    item(key = "g-${gi.relPath}") {
+                        GalleryCell(
+                            gi = gi,
+                            checked = state.passSelectedNames.contains(gi.name),
+                            onCheck = { controller.togglePassSelection(gi.name) },
+                            onOpen = {
+                                viewerStart = state.galleryItems
+                                    .indexOfFirst { it.relPath == gi.relPath }
+                                    .takeIf { idx -> idx >= 0 }
+                            },
+                        )
+                    }
                 }
             }
         }
-        selected?.let { sel ->
-            var busyStep by remember { mutableStateOf("") }
-            AlertDialog(
-                onDismissRequest = { selected = null },
-                title = { Text(sel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = InkTeal) },
-                text = {
-                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        Text("日期：${sel.dateKey}　体积：${humanBytes(sel.sizeBytes)}", fontSize = 13.sp, color = SageText)
-                        if (sel.workRelPath != null) {
-                            Text("+ Work 预览已生成", fontSize = 12.sp, color = SageText)
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text("智能（M2）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-                        if (sel.smartTexts.isEmpty()) {
-                            Text("还没有结果：点下方工具栏跑一步", fontSize = 12.sp, color = CreamFaint)
-                        }
-                        sel.smartTexts.forEach { line ->
-                            Text(line, fontSize = 12.sp, color = InkTeal, modifier = Modifier.padding(top = 4.dp))
-                        }
-                        if (busyStep.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text("⏳ $busyStep", fontSize = 12.sp, color = SageText)
-                        }
-                    }
-                },
-                confirmButton = {
-                    Row {
-                        listOf(
-                            "标注" to com.lumina.cards.StepKind.ANNOTATE,
-                            "文案" to com.lumina.cards.StepKind.CAPTION,
-                            "滤镜" to com.lumina.cards.StepKind.FILTER_SUGGEST,
-                        ).forEach { (label, kind) ->
-                            Text(
-                                label,
-                                fontSize = 13.sp, color = InkTeal,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier
-                                    .clickable {
-                                        busyStep = "$label 执行中…"
-                                        controller.runSingleStep(sel.name, kind)
-                                    }
-                                    .padding(vertical = 8.dp, horizontal = 10.dp),
-                            )
-                        }
-                        Text("关闭", fontSize = 14.sp, color = InkTeal,
-                            modifier = Modifier.clickable { selected = null }.padding(8.dp))
-                    }
-                },
+        // 多选底部固定操作栏（相册类 App 习惯：选中即起）
+        if (!viewFeed && state.passSelectedNames.isNotEmpty()) {
+            GallerySelectBar(
+                state = state,
+                controller = controller,
+                onGo = onGoRecipe,
             )
         }
+    } // Column
+    viewerStart?.let { start ->
+        GalleryViewerOverlay(
+            state = state,
+            startIndex = start,
+            controller = controller,
+            onClose = { viewerStart = null },
+        )
     }
 }
 
@@ -570,133 +571,326 @@ private fun SmartFeedPage(modifier: Modifier = Modifier, state: ProbeUiState) {
     }
 }
 
-/** JPEG 缩略图行 / NEF RAW 占位行（+ 智能处理勾选，M2 UX 流）。 */
+/** 网格方格卡：缩略/RAW 占位 + Work/⚡ 徽标 + 勾选圈（M3-01）。 */
 @Composable
-private fun GalleryRow(
-    item: GalleryItem,
-    state: ProbeUiState,
+private fun GalleryCell(
+    gi: GalleryItem,
     checked: Boolean,
     onCheck: () -> Unit,
-    onClick: () -> Unit,
+    onOpen: () -> Unit,
 ) {
-    val isRawImg = !item.name.uppercase().endsWith(".JPG") && !item.name.uppercase().endsWith(".JPEG")
-    val showWork = item.workRelPath != null
-    val isRaw = isRawImg && !showWork
-    Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(checked = checked, onCheckedChange = { onCheck() })
-            Box(
-                modifier = Modifier
-                    .height(64.dp)
-                    .padding(end = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (showWork || !isRaw) {
-                    if (showWork) {
-                        // Work 成片缩略（滤镜已应用）
-                        WorkThumb(item.workRelPath!!)
-                    } else {
-                        GalleryThumb(item)
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .background(PillActive)
-                            .padding(10.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("RAW", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkTeal)
-                            Text("胶片框", fontSize = 10.sp, color = SageText)
-                        }
-                    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isUntouchable = !isJpegName(gi.name) && gi.workRelPath == null
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .background(CreamFaint.copy(alpha = 0.08f))
+            .clickable { onOpen() },
+    ) {
+        when {
+            isUntouchable -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("RAW", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InkTeal)
+                    Text("胶片框", fontSize = 10.sp, color = SageText)
                 }
             }
-            Text(item.name, fontSize = 14.sp, color = InkTeal, modifier = Modifier.weight(1f))
-            if (showWork) {
-                Text(
-                    "Work ✓",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF5C7A4E),
+            else -> {
+                val src = gi.workRelPath ?: gi.relPath
+                val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src) {
+                    val hit = ThumbCache.get<android.graphics.Bitmap>(src)
+                    if (hit != null) { value = hit; return@produceState }
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        ThumbDecode.sampled(java.io.File(context.filesDir, src).absolutePath, target = 256)
+                            ?.also { ThumbCache.put(src, it, it.byteCount.toLong()) }
+                    }
+                }
+                bitmap?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = gi.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } ?: CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.Center),
+                    color = InkTeal, trackColor = DividerCream, strokeWidth = 2.dp,
                 )
             }
-            Text(humanBytes(item.sizeBytes), fontSize = 12.sp, color = SageText)
         }
+        // 徽标：Work 成片 / 智能结果（沿用 M2 数据层语义，视觉口径对齐 mockup v3）
+        if (gi.workRelPath != null) {
+            Text(
+                "Work ✓",
+                fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                color = FilmBackground,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .background(Color(0xFF5C7A4E))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            )
+        }
+        if (gi.smartCount > 0) {
+            Text(
+                "⚡${gi.smartCount}",
+                fontSize = 10.sp, color = FilmBackground,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .background(Color(0x9920251F))
+                    .padding(horizontal = 3.dp, vertical = 1.dp),
+            )
+        }
+        // 勾选圈（顶左；圈可点，格身打开查看器）
         Box(
-            Modifier.fillMaxWidth().height(1.dp).background(DividerCream),
-        )
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(4.dp)
+                .size(22.dp)
+                .background(
+                    if (checked) InkTeal else Color(0x66F4F2EA),
+                    RoundedCornerShape(50),
+                )
+                .border(
+                    1.5.dp,
+                    if (checked) InkTeal else SageText.copy(alpha = 0.6f),
+                    RoundedCornerShape(50),
+                )
+                .clickable { onCheck() },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                Text("✓", fontSize = 12.sp, color = FilmBackground, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 
-/** 就地解码缩略图（BitmapFactory inSampleSize；每次进入页面重算——M1 无 LruCache，内存 8 项够用）。 */
+/** 多选底部固定操作栏（相册类 App 习惯：选中即起；CTA 去滤镜页承接确认弹层）。 */
 @Composable
-private fun GalleryThumb(item: GalleryItem) {
+private fun GallerySelectBar(
+    state: ProbeUiState,
+    controller: ProbeController,
+    onGo: () -> Unit,
+) {
+    val totalJpeg = state.galleryItems.count { isJpegName(it.name) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "取消",
+            fontSize = 13.sp, color = SageText, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clickable { controller.clearPassSelection() }
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+        )
+        Text(
+            if (state.passSelectedNames.size >= totalJpeg) "清空全选" else "全选 JPEG",
+            fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clickable {
+                    if (state.passSelectedNames.size >= totalJpeg) {
+                        controller.clearPassSelection()
+                    } else {
+                        state.galleryItems.filter { isJpegName(it.name) }.forEach { gi ->
+                            if (!state.passSelectedNames.contains(gi.name)) {
+                                controller.togglePassSelection(gi.name)
+                            }
+                        }
+                    }
+                }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        PillButton(
+            label = "用滤镜包处理 ${state.passSelectedNames.size} 张 →",
+            filled = true,
+        ) { onGo() }
+    }
+    Text(
+        "勾选中已自动滤掉非 JPEG；确认弹层里会显示参与数",
+        fontSize = 10.sp, color = CreamFaint,
+        modifier = Modifier.padding(bottom = 4.dp),
+    )
+}
+
+/** 全屏查看器：大图横滑 + 底部工具栏（M3-01；承接原详情弹窗的智能三步）。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GalleryViewerOverlay(
+    state: ProbeUiState,
+    startIndex: Int,
+    controller: ProbeController,
+    onClose: () -> Unit,
+) {
+    val items = state.galleryItems
+    val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
+    Box(modifier = Modifier.fillMaxSize().background(FilmBackground)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "✕",
+                    fontSize = 18.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable { onClose() }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "${pagerState.currentPage + 1}/${items.size}",
+                    fontSize = 12.sp, color = CreamFaint,
+                )
+            }
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f),
+            ) { page ->
+                ViewerImage(items.getOrNull(page) ?: return@HorizontalPager)
+            }
+            ViewerToolbar(
+                gi = items.getOrNull(pagerState.currentPage),
+                controller = controller,
+            )
+        }
+    }
+}
+
+/** 查看器大图：按屏宽 downsample 解码（走同一 ThumbCache 账本；NEF 无 Work 时提示）。 */
+@Composable
+private fun ViewerImage(gi: GalleryItem) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = item.relPath) {
+    val cfg = LocalConfiguration.current
+    val isRawNoWork = !isJpegName(gi.name) && gi.workRelPath == null
+    if (isRawNoWork) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("RAW 不预览", fontSize = 15.sp, color = SageText)
+            Text("成片生成后此处显示 Work", fontSize = 11.sp, color = CreamFaint)
+        }
+        return
+    }
+    val src = gi.workRelPath ?: gi.relPath
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src) {
+        val hit = ThumbCache.get<android.graphics.Bitmap>(src)
+        if (hit != null) { value = hit; return@produceState }
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            decodeSampled(java.io.File(context.filesDir, item.relPath).absolutePath, target = 128)
+            val target = (cfg.screenWidthDp * context.resources.displayMetrics.density).toInt()
+            ThumbDecode.sampled(java.io.File(context.filesDir, src).absolutePath, target = target)
+                ?.also { ThumbCache.put(src, it, it.byteCount.toLong()) }
         }
     }
     bitmap?.let {
         Image(
             bitmap = it.asImageBitmap(),
-            contentDescription = item.name,
-            modifier = Modifier.height(56.dp),
+            contentDescription = gi.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
         )
-    } ?: CircularProgressIndicator(
-        modifier = Modifier.height(24.dp),
-        color = InkTeal,
-        trackColor = DividerCream,
-        strokeWidth = 2.dp,
-    )
+    } ?: Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(color = InkTeal, trackColor = DividerCream)
+    }
 }
 
-/** 就地解码缩略图（BitmapFactory inSampleSize）。 */
-private fun decodeSampled(path: String, target: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    return android.graphics.BitmapFactory.decodeFile(path, opts)
-}
-
+/** 查看器底栏：文件信息 + 三步工具（标注/文案/滤镜同 M2 runSingleStep 链）+ 智能结果收合条。 */
 @Composable
-private fun WorkThumb(workRelPath: String) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = workRelPath) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            WorkThumbDecode(java.io.File(context.filesDir, workRelPath).absolutePath, target = 160)
+private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController) {
+    if (gi == null) return
+    var busyStep by remember { mutableStateOf("") }
+    var smartOpen by remember(gi.relPath) { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DividerCream.copy(alpha = 0.35f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(gi.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+            if (gi.workRelPath != null) {
+                Text(
+                    "  Work ✓",
+                    fontSize = 10.sp, color = Color(0xFF5C7A4E), fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${humanBytes(gi.sizeBytes)} · ${gi.dateKey}",
+                fontSize = 11.sp, color = CreamFaint,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            listOf(
+                "标注" to com.lumina.cards.StepKind.ANNOTATE,
+                "文案" to com.lumina.cards.StepKind.CAPTION,
+                "滤镜" to com.lumina.cards.StepKind.FILTER_SUGGEST,
+            ).forEach { (label, kind) ->
+                Text(
+                    label,
+                    fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(PillActive, RoundedCornerShape(16.dp))
+                        .clickable {
+                            busyStep = "$label 执行中…"
+                            controller.runSingleStep(gi.name, kind)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (smartOpen) "智能 N ▴" else "智能 N ▾",
+                fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable { smartOpen = !smartOpen }
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
+            )
+        }
+        if (busyStep.isNotBlank()) {
+            Text("⏳ $busyStep", fontSize = 11.sp, color = SageText, modifier = Modifier.padding(top = 6.dp))
+        }
+        if (smartOpen) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 170.dp)
+                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth(),
+            ) {
+                if (gi.smartTexts.isEmpty()) {
+                    Text(
+                        "还没有结果：点上方工具栏跑一步",
+                        fontSize = 11.sp, color = CreamFaint,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                gi.smartTexts.forEach { line ->
+                    Text(
+                        line, fontSize = 12.sp, color = InkTeal,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
         }
     }
-    bitmap?.let {
-        androidx.compose.foundation.Image(
-            bitmap = it.asImageBitmap(),
-            contentDescription = "Work",
-            modifier = Modifier.height(56.dp),
-        )
-    } ?: CircularProgressIndicator(
-        modifier = Modifier.height(24.dp),
-        color = InkTeal,
-        trackColor = DividerCream,
-        strokeWidth = 2.dp,
-    )
-}
-
-private fun WorkThumbDecode(path: String, target: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    var sample = 1
-    while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
-    return android.graphics.BitmapFactory.decodeFile(path, opts)
 }
 
 @Composable

@@ -375,7 +375,7 @@ class ProbeController(
             if (finished != null && finished.phase == com.lumina.probe.CardRunPhase.RUNNING) {
                 val rowsByRoot = masterStore.snapshot().associateBy { it.origFileName }
                 var workFail = 0
-                finished.targets.filter { finished.itemStatus[it] == true }.forEach { name ->
+                finished.targets.filter { finished.itemStatus[it] == com.lumina.probe.ItemOutcome.OK }.forEach { name ->
                     val row = rowsByRoot[name]
                     if (row != null && renderWorkFor(row, name) == null) workFail++
                 }
@@ -409,7 +409,7 @@ class ProbeController(
         io.execute {
             val run = activeCardRun ?: return@execute
             if (run.phase != com.lumina.probe.CardRunPhase.AWAIT_SAVE) return@execute
-            val okTargets = run.targets.filter { run.itemStatus[it] == true }
+            val okTargets = run.targets.filter { run.itemStatus[it] == com.lumina.probe.ItemOutcome.OK }
             val rowsByRoot = masterStore.snapshot().associateBy { it.origFileName }
             var saved = 0
             var skipped = 0
@@ -449,7 +449,7 @@ class ProbeController(
             var exported = 0
             if (saved > 0) {
                 for (name in okTargets) {
-                    if (run.itemStatus[name] != true) continue
+                    if (run.itemStatus[name] != com.lumina.probe.ItemOutcome.OK) continue
                     val row = rowsByRoot[name] ?: continue
                     val rel = workExist(row, name) ?: continue
                     val f = File(appContext.filesDir, rel)
@@ -518,9 +518,9 @@ class ProbeController(
         override fun onStart(total: Int) {}
         override fun onItemDone(name: String, ok: Boolean, note: String) {
             val cur = activeCardRun ?: return
-            val st = cur.itemStatus + (name to ok)
+            val st = cur.itemStatus + (name to (if (ok) com.lumina.probe.ItemOutcome.OK else com.lumina.probe.ItemOutcome.FAIL))
             val nextIdx = cur.targets.indexOfFirst { !st.containsKey(it) }
-            val doneOk = st.values.count { it }
+            val doneOk = st.values.count { it == com.lumina.probe.ItemOutcome.OK }
             val doneFail = st.size - doneOk
             passStatus = "处理中：$doneOk 成功 / $doneFail 失败"
             activeCardRun = cur.copy(
@@ -1469,6 +1469,9 @@ enum class SaveMode { COPY_WORK, OVERWRITE }
 /** 滤镜包执行阶段：RUNNING（弹层执行视图） / AWAIT_SAVE（处理完，等用户决定保存方式） */
 enum class CardRunPhase { RUNNING, AWAIT_SAVE }
 
+/** 单条执行结果（M3-01 顺手项：淘汰"Map 缺键当第三态"评审记法——键在 = 已处理，键不在 = 未处理） */
+enum class ItemOutcome { OK, FAIL }
+
 /** 卡片执行进行中的 UI 数据（emit 全量快照式；phase 推进由 controller 驱动） */
 data class CardRunUi(
     val cardId: String,
@@ -1480,7 +1483,7 @@ data class CardRunUi(
     val doneOk: Int = 0,
     val doneFail: Int = 0,
     /** name → 成败（false=失败可重试；未出现的 = 待处理/未处理） */
-    val itemStatus: Map<String, Boolean> = emptyMap(),
+    val itemStatus: Map<String, ItemOutcome> = emptyMap(),
     /** 当前在跑的文件名（RUNNING 态高亮行） */
     val currentItem: String? = null,
     /** 用户点了"取消执行"：在途条目跑完后停在收尾 */
