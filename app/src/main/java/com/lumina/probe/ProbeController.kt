@@ -1398,6 +1398,9 @@ class ProbeController(
             checkedNames = if (state.checkedNames.isEmpty()) base.checkedNames else state.checkedNames,
             engineReady = state.engineReady || base.engineReady,
             galleryItems = if (state.galleryItems.isEmpty()) base.galleryItems else state.galleryItems,
+            // 卡库列表：部分状态包不得冲掉（M1-07 同族第 3 例：startCardRun 早退分支只有文字没有
+            // cards → 滤镜页列表被空集盖掉。publishCards 永远带全量，这里只防"没带"的。）
+            cards = if (state.cards.isEmpty()) base.cards else state.cards,
             // 卡片执行状态：新发射未带（null）则保留上一个（弹层/浮标在任何 Tab 都不能闪没）
             cardRun = if (state.cardRun == null) base.cardRun else state.cardRun,
             // 图库多选勾选：部分状态包不得冲掉（M1-07 同族病：滤镜页 loadCards 的部分
