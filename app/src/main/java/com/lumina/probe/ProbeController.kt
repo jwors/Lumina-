@@ -312,12 +312,16 @@ class ProbeController(
     fun togglePassSelection(name: String) {
         io.execute {
             if (!passSelection.remove(name)) passSelection.add(name)
+            logEvents(listOf("sel: toggle $name → ${passSelection.size} in channel"))
             emitSelection()
         }
     }
 
     fun clearPassSelection() {
-        io.execute { passSelection.clear(); emitSelection() }
+        io.execute {
+            logEvents(listOf("sel: clear (was ${passSelection.size})"))
+            passSelection.clear(); emitSelection()
+        }
     }
 
     fun runCardPass(cardId: String) = startCardRun(cardId, selectedOnly = false)
@@ -325,6 +329,7 @@ class ProbeController(
     /** 滤镜包执行（M3 半屏弹层流）：确认范围 → 入队 → 串行执行（逐张反馈）→ AWAIT_SAVE 等收尾。 */
     fun startCardRun(cardId: String, selectedOnly: Boolean) {
         io.execute {
+            logEvents(listOf("pass: startCardRun card=$cardId selectedOnly=$selectedOnly channel=${passSelection.size}"))
             val ent = cardDao().byId(cardId)
             if (ent == null) { emit(ProbeUiState("卡不存在")); return@execute }
             if (!(llmConfigDao.active()?.cloudEnabled ?: false)) {
