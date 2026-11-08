@@ -33,6 +33,12 @@ _Avoid_: 插件、宏、preset。
 **Processing Pass（处理趟）**:
 将一张照片按顺序通过某 Skill Card 声明的步骤序列的一次执行。
 _Avoid_: 流水线运行、任务。
+**补跑队列（Catch-up Queue）**:
+离线排队的处理趟在回网后继续执行的机制；受"云处理总开关"挂起。_Avoid_: 后台同步（不做常驻进程）。
+**智能结果（Smart Result）**:
+一次 LLM 步骤对一张 Master 产出的文本结果（标注/标题/社媒文案/滤镜建议），存于本地明细。_Avoid_: AI 分析、AI 结果。
+**明细日志（Ledger）**:
+云端调用的逐条行内记录（Master 引用、模型、prompt 长度、token 数、成败）。_Avoid_: 账单（真账单以平台侧为准）。
 
 ### 照片状态
 
