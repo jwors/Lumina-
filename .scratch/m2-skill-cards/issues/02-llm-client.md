@@ -7,7 +7,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] LlmClient 接口 + 结果密封类型（Text/RateLimited/Http(x)/NetworkTimeout）
 - [ ] FakeLlmClient 4 路径测试
