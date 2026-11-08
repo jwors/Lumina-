@@ -615,6 +615,42 @@ class ProbeController(
 
     // ---------- 设置页（M2 工单 01） ----------
 
+    /** 连接测试：仅文本 ping 一次（记忆在 Ledger objectName="_test"） */
+    fun testLlmConnection() {
+        io.execute {
+            val cfg = llmConfigDao.active()
+            if (cfg == null) {
+                emit(ProbeUiState("还没有保存的 LLM 配置：先填三元组保存", cameraItems = cameraItems))
+                return@execute
+            }
+            if (!networkAvailable()) { emit(ProbeUiState("当前无网络")); return@execute }
+            emit(ProbeUiState("LLM 连接测试中…"))
+            val outcome = com.lumina.llm.OkHttpLlmClient().complete(
+                cfg, "回复一个字：好", null,
+            )
+            val msg: String
+            when (outcome) {
+                is com.lumina.llm.LlmOutcome.Text -> {
+                    msg = "✓ LLM 可用（模型 ${cfg.model}）：日月结果 [回复=${outcome.text.take(12)}…]"
+                    ledgDao.insert(
+                        com.lumina.llm.LedgerEntity(
+                            0, "_test", cfg.model, 7, false, "OK",
+                            outcome.promptTokens, outcome.completionTokens,
+                            System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                is com.lumina.llm.LlmOutcome.RateLimited ->
+                    msg = "✗ 限流（429）——等 ${outcome.retryAfterSec ?: 60} 秒再试"
+                is com.lumina.llm.LlmOutcome.Http ->
+                    msg = "✗ HTTP ${outcome.code}（key/域名/模型名检查：${outcome.snippet.take(60)}）"
+                is com.lumina.llm.LlmOutcome.NetworkTimeout ->
+                    msg = "✗ 网络不可达：${outcome.reason}"
+            }
+            emit(ProbeUiState("LLM 测试：$msg", llmConfig = state.llmConfig, cameraItems = cameraItems))
+        }
+    }
+
     fun loadSettings() {
         io.execute {
             val cfg = llmConfigDao.active()
@@ -1024,6 +1060,8 @@ data class ProbeUiState(
     val ingestProgress: IngestProgress? = null,
     /** 上一轮 Ingest 结果文本 */
     val ingestStatus: String = "",
+    /** LLM 连接测试结果（设置页） */
+    val testResult: String = "",
     /** 图库（工单 04）：Room 驱动的 Master 全量快照 */
     val galleryItems: List<GalleryItem> = emptyList(),
     val galleryStatus: String = "",

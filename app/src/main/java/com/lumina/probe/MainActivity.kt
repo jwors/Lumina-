@@ -758,6 +758,25 @@ private fun SettingsPage(
         }
 
         Spacer(Modifier.height(16.dp))
+        // 连接测试：真实 ping 一次 chat.completions（文本 only，无图）
+        Box(
+            modifier = Modifier
+                .background(if (state.cloudEnabled) PillActive else DividerCream)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .clickable(enabled = state.cloudEnabled) { controller.testLlmConnection() },
+        ) {
+            Text(
+                if (state.cloudEnabled) "测试连接 LLM" else "先开云处理总开关",
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                color = if (state.cloudEnabled) InkTeal else SageText,
+            )
+        }
+        if (state.testResult.isNotBlank()) {
+            Text(state.testResult, fontSize = 12.sp, color = SageText,
+                modifier = Modifier.padding(top = 8.dp))
+        }
+
+        Spacer(Modifier.height(16.dp))
         Text("明细日志（最近 200 内）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
         Spacer(Modifier.height(4.dp))
         if (state.ledgerRecent.isEmpty()) {
