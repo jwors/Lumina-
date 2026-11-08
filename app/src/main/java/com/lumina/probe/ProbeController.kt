@@ -358,7 +358,7 @@ class ProbeController(
             val rec = resultsDao.recent()
             val lines = rec.map { r ->
                 SmartFeedItem(
-                    name = r.objectName,
+                    name = r.name,
                     kind = r.kind,
                     text = r.text,
                     model = r.model,

@@ -119,7 +119,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         if (tab == "相机") {
             CameraPage(Modifier.weight(1f), state, controller)
         } else if (tab == "图库") {
-            GalleryPage(Modifier.weight(1f), state)
+            GalleryPage(Modifier.weight(1f), state, controller)
         } else if (tab == "配方") {
             RecipePage(Modifier.weight(1f), state, controller)
         } else {
@@ -147,7 +147,7 @@ private fun TabPill(name: String, current: String, onSelect: (String) -> Unit) {
 }
 
 @Composable
-private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
+private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, controller: ProbeController) {
     Column(modifier = modifier) {
         Text(state.connectionText, fontSize = 14.sp, color = SageText)
         if (state.galleryStatus.isNotBlank()) {
