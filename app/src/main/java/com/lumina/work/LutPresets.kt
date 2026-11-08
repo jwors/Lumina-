@@ -74,7 +74,7 @@ object LutPresets {
                     bb * bb * (3f - 2f * bb),
                 )
             })),
-            // 秋雨暮色：橄榄压红 + 细灰花（徒步知青雨阴天）
+            // 秋雨暮色：橄榄压红 + 细灰花（徒步雨阴天）
             Preset(listOf("秋雨", "暮色", "阴天", "olive"), synth(xform = { r: Float, g: Float, b: Float ->
                 val l = 0.31f * r + 0.55f * g + 0.14f * b
                 Triple(
@@ -82,6 +82,71 @@ object LutPresets {
                     (l * 0.3f + g * 0.7f * 1.05f + 0.02f),
                     (l * 0.34f + b * 0.66f * 0.94f),
                 )
+            })),
+            // ── 以下 7 支 = 2026-11-09 扩容：公认胶片 stock 家族 ──
+            // 波塔柔彩（Portra 400）：低反差暖粉调，黑位微抬，肤色奶油感
+            Preset(listOf("波塔", "portra", "柔彩", "人像胶片"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.30f * r + 0.60f * g + 0.10f * b
+                val sat = 0.88f
+                val rr = 0.92f * (l + (r - l) * sat) + 0.025f
+                val gg = 0.92f * (l + (g - l) * sat) + 0.02f
+                val bb = 0.92f * (l + (b - l) * sat) * 0.985f + 0.035f
+                Triple(rr, gg, bb)
+            })),
+            // 浓彩风光（Fuji Velvia）：高饱和高反差，风光浓艳
+            Preset(listOf("浓彩", "velvia", "浓艳", "风光胶片"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.31f * r + 0.55f * g + 0.14f * b
+                fun punch(c: Float): Float {
+                    val s = l + (c - l) * 1.4f
+                    return (s - 0.5f) * 1.18f + 0.5f
+                }
+                Triple(punch(r), punch(g), punch(b))
+            })),
+            // 经典褪色（Classic Chrome）：低饱和 + 阴影灰阶抬升 + 微冷高光
+            Preset(listOf("褪色", "经典", "chrome", "faded"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.299f * r + 0.587f * g + 0.114f * b
+                val sat = 0.76f
+                val rr = l + (r - l) * sat
+                val gg = l + (g - l) * sat
+                val bb = l + (b - l) * sat
+                Triple(
+                    rr * 0.94f + 0.055f,
+                    gg * 0.94f + 0.055f,
+                    bb * 0.93f + 0.065f,
+                )
+            })),
+            // 银盐硬黑（Ilford HP5）：高反差黑白，狂压中间调
+            Preset(listOf("银盐", "hp5", "硬黑", "纪实黑白"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.299f * r + 0.587f * g + 0.114f * b
+                val v = ((l - 0.5f) * 1.28f + 0.5f).coerceIn(0f, 1f)
+                Triple(v, v, v)
+            })),
+            // 柯达金黄（Kodak Gold 200）：暖金主调，黄昏草地向
+            Preset(listOf("金黄", "kodak", "gold", "柯达"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.30f * r + 0.58f * g + 0.12f * b
+                val rr = l + (r * 1.10f + 0.035f - l) * 1.05f
+                val gg = l + (g * 1.04f + 0.02f - l) * 1.05f
+                val bb = l + (b * 0.80f + 0.015f - l) * 1.05f
+                Triple(rr, gg, bb)
+            })),
+            // 青橙电影（CineStill 800T 系）：阴影喂青、高光喂橙，t 电影感
+            Preset(listOf("青橙", "电影", "cinestill", "夜色"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.299f * r + 0.587f * g + 0.114f * b
+                val shadow = (1f - l) * (1f - l)
+                Triple(
+                    r * 1.06f + 0.10f * l - 0.02f * shadow,
+                    g + 0.015f,
+                    b * 1.02f + 0.09f * shadow + 0.01f,
+                )
+            })),
+            // 拍立得（Polaroid 600）：褪色 + 蓝青阴影 + 暖中调
+            Preset(listOf("拍立得", "polaroid", "立得"), synth(xform = { r: Float, g: Float, b: Float ->
+                val l = 0.30f * r + 0.59f * g + 0.11f * b
+                val sat = 0.82f
+                val rr = 0.90f * (l + (r - l) * sat) + 0.055f + 0.02f * l
+                val gg = 0.90f * (l + (g - l) * sat) + 0.045f
+                val bb = 0.90f * (l + (b - l) * sat) + (0.06f - 0.01f * l)
+                Triple(rr, gg, bb)
             })),
         )
     }

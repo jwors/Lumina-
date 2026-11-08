@@ -8,7 +8,7 @@
 
 **Blocked by:** 无（与 01 并行可做）
 
-**Status:** claimed（2026-11-08；主干落地；真机 BUG 一枚：shader varying 名 used vTextureCoord ≠ 基类 textureCoordinate → 成片全黑，已修，待用户复验 GL 出片）
+**Status:** claimed（2026-11-08；主干+黑屏修复 done；2026-11-09 预设扩容至 12 家族（波塔/浓彩/褪色/银盐/金黄/青橙/拍立得）→ LLM 候选清单同步扩容；SAF 导入与 GL/CPU 对拍余项未完）
 
 - [ ] .cube 解析 JVM 测试全绿（好/坏/1D 拒收/维度异常）
 - [ ] 真机：同一 JPEG 旧 ColorMatrix vs 新 LUT 出片对人眼可辨（像素差留证）
