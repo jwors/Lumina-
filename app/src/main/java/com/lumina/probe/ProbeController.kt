@@ -79,6 +79,8 @@ class ProbeController(
     private var catchupBanner: String? = null
     private var passStatus: String = ""
     private var lastLedgerLines: List<String> = emptyList()
+    private var galleryLoading = false
+    private var cardsLoading = false
     private var productNamePrefix = "MTP 设备"
     private var prevCount = 0
 
@@ -375,6 +377,10 @@ class ProbeController(
     /** 打开图库 Tab 时调用：pruneAbsent + 收养孤儿 + 快照上屏 */
     fun loadGallery() {
         io.execute {
+            if (galleryLoading) return@execute  // 防重入
+            galleryLoading = true
+            // 先发"加载中"快照（保留式合并：列表不闪空，只加个状态）
+            emit(ProbeUiState("图库对账中…", galleryLoading = true, engineReady = engine != null))
             val pruned = masterStore.pruneAbsent()
             var adopted = 0
             var repaired = 0
@@ -435,6 +441,7 @@ class ProbeController(
             lastGalleryItems = items
             lastGalleryStatus = if (pruned > 0 || adopted > 0)
                 "对账：清理失效 $pruned · 收养新 $adopted" else ""
+            galleryLoading = false
             updateCatchupBanner()
             // 发图库专用画布（保留式合并补全其它 Tab 字段）
             emit(ProbeUiState(
@@ -552,6 +559,9 @@ class ProbeController(
 
     fun loadCards() {
         io.execute {
+            if (cardsLoading) return@execute  // 防重入
+            cardsLoading = true
+            emit(ProbeUiState("配方库盘点中…", cardsLoading = true))
             cardDao().let { dao ->
                 if (dao.count() == 0) {
                     CardEngine.builtIns().forEach { card ->
@@ -570,6 +580,7 @@ class ProbeController(
                 val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
                 CardUi(it.cardId, it.name, it.version, steps.size, it.imported)
             }
+            cardsLoading = false
             publishCards(lastCards, lastCardStatus)
         }
     }
@@ -1028,6 +1039,11 @@ class ProbeController(
                 ingestStatus = lastIngestStatus,
                 galleryItems = lastGalleryItems,
                 galleryStatus = lastGalleryStatus,
+                cards = lastCards,
+                cardStatus = lastCardStatus,
+                galleryLoading = galleryLoading,
+                cardsLoading = cardsLoading,
+                catchupBanner = catchupBanner,
             ),
         )
     }
@@ -1134,6 +1150,9 @@ data class ProbeUiState(
     /** 配方库（M2 工单 03） */
     val cards: List<CardUi> = emptyList(),
     val cardStatus: String = "",
+    /** 页面加载指示（图库对账/滤镜库盘点为秒级 IO，无指示会像"空了"） */
+    val galleryLoading: Boolean = false,
+    val cardsLoading: Boolean = false,
 )
 
 /** 配方页卡条目。 */

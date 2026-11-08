@@ -157,7 +157,15 @@ private fun TabPill(key: String, label: String, currentKey: String, onSelect: (S
 @Composable
 private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, controller: ProbeController) {
     Column(modifier = modifier) {
-        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        if (state.galleryLoading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(),
+                color = InkTeal, trackColor = DividerCream)
+            Text("图库对账中…", fontSize = 12.sp, color = SageText,
+                modifier = Modifier.padding(top = 4.dp))
+            Spacer(Modifier.height(4.dp))
+        } else {
+            Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        }
         if (state.galleryStatus.isNotBlank()) {
             Text(state.galleryStatus, fontSize = 12.sp, color = CreamFaint)
         }
@@ -209,7 +217,7 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState, cont
                 onDismissRequest = { selected = null },
                 title = { Text("详情", fontSize = 14.sp, color = SageText) },
                 text = {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(sel.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
                         Spacer(Modifier.height(8.dp))
                         Text("日期：${sel.dateKey}", fontSize = 13.sp, color = SageText)
@@ -652,7 +660,13 @@ private fun RecipePage(
     ) { uri: android.net.Uri? -> uri?.let { controller.importCard(it) } }
 
     Column(modifier = modifier) {
-        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        if (state.cardsLoading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(),
+                color = InkTeal, trackColor = DividerCream)
+            Text("配方库盘点中…", fontSize = 12.sp, color = SageText,
+                modifier = Modifier.padding(top = 4.dp))
+        }
+        Text(if (state.cardsLoading) "" else state.connectionText, fontSize = 14.sp, color = SageText)
         if (state.cardStatus.isNotBlank()) {
             Text(state.cardStatus, fontSize = 12.sp, color = InkTeal,
                 modifier = Modifier.padding(top = 4.dp))
