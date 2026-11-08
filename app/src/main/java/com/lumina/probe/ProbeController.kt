@@ -352,6 +352,26 @@ class ProbeController(
 
     // ---------- 图库（工单 04） ----------
 
+    /** 智能结果全文流（配方执行后的所有 Smart Result） */
+    fun loadSmartFeed() {
+        io.execute {
+            val rec = resultsDao.recent()
+            val lines = rec.map { r ->
+                SmartFeedItem(
+                    name = r.objectName,
+                    kind = r.kind,
+                    text = r.text,
+                    model = r.model,
+                    createdAtMs = r.createdAtMs,
+                )
+            }
+            emit(ProbeUiState(
+                "智能结果 · ${lines.size} 条",
+                smartFeed = lines,
+            ))
+        }
+    }
+
     /** 打开图库 Tab 时调用：pruneAbsent + 收养孤儿 + 快照上屏 */
     fun loadGallery() {
         io.execute {
@@ -1071,6 +1091,8 @@ data class ProbeUiState(
     val passStatus: String = "",
     /** Ledger 最近行（设置页展示） */
     val ledgerRecent: List<String> = emptyList(),
+    /** 智能结果全文流 */
+    val smartFeed: List<SmartFeedItem> = emptyList(),
     /** M2 设置页：LLM 三元组 + 云处理开关 */
     val llmConfig: LlmUiConfig? = null,
     val cloudEnabled: Boolean = false,
@@ -1086,6 +1108,15 @@ data class CardUi(
     val version: Int,
     val stepsCount: Int,
     val imported: Boolean,
+)
+
+/** 智能结果全文流条目。 */
+data class SmartFeedItem(
+    val name: String,
+    val kind: String,
+    val text: String,
+    val model: String,
+    val createdAtMs: Long,
 )
 
 /** 设置页展示的 LLM 三元组（不含开关，开关单列）。 */

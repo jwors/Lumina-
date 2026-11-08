@@ -167,6 +167,20 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
             return@Column
         }
         var selected by remember { mutableStateOf<GalleryItem?>(null) }
+        var viewFeed by remember { mutableStateOf(false) }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (viewFeed) "← 返回图库" else "⚡ 智能结果全文",
+                fontSize = 13.sp,
+                color = InkTeal,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { controller.loadSmartFeed(); viewFeed = !viewFeed },
+            )
+        }
+        if (viewFeed) {
+            SmartFeedPage(Modifier.weight(1f), state)
+            return@Column
+        }
         // 智能徽章：有结果的行打角标
         LazyColumn(modifier = Modifier.weight(1f).padding(top = 8.dp)) {
             state.galleryItems.groupBy { it.dateKey }.forEach { (dateKey, items) ->
@@ -215,6 +229,36 @@ private fun GalleryPage(modifier: Modifier = Modifier, state: ProbeUiState) {
                     )
                 },
             )
+        }
+    }
+}
+
+/** 智能结果全文页（一条 = 一卡一步对一 Master）。 */
+@Composable
+private fun SmartFeedPage(modifier: Modifier = Modifier, state: ProbeUiState) {
+    if (state.smartFeed.isEmpty()) {
+        Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("还没有智能结果", fontSize = 15.sp, color = SageText)
+            Text("先在配方 Tab 执行一张卡", fontSize = 12.sp, color = CreamFaint)
+        }
+        return
+    }
+    LazyColumn(modifier = modifier.padding(top = 8.dp)) {
+        items(state.smartFeed, key = { "${it.name}|${it.kind}|${it.createdAtMs}" }) { item ->
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .background(CreamFaint.copy(alpha = 0.08f))
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                    Spacer(Modifier.weight(1f))
+                    Text("[${item.kind}]", fontSize = 11.sp, color = CreamFaint)
+                }
+                Text(item.text, fontSize = 13.sp, color = InkTeal, modifier = Modifier.padding(top = 4.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(DividerCream))
+            }
         }
     }
 }
