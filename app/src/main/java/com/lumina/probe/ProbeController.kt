@@ -312,12 +312,12 @@ class ProbeController(
     fun togglePassSelection(name: String) {
         io.execute {
             if (!passSelection.remove(name)) passSelection.add(name)
-            emit(lastEmitted.get().copy(passSelectedNames = passSelection.toSet()))
+            emitSelection()
         }
     }
 
     fun clearPassSelection() {
-        io.execute { passSelection.clear(); emit(lastEmitted.get().copy(passSelectedNames = emptySet())) }
+        io.execute { passSelection.clear(); emitSelection() }
     }
 
     fun runCardPass(cardId: String) = startCardRun(cardId, selectedOnly = false)
@@ -351,6 +351,7 @@ class ProbeController(
             }
             logEvents(listOf("pass: queued ${chosen.size} for card=$cardId (selectedOnly=$selectedOnly)"))
             passSelection.clear()
+            emitSelection()   // 队列已消化：勾选通道明确清零（合并语义吞不得，见 emitSelection 注释）
             abortRequested = false
             activeCardRun = CardRunUi(
                 cardId = cardId, cardName = ent.name, version = ent.version,
@@ -1382,6 +1383,10 @@ class ProbeController(
             galleryItems = if (state.galleryItems.isEmpty()) base.galleryItems else state.galleryItems,
             // 卡片执行状态：新发射未带（null）则保留上一个（弹层/浮标在任何 Tab 都不能闪没）
             cardRun = if (state.cardRun == null) base.cardRun else state.cardRun,
+            // 图库多选勾选：部分状态包不得冲掉（M1-07 同族病：滤镜页 loadCards 的部分
+            // emit 曾把"用滤镜包处理 N 张"的通道清零 → 确认弹层显示"应用到已选 0 张"）
+            passSelectedNames = if (state.passSelectedNames.isEmpty()) base.passSelectedNames
+            else state.passSelectedNames,
         )
         lastEmitted.set(merged)
         mainThread.post { onState(merged) }
@@ -1390,6 +1395,13 @@ class ProbeController(
     /** 卡片执行状态专用发射：不走 emit 合并语义（本轮明确"清空/翻转"要生效）。 */
     private fun emitCardRun(run: CardRunUi?) {
         val next = lastEmitted.get().copy(cardRun = run)
+        lastEmitted.set(next)
+        mainThread.post { onState(next) }
+    }
+
+    /** 图库多选专用发射：空集=明确清空，必须直接翻转（合并语义吞不得）。 */
+    private fun emitSelection() {
+        val next = lastEmitted.get().copy(passSelectedNames = passSelection.toSet())
         lastEmitted.set(next)
         mainThread.post { onState(next) }
     }
