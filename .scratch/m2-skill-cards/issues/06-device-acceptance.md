@@ -7,7 +7,7 @@ Master 里 10 张 JPEG → 执行「徒步日记·文案」卡 → Smart Result 
 
 **Blocked by:** 04, 05
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 10 条 Smart Result（标注+文案+滤镜候选）真机产出
 - [ ] Ledger 10 行核对

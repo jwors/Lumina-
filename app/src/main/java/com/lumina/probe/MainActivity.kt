@@ -78,9 +78,19 @@ val CreamFaint = Color(0xFFB9B3A6)
 val DividerCream = Color(0xFFE3DFD3)
 val PillActive = Color(0xFFE0E5D8)
 
+// Tab key 与显示名分离（key 稳定，显示名随便改；07 号教训再延伸——切换在 key 上做）
+const val TAB_CAMERA = "camera"
+const val TAB_GALLERY = "gallery"
+const val TAB_RECIPE = "recipe"
+const val TAB_SETTINGS = "settings"
+const val LABEL_CAMERA = "相机"
+const val LABEL_GALLERY = "图库"
+const val LABEL_RECIPE = "滤镜"
+const val LABEL_SETTINGS = "设置"
+
 @Composable
 fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
-    var tab by remember { mutableStateOf("相机") }
+    var tab by remember { mutableStateOf(TAB_CAMERA) }
     // 补跑横幅（顶部：网络可用 + 队列非空 + 总开关联动）
     state.catchupBanner?.let { banner ->
         Row(
@@ -110,20 +120,17 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 .background(DividerCream)
                 .padding(4.dp),
         ) {
-            TabPill("相机", tab, onSelect = { tab = it; if (it == "相机") controller.emitCameraUiRefresh() })
-            TabPill("图库", tab, onSelect = { tab = it; if (it == "图库") controller.loadGallery() })
-            TabPill("配方", tab, onSelect = { tab = it; if (it == "配方") controller.loadCards() })
-            TabPill("设置", tab, onSelect = { tab = it; if (it == "设置") controller.loadSettings() })
+            TabPill(LABEL_CAMERA, tab, onSelect = { tab = it; if (it == TAB_CAMERA) controller.emitCameraUiRefresh() })
+            TabPill(LABEL_GALLERY, tab, onSelect = { tab = it; if (it == TAB_GALLERY) controller.loadGallery() })
+            TabPill(LABEL_RECIPE, tab, onSelect = { tab = it; if (it == TAB_RECIPE) controller.loadCards() })
+            TabPill(LABEL_SETTINGS, tab, onSelect = { tab = it; if (it == TAB_SETTINGS) controller.loadSettings() })
         }
 
-        if (tab == "相机") {
-            CameraPage(Modifier.weight(1f), state, controller)
-        } else if (tab == "图库") {
-            GalleryPage(Modifier.weight(1f), state, controller)
-        } else if (tab == "配方") {
-            RecipePage(Modifier.weight(1f), state, controller)
-        } else {
-            SettingsPage(Modifier.weight(1f), state, controller)
+        when (tab) {
+            TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
+            TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller)
+            TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller)
+            else -> SettingsPage(Modifier.weight(1f), state, controller)
         }
     }
 }
