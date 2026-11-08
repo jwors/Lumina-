@@ -893,6 +893,8 @@ class ProbeController(
 
     /** 卡片 UI 数据发布（合并式，相机/图库数据不冲掉） */
     private fun publishCards(cards: List<CardUi>, cardStatus: String) {
+        // 滤镜确认弹层需要当页知道云开关状态（每次 loadCards 都新鲜读取——M3-02 闸门前置）
+        val cloudEnabled = llmConfigDao.active()?.cloudEnabled ?: false
         lastCards = cards
         lastCardStatus = cardStatus
         emit(
@@ -900,6 +902,7 @@ class ProbeController(
                 connectionText = "配方库 · ${cards.size} 张卡",
                 cards = cards,
                 cardStatus = cardStatus,
+                cloudEnabled = cloudEnabled,
             ),
         )
     }

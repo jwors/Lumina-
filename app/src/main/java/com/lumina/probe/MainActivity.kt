@@ -164,7 +164,9 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
             TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
             TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
                 onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
-            TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller, onRunStarted = { runSheetOpen = true })
+            TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller,
+                onRunStarted = { runSheetOpen = true },
+                onOpenSettings = { tab = TAB_SETTINGS; controller.loadSettings() })
             else -> SettingsPage(Modifier.weight(1f), state, controller)
         }
     }
@@ -1147,6 +1149,7 @@ private fun RecipePage(
     state: ProbeUiState,
     controller: ProbeController,
     onRunStarted: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     // 确认弹层（点卡片 → 应用范围决策）
     var confirmCard: CardUi? by remember { mutableStateOf<CardUi?>(null) }
@@ -1233,24 +1236,31 @@ private fun RecipePage(
                 selectedCount = selJpeg,
                 totalJpeg = state.galleryItems.count { isJpegName(it.name) },
                 hintCount = if (selTotal > selJpeg) selTotal - selJpeg else 0,
+                cloudEnabled = state.cloudEnabled,
                 onConfirm = { selectedOnly ->
                     controller.startCardRun(card.cardId, selectedOnly = selectedOnly)
                     confirmCard = null
                     onRunStarted()
+                },
+                onOpenSettings = {
+                    confirmCard = null
+                    onOpenSettings()
                 },
             )
         }
     }
 }
 
-/** 确认弹层：滤镜包摘要 + 步链 + 两个范围 CTA（已选 JPEG 为 0 时禁用）。 */
+/** 确认弹层：滤镜包摘要 + 步链 + 两个范围 CTA（已选 JPEG 为 0 时禁用；云开关关 = 全部禁用并亮闸门）。 */
 @Composable
 private fun CardConfirmSheet(
     card: CardUi,
     selectedCount: Int,
     totalJpeg: Int,
     hintCount: Int = 0,
+    cloudEnabled: Boolean = true,
     onConfirm: (selectedOnly: Boolean) -> Unit,
+    onOpenSettings: () -> Unit = {},
 ) {
     Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 20.dp)) {
         Text("${card.name}${if (card.imported) "（导入）" else ""}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = InkTeal)
@@ -1259,6 +1269,29 @@ private fun CardConfirmSheet(
         Spacer(Modifier.height(4.dp))
         Text("对所选 Master 逐张串行执行；可中途返回，后台继续。", fontSize = 12.sp, color = CreamFaint)
         Spacer(Modifier.height(16.dp))
+        if (!cloudEnabled) {
+            // 闸门前置：云开关关 = 两个 CTA 一并禁用（老实告诉用户为什么，别让点击无声吞掉）
+            Text(
+                "⚠ 云处理总开关是关的：先到【设置】Tab 打开开关并确认 LLM key 已填。",
+                fontSize = 13.sp, color = WarnBrown, fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "（飞控事故备注：v7 清库曾把 key 一并清掉——一次性重填即可，key 无法自动恢复。）",
+                fontSize = 11.sp, color = CreamFaint,
+            )
+            Spacer(Modifier.height(14.dp))
+            PillButton(
+                label = "去设置 Tab 开云处理",
+                filled = true,
+            ) { onOpenSettings() }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "打开后回到本页重新点开滤镜包即可执行。",
+                fontSize = 11.sp, color = CreamFaint,
+            )
+            return@Column
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             PillButton(
                 label = "应用到已选 ${selectedCount} 张",
