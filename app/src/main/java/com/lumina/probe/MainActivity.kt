@@ -120,10 +120,10 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 .background(DividerCream)
                 .padding(4.dp),
         ) {
-            TabPill(LABEL_CAMERA, tab, onSelect = { tab = it; if (it == TAB_CAMERA) controller.emitCameraUiRefresh() })
-            TabPill(LABEL_GALLERY, tab, onSelect = { tab = it; if (it == TAB_GALLERY) controller.loadGallery() })
-            TabPill(LABEL_RECIPE, tab, onSelect = { tab = it; if (it == TAB_RECIPE) controller.loadCards() })
-            TabPill(LABEL_SETTINGS, tab, onSelect = { tab = it; if (it == TAB_SETTINGS) controller.loadSettings() })
+            TabPill(TAB_CAMERA, LABEL_CAMERA, tab, onSelect = { tab = it; controller.emitCameraUiRefresh() })
+            TabPill(TAB_GALLERY, LABEL_GALLERY, tab, onSelect = { tab = it; controller.loadGallery() })
+            TabPill(TAB_RECIPE, LABEL_RECIPE, tab, onSelect = { tab = it; controller.loadCards() })
+            TabPill(TAB_SETTINGS, LABEL_SETTINGS, tab, onSelect = { tab = it; controller.loadSettings() })
         }
 
         when (tab) {
@@ -135,17 +135,18 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
     }
 }
 
+/** Tab 药丸：key = 状态值（稳定），label = 显示名（可改），激活态用 currentKey 比对。 */
 @Composable
-private fun TabPill(name: String, current: String, onSelect: (String) -> Unit) {
-    val active = name == current
+private fun TabPill(key: String, label: String, currentKey: String, onSelect: (String) -> Unit) {
+    val active = key == currentKey
     Box(
         modifier = Modifier
             .background(if (active) PillActive else FilmBackground)
             .padding(horizontal = 20.dp, vertical = 8.dp)
-            .clickable { onSelect(name) },
+            .clickable { onSelect(key) },
     ) {
         Text(
-            name,
+            label,
             fontSize = 16.sp,
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
             color = if (active) InkTeal else SageText,
