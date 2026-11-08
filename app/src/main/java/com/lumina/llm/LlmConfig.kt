@@ -41,7 +41,7 @@ object LlmTemplates {
 
     val presets = listOf(
         Template("通用 OpenAI", "https://api.openai.com/v1", "gpt-4o-mini", "按 token 计费，视觉可用"),
-        Template("DeepSeek", "https://api.deepseek.com/v1", "deepseek-v4-flash-vision-exp", "视觉实验性；图片 ≤384 token"),
+        Template("DeepSeek", "https://api.deepseek.com/v1", "deepseek-flash", "vision-flash 已并入；支持 JPEG/PNG/GIF/WebP（按内容判定）"),
         Template("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4v-flash", "免费额度"),
         Template("Kimi 月之暗面", "https://api.moonshot.cn/v1", "moonshot-v1-8k-vision-preview", "视觉预览模型"),
     )
