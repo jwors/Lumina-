@@ -12,7 +12,9 @@ class Lut3DFilter(lut: CubeLut) : GPUImageTwoInputFilter(FRAGMENT_SHADER) {
     companion object {
         private val FRAGMENT_SHADER = """
 precision mediump float;
-varying highp vec2 vTextureCoord;
+// GPUImage 基类顶点（GPUImageFilter.VERTEX_SHADER）输出的 varying 名就叫 textureCoordinate——
+// 之前误用 vTextureCoord 导致原图采样恒 0（黑屏成片根因）。
+varying highp vec2 textureCoordinate;
 uniform sampler2D inputImageTexture;
 uniform sampler2D inputImageTexture2;
 uniform float uLutSize;
@@ -27,7 +29,7 @@ vec3 sampleLut(vec3 base) {
 }
 
 void main() {
-    vec3 c = texture2D(inputImageTexture, vTextureCoord).rgb;
+    vec3 c = texture2D(inputImageTexture, textureCoordinate).rgb;
     float n = uLutSize;
     vec3 coord = clamp(c, 0.0, 1.0) * (n - 1.0);
     vec3 bo = floor(coord);
