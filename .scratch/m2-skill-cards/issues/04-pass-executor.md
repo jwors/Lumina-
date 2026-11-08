@@ -7,7 +7,7 @@
 
 **Blocked by:** 01, 02, 03
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 队列表 + 执行器（步骤→prompt→client→result 全链）
 - [ ] 网络监听 + 横幅 + [补跑]

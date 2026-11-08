@@ -16,6 +16,10 @@ import com.lumina.llm.LedgerDao
 import com.lumina.llm.LedgerEntity
 import com.lumina.llm.LlmConfigDao
 import com.lumina.llm.LlmConfigEntity
+import com.lumina.pass.PassQueueDao
+import com.lumina.pass.PassQueueEntity
+import com.lumina.pass.SmartResultsDao
+import com.lumina.pass.SmartResultEntity
 
 /**
  * Master 盘点表（ADR-0004）：目录布局是物理真相，本表是查询/去重真相；
@@ -53,8 +57,8 @@ interface MasterInventoryDao {
 }
 
 @Database(
-    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class],
-    version = 5,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class, SmartResultEntity::class, PassQueueEntity::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -63,6 +67,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun llmConfigDao(): LlmConfigDao
     abstract fun ledgerDao(): LedgerDao
     abstract fun cardDao(): CardDao
+    abstract fun smartResultsDao(): SmartResultsDao
+    abstract fun passQueueDao(): PassQueueDao
 
     companion object {
         @Volatile
