@@ -1391,23 +1391,9 @@ class ProbeController(
     }
 
     private fun emit(state: ProbeUiState) {
-        // 保留式合并：文本/状态类发射不把相机页/图库/勾选数据冲掉（切 Tab bug 修复）
-        val base = lastEmitted.get()
-        val merged = state.copy(
-            cameraItems = if (state.cameraItems.isEmpty()) base.cameraItems else state.cameraItems,
-            checkedNames = if (state.checkedNames.isEmpty()) base.checkedNames else state.checkedNames,
-            engineReady = state.engineReady || base.engineReady,
-            galleryItems = if (state.galleryItems.isEmpty()) base.galleryItems else state.galleryItems,
-            // 卡库列表：部分状态包不得冲掉（M1-07 同族第 3 例：startCardRun 早退分支只有文字没有
-            // cards → 滤镜页列表被空集盖掉。publishCards 永远带全量，这里只防"没带"的。）
-            cards = if (state.cards.isEmpty()) base.cards else state.cards,
-            // 卡片执行状态：新发射未带（null）则保留上一个（弹层/浮标在任何 Tab 都不能闪没）
-            cardRun = if (state.cardRun == null) base.cardRun else state.cardRun,
-            // 图库多选勾选：部分状态包不得冲掉（M1-07 同族病：滤镜页 loadCards 的部分
-            // emit 曾把"用滤镜包处理 N 张"的通道清零 → 确认弹层显示"应用到已选 0 张"）
-            passSelectedNames = if (state.passSelectedNames.isEmpty()) base.passSelectedNames
-            else state.passSelectedNames,
-        )
+        // 保留式合并：文本/状态类发射不把相机页/图库/勾选/卡库数据冲掉——
+        // 语义已提取为 StateMerge 纯函数（StateMergeTest 锁语义，M1-07 三例之后立的护栏）
+        val merged = StateMerge.merge(lastEmitted.get(), state)
         lastEmitted.set(merged)
         mainThread.post { onState(merged) }
     }

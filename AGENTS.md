@@ -16,6 +16,7 @@ Lumina：徒步摄影者用 Android 应用（尼康 Z30 → 手机导出）。**
 
 - 工程不配 wrapper：Gradle 在 `D:\Android\tools\gradle-8.9\bin\gradle.bat`；JDK 21 在 `D:\Android\jdk\jdk-21`（`%USERPROFILE%\.gradle\gradle.properties` 已配 `org.gradle.java.home`）
 - 单测：`gradle -p <repo> :app:testDebugUnitTest --no-daemon`（结果 XML 在 `app\build\test-results\`）
+- 回归基线（2026-11-09 拍板）：**功能动工前跑一遍全绿基线，收尾提交前再跑一遍对照**；`StateMergeTest` 锁发射台账（部分状态包不得冲掉跨页字段），`RegressionGuardTest` 锁 DB 纪律（bump version 必挂 Migration、`fallbackToDestructiveMigration` 永久禁用——它清过全库）
 - 手机 adb：`D:\Android\Sdk\platform-tools\adb.exe`
 - GitHub 网络被墙：**已配仓库级 `http.proxy=127.0.0.1:7890`**，push 不需要再带 `-c` 参数
 

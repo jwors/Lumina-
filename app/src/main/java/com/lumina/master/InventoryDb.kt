@@ -122,12 +122,18 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
-                // M1 开发期破坏性迁移已退役：v6→v7 起走正式正向迁移（用户库保全）
+                // M1 开发期破坏性迁移已退役：v6→v7 起走正式正向迁移（用户库保全）。
+                // 教训（2026-11-09 实锤）：升版本不挂迁移 = fallbackToDestructive 把用户全库清空
+                // （llm 配置/卡库/智能结果全没）。今后每 bump version 必须同轮挂上对应 Migration。
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "lumina.db",
-                ).fallbackToDestructiveMigration().build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_6_7)
+                    // fallbackToDestructiveMigration 已移除（2026-11-09 实锤它清过全库）：
+                    // 缺迁移就当场崩——开发商期立刻暴露，绝不静默清用户照片数据。
+                    .build().also { instance = it }
             }
     }
 }
