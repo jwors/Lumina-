@@ -1300,6 +1300,9 @@ private fun RecipePage(
     val importLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri: android.net.Uri? -> uri?.let { controller.importCard(it) } }
+    val skillLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri: android.net.Uri? -> uri?.let { controller.importSkillCard(it) } }
 
     Column(modifier = modifier) {
         if (state.cardsLoading) {
@@ -1325,6 +1328,16 @@ private fun RecipePage(
             ) {
                 Text("导入卡片 (.json)", fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, color = FilmBackground)
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .background(PillActive)
+                    .clickable { skillLauncher.launch(arrayOf("text/*", "text/markdown")) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text("导入 SKILL (.md)", fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, color = InkTeal)
             }
             Spacer(Modifier.width(12.dp))
             Text("共享的配方属于文件（无自有服务器）", fontSize = 11.sp, color = CreamFaint)

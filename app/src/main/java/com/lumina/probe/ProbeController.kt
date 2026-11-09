@@ -419,10 +419,20 @@ class ProbeController(
                 }
                 if (workFail > 0) logEvents(listOf("work: $workFail items failed to render at await-save"))
                 // M4-01：生成式链（卡含 GENERATIVE 步才有意义；未配端点则静默占位+提示）
+                // SKILL 全文优先：卡内 GENERATIVE 步的 prompt 若已 ≥800 字（导入的 Codex Skills 即正主规格），用之。
+                val cardEnt = cardDao().byId(finished.cardId)
+                val skillBody = cardEnt?.let { ent ->
+                    runCatching {
+                        CardEngine.parse(ent.stepsJson) { ent.cardId }.steps
+                            .firstOrNull { it.kind == com.lumina.cards.StepKind.GENERATIVE }?.prompt
+                    }.getOrNull()
+                }
                 runGenerativePass(
                     llmConfigDao.active(),
                     rowsByRoot,
                     finished.targets.filter { finished.itemStatus[it] == com.lumina.probe.ItemOutcome.OK },
+                    skillBody = skillBody,
+                    skillName = finished.cardName,
                 )
                 lastGalleryItems = buildGalleryItems()
                 activeCardRun = finished.copy(
@@ -1589,11 +1599,14 @@ class ProbeController(
 
     /** M4-01：生成式链（在保存收尾弹层前跑）——对 OK 条目：
      *  ① 看图+SKILL 工作流编 prompt（chat vision，一次调用）② glm-image 出图 ③ 存 Work `_g.jpg`。
+     *  SKILL 全文优先（导入的 Codex Skills 是正主规格）；未导入时退蒸馏版。
      *  未配端点 = 保持 M2 占位语义，提示语落 passStatus（设置→图像生成端点）。 */
     private fun runGenerativePass(
         chatCfg: com.lumina.llm.LlmConfigEntity?,
         rowsByRoot: Map<String, com.lumina.master.MasterInventoryEntity>,
         okNames: List<String>,
+        skillBody: String? = null,
+        skillName: String = "?",
     ) {
         val cfg = imageGenConfigDao.active()
         if (cfg == null) {
@@ -1606,6 +1619,14 @@ class ProbeController(
             logEvents(listOf("imagegen: 无 chat 配置 → 编译步跳过"))
             return
         }
+        // 规则源优先级：卡内 SKILL 全文（忠实正主） > 蒸馏版（PosterPromptCompiler）
+        val compilerPrompt = if (skillBody != null && skillBody.length >= 800) {
+            "你在为本台生图管线工作。照片是参考。请严格按用户提供的 SKILL 语言与工作流读照片，" +
+                "并以 SKILL 自带的最終生图 prompt 形态产出四段式指令（只输出提示词本身）：\n\n$skillBody"
+        } else {
+            PosterPromptCompiler.COMPILER_PROMPT
+        }
+        val rulesLabel = if (skillBody != null && skillBody.length >= 800) "SKILL 全文($skillName)" else "蒸馏版"
         val client = com.lumina.imagegen.ImageGenClient(
             cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
             log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
@@ -1617,7 +1638,7 @@ class ProbeController(
             val jpeg = jpegBytesFor(name) ?: return@forEachIndexed
             // ① 读图 + 按工作流编译四段式 prompt（一次 vision 调用）
             val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
-                chatCfg, PosterPromptCompiler.COMPILER_PROMPT, jpeg,
+                chatCfg, compilerPrompt, jpeg,
             )) {
                 is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(2400)
                 else -> null
@@ -1699,6 +1720,48 @@ class ProbeController(
             )
             logEvents(listOf("imagegen: config saved (${model})"))
             emit(ProbeUiState("生图端点已保存 ✓"))
+        }
+    }
+
+    /** M4-01：导入 Codex 生图 SKILL(.md) — frontmatter name/标题 → 卡名；全文 → GENERATIVE 步。 */
+    fun importSkillCard(uri: android.net.Uri) {
+        io.execute {
+            try {
+                val text = appContext.contentResolver.openInputStream(uri)
+                    ?.readBytes()?.toString(Charsets.UTF_8)
+                    ?: throw SkillCardException("读不到 SKILL 内容")
+                if (text.length < 200) throw SkillCardException("内容太短，不像 SKILL 文档")
+                // 卡名：frontmatter name → 首个 # 标题 → 文件名，依次回退
+                val frontName = Regex("^name:\\s*(.+)$", RegexOption.MULTILINE)
+                    .find(text)?.groupValues?.get(1)?.trim()
+                val heading = Regex("^#\\s+(.+)$", RegexOption.MULTILINE)
+                    .find(text)?.groupValues?.get(1)?.trim()
+                val display = frontName ?: heading ?: "SKILL-导入"
+                val card = com.lumina.cards.SkillCard(
+                    cardId = com.lumina.cards.CardEngine.newId(),
+                    name = display,
+                    version = 1,
+                    steps = listOf(
+                        com.lumina.cards.CardStep(
+                            kind = com.lumina.cards.StepKind.GENERATIVE,
+                            prompt = text,
+                        ),
+                    ),
+                )
+                cardDao().upsert(
+                    CardEntity(
+                        cardId = card.cardId, name = card.name, version = card.version,
+                        stepsJson = CardEngine.toJson(card), imported = true,
+                        createdAtMs = System.currentTimeMillis(),
+                    ),
+                )
+                logEvents(listOf("skills: imported \"$display\" (${text.length} chars, imagegen card)"))
+                publishCards(loadCardRows(), cardStatus = "已导入 SKILL：$display（生成式卡，生图端点配置后生效）")
+            } catch (e: SkillCardException) {
+                publishCards(loadCardRows(), cardStatus = "SKILL 导入失败：${e.reason}")
+            } catch (e: Exception) {
+                publishCards(loadCardRows(), cardStatus = "SKILL 导入失败：${e.message}")
+            }
         }
     }
 
