@@ -38,10 +38,16 @@ object ZinePosterRenderer {
         val lines = wrap(shown, titlePaint, PosterLayout.CANVAS_W - z.pad * 2, maxLines = 2)
         for (line in lines) { canvas.drawText(line, z.pad.toFloat(), ty, titlePaint); ty += TITLE_SIZE * 1.22f }
 
-        // 3) 照片区：中心裁 + 细墨边框（zine 感）
+        // 3) 照片区：中心裁 → 目标矩形绘制（自动缩放进相框；
+        //    曾有 bug：drawBitmap(bmp, x, y) 按原尺寸粘贴，2048px 工作图溢出画布 → 截断 + 只见一角灰雾）
         val crop = PosterLayout.centerCrop(src.width, src.height, PosterLayout.CANVAS_W - z.pad * 2, z.photoHeight)
         val photo = Bitmap.createBitmap(src, crop.left, crop.top, crop.width, crop.height, null, false)
-        canvas.drawBitmap(photo, z.pad.toFloat(), z.photoTop.toFloat(), null)
+        val dest = android.graphics.RectF(
+            z.pad.toFloat(), z.photoTop.toFloat(),
+            (PosterLayout.CANVAS_W - z.pad).toFloat(), (z.photoTop + z.photoHeight).toFloat(),
+        )
+        val regionPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(photo, null, dest, regionPaint)
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             color = Color.rgb(0x20, 0x25, 0x1F)
@@ -49,7 +55,7 @@ object ZinePosterRenderer {
         }
         canvas.drawRect(
             z.pad.toFloat(), z.photoTop.toFloat(),
-            (z.pad + photo.width).toFloat(), (z.photoTop + z.photoHeight).toFloat(), border,
+            (PosterLayout.CANVAS_W - z.pad).toFloat(), (z.photoTop + z.photoHeight).toFloat(), border,
         )
 
         // 4) 底注带：日期 · 行山记（小字）+ 右下 Lumina 角字
