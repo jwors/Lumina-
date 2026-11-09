@@ -1093,6 +1093,20 @@ class ProbeController(
                 ),
             )
             logEvents(listOf("llm config saved: baseUrl=${baseUrl.trim()} model=${model.trim()} cloud=$cloudEnabled"))
+            // M4-01：平台模板自带生图端点时，一键把生图配置也并上（同 key 两用，size 固定 3:5）
+            com.lumina.llm.LlmTemplates.presets.firstOrNull { it.name == templateName }?.image?.let { im ->
+                imageGenConfigDao.upsert(
+                    com.lumina.master.ImageGenConfigEntity(
+                        id = 1,
+                        baseUrl = im.baseUrl,
+                        apiKey = apiKey.trim(),
+                        model = im.model,
+                        size = im.size,
+                        savedAtMs = System.currentTimeMillis(),
+                    ),
+                )
+                logEvents(listOf("imagegen: template-merged (${im.model} · ${im.size})"))
+            }
             loadSettings()
         }
     }

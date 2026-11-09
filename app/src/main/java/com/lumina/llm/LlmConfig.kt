@@ -37,12 +37,28 @@ interface LlmConfigDao {
  * 注意：模型名是arket预置，用户 base_url 变了就要改（模板只是起点）。
  */
 object LlmTemplates {
-    data class Template(val name: String, val baseUrl: String, val model: String, val note: String)
+    /** 生图端点定义（M4-01）：模板可携带；平台模板选中时一并保存进 ImageGenConfig。 */
+    data class ImageGenDef(val baseUrl: String, val model: String, val size: String)
+
+    data class Template(
+        val name: String,
+        val baseUrl: String,
+        val model: String,
+        val note: String,
+        /** 有生图能力的模板才带（M4-01：智谱 GLM 同平台同 key 两用）。 */
+        val image: ImageGenDef? = null,
+    )
 
     val presets = listOf(
         Template("通用 OpenAI", "https://api.openai.com/v1", "gpt-4o-mini", "按 token 计费，视觉可用"),
         Template("DeepSeek", "https://api.deepseek.com/v1", "deepseek-flash", "vision-flash 已并入；支持 JPEG/PNG/GIF/WebP（按内容判定）"),
-        Template("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4v-flash", "免费额度"),
+        Template("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4v-flash", "免费额度；生图同平台（glm-image 3:5）",
+            image = ImageGenDef(
+                baseUrl = "https://open.bigmodel.cn/api/paas/v4/images/generations",
+                model = "glm-image",
+                size = "1056x1760",
+            ),
+        ),
         Template("Kimi 月之暗面", "https://api.moonshot.cn/v1", "moonshot-v1-8k-vision-preview", "视觉预览模型"),
     )
 }
