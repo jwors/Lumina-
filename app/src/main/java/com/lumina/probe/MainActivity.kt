@@ -792,7 +792,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
     var caption by remember { mutableStateOf(captionPrefill) }
 
     val workPath = gi.workRelPath
-    val preview by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = "${gi.relPath}-$mode", key2 = caption) {
+    val preview by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = "${gi.relPath}-$mode") {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val path = workPath ?: return@withContext null
             val bmp = ThumbCache.get<android.graphics.Bitmap>("share-$path-$mode")
@@ -801,7 +801,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
                 ?: return@withContext null
             when (mode) {
                 ShareMode.POSTER ->
-                    ZinePosterRenderer.render(bmp, PosterLayout.clampTitle(caption, 22), "${gi.dateKey} · 行山记")
+                    ZinePosterRenderer.render(bmp, "${gi.dateKey} · 行山记")
                 ShareMode.ORIGINAL -> bmp
             }
         }
@@ -844,7 +844,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
         OutlinedTextField(
             value = caption,
             onValueChange = { caption = it },
-            label = { Text("配文（分享与海报标题共用；4:5 切回即重排）") },
+            label = { Text("配文（随分享面板带出）") },
             modifier = Modifier.fillMaxWidth(),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = InkTeal),
         )
@@ -878,7 +878,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
                     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = "image/jpeg"
                         putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                        if (caption.isNotBlank()) putExtra(android.content.Intent.EXTRA_TEXT, caption)
+                        if (caption.isNotBlank()) putExtra(android.content.Intent.EXTRA_TEXT, PosterLayout.sanitizeTitle(caption))
                         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     context.startActivity(android.content.Intent.createChooser(send, "分享 Lumina 成片"))

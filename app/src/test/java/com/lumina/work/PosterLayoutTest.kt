@@ -10,17 +10,17 @@ import org.junit.Test
 class PosterLayoutTest {
 
     @Test
-    fun `zones fill the 4x5 canvas without gaps`() {
+    fun `zones fill the 4x5 canvas without gaps - photo band dominates (top text removed)`() {
         val z = PosterLayout.zones()
         assertEquals(1080, PosterLayout.CANVAS_W)
         assertEquals(1350, PosterLayout.CANVAS_H)
-        val consumed = z.pad + z.titleHeight + z.photoHeight + z.noteHeight + z.pad
+        val consumed = z.pad + z.photoHeight + z.noteHeight + z.pad
         assertEquals("分区必须吃满画布高", PosterLayout.CANVAS_H, consumed)
         // 顺序与相邻性
-        assertEquals(z.titleTop + z.titleHeight, z.photoTop)
+        assertEquals(z.photoTop, z.pad)
         assertEquals(z.photoTop + z.photoHeight, z.noteTop)
-        // 照片区是主导（>70%）
-        assertTrue(z.photoHeight > PosterLayout.CANVAS_H * 0.7f)
+        // 照片区是绝对主导（顶部文案带取消后 >80%）
+        assertTrue(z.photoHeight > PosterLayout.CANVAS_H * 0.8f)
     }
 
     @Test
