@@ -158,4 +158,17 @@ object LutPresets {
         val t = suggestText.lowercase()
         return presets.firstOrNull { p -> p.keys.any { t.contains(it.lowercase()) } }
     }
+
+    /** 卡名兜底绑定（2026-11-09 修复："滤镜建议"步 LLM 未产出文本时，卡名 → 家族的级联仍然出效果）。
+     *  scenes-gathered-zine → 秋雨暮色；gc-minimal-zine-poster → 极简 zine；pixel-style-poster-skill → 浓彩风光。 */
+    fun presetForCard(cardName: String): Preset? {
+        val t = cardName.lowercase()
+        val family = when {
+            t.contains("scenes") || t.contains("聚束") -> "秋雨"
+            t.contains("pixel") || t.contains("像素") -> "浓彩"
+            t.contains("zine") || t.contains("海报") || t.contains("极简") -> "极简 zine"
+            else -> null
+        } ?: return null
+        return presets.firstOrNull { p -> p.keys.any { k -> k.contains(family) } }
+    }
 }

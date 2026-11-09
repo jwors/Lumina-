@@ -264,18 +264,39 @@ class ProbeController(
         }
     }
 
-    /** 为一张 Master 渲染成片并写入 Work 层；返回 Work 触达路径（失败 null，语义=不可保存）。 */
-    private fun renderWorkFor(row: com.lumina.master.MasterInventoryEntity, name: String): String? {
+    /** 为一张 Master 渲染成片并写入 Work 层；返回 Work 触达路径（失败 null，语义=不可保存）。
+     *  选 LUT 优先级：建议文本命中家族 → 卡名兜底家族（v 提升，2026-11-09）→ 无家族走 CPU。 */
+    private fun renderWorkFor(
+        row: com.lumina.master.MasterInventoryEntity,
+        name: String,
+        cardName: String? = null,
+    ): String? {
         val src = fileOfRowOrMaster(row.relPath) ?: return null
         val suggestion = resultsDao.recent()
             .lastOrNull { r -> r.name == name && r.kind == "filter_suggest" }?.text ?: ""
         val bytes = runCatching {
             val preset = com.lumina.work.LutPresets.pickFor(suggestion)
+                ?: cardName?.let { com.lumina.work.LutPresets.presetForCard(it) }
+                ?.also { logEvents(listOf("lut: 建议文本为空/未命中 → 按卡名兜底家族 ${it.keys.first()}")) }
             if (preset != null) {
                 // M3-02 GL 路线：滤镜建议命中预设家族 → .cube LUT 真渲染；失败回退 CPU ColorMatrix
-                com.lumina.work.WorkRendererGpu(appContext).bytes(src, preset.lut)
-                    ?: com.lumina.work.WorkRenderer(src, suggestion).bytes()
+                // 2026-11-09 补灯：命中/回退都落日志（此前 GL 静默失败被误读为"滤镜没效果"）
+                logEvents(listOf(
+                    "lut: hit preset=${preset.keys.first()} for=${name.take(14)} " +
+                        "suggest=${suggestion.take(40)}",
+                ))
+                com.lumina.work.WorkRendererGpu(
+                    appContext,
+                    log = { l ->
+                        logEvents(listOf(l))
+                        android.util.Log.i("Lumina.UI", l)
+                    },
+                ).bytes(src, preset.lut) ?: run {
+                    logEvents(listOf("lut: GL 路线 null → 回退 CPU ColorMatrix"))
+                    com.lumina.work.WorkRenderer(src, suggestion).bytes()
+                }
             } else {
+                logEvents(listOf("lut: miss (无命中家族) → CPU 路线，suggest=${suggestion.take(40)}"))
                 com.lumina.work.WorkRenderer(src, suggestion).bytes()
             }
         }.getOrNull() ?: return null
@@ -393,7 +414,7 @@ class ProbeController(
                 var workFail = 0
                 finished.targets.filter { finished.itemStatus[it] == com.lumina.probe.ItemOutcome.OK }.forEach { name ->
                     val row = rowsByRoot[name]
-                    if (row != null && renderWorkFor(row, name) == null) workFail++
+                    if (row != null && renderWorkFor(row, name, cardName = finished.cardName) == null) workFail++
                 }
                 if (workFail > 0) logEvents(listOf("work: $workFail items failed to render at await-save"))
                 lastGalleryItems = buildGalleryItems()
