@@ -8,7 +8,7 @@
 
 **Blocked by:** 01（图库是入口）, 02（成片先立）
 
-**Status:** ready-for-agent
+**Status:** claimed（2026-11-09 动工前基线：100/100 全绿 confirmed——装机纪律与回档护栏在册）
 
 - [ ] Fake 档全语义测试（PUT 201/401、PROPFIND 名单、幂等跳过、删除守门）
 - [ ] 真机：坚果云或 Alist 任一账号全 Master 上云成功（NEF 计时留证）

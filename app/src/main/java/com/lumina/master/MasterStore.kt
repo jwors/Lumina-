@@ -103,6 +103,9 @@ class MasterStore(
     fun updateSizeBytes(relPath: String, sizeBytes: Long): Int =
         inventory.updateSizeBytes(relPath, sizeBytes)
 
+    /** 清出手机（M3-04）：删盘点行（文件删除在调用方做，先删文件再删行）。 */
+    fun deleteRow(relPath: String): Int = inventory.deleteByRelPath(relPath)
+
     /** 同名/同路径是否已登记（去重判断用）。 */
     fun findByRelPath(relPath: String): MasterInventoryEntity? = inventory.findByRelPath(relPath)
 

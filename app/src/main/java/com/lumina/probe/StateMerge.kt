@@ -24,5 +24,10 @@ internal object StateMerge {
         cardRun = if (state.cardRun == null) base.cardRun else state.cardRun,
         passSelectedNames = if (state.passSelectedNames.isEmpty()) base.passSelectedNames
         else state.passSelectedNames,
+        // WebDAV 备份（M3-04）：部分状态包不得冲掉（清空走 emitBackup 专用发射器）
+    /** WebDAV 备份（M3-04）：部分状态包不得冲掉（清空走 emitBackup 专用发射器） */
+    backup = if (state.backup == null) base.backup else state.backup,
+    // WebDAV 配置展示（设置页）：同走保留式
+    webdav = if (state.webdav == null) base.webdav else state.webdav,
     )
 }

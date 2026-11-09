@@ -88,9 +88,28 @@ interface LutLibraryDao {
     fun deleteByPath(relPath: String): Int
 }
 
+/** M3-04：WebDAV 备份配置（单行 id=1 惯例，同 LLM 配置；密码本机 Room 只存不外传）。 */
+@Entity(tableName = "webdav_configs")
+data class WebDavConfigEntity(
+    @PrimaryKey val id: Int = 1,
+    val baseUrl: String,
+    val username: String,
+    val password: String,
+    val savedAtMs: Long,
+)
+
+@Dao
+interface WebDavConfigDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(entry: WebDavConfigEntity)
+
+    @Query("SELECT * FROM webdav_configs WHERE id = 1 LIMIT 1")
+    fun active(): WebDavConfigEntity?
+}
+
 @Database(
-    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class, SmartResultEntity::class, PassQueueEntity::class, LutLibraryEntity::class],
-    version = 7,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class, SmartResultEntity::class, PassQueueEntity::class, LutLibraryEntity::class, WebDavConfigEntity::class],
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -102,6 +121,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun smartResultsDao(): SmartResultsDao
     abstract fun passQueueDao(): PassQueueDao
     abstract fun lutLibraryDao(): LutLibraryDao
+    abstract fun webDavConfigDao(): WebDavConfigDao
 
     companion object {
         @Volatile
@@ -120,6 +140,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** M3-04：v7→v8 加 webdav_configs（同构建表）。 */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `webdav_configs` (" +
+                        "`id` INTEGER NOT NULL, " +
+                        "`baseUrl` TEXT NOT NULL, `username` TEXT NOT NULL, `password` TEXT NOT NULL, " +
+                        "`savedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 // M1 开发期破坏性迁移已退役：v6→v7 起走正式正向迁移（用户库保全）。
@@ -130,7 +162,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lumina.db",
                 )
-                    .addMigrations(MIGRATION_6_7)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
                     // fallbackToDestructiveMigration 已移除（2026-11-09 实锤它清过全库）：
                     // 缺迁移就当场崩——开发商期立刻暴露，绝不静默清用户照片数据。
                     .build().also { instance = it }

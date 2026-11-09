@@ -1650,9 +1650,88 @@ private fun SettingsPage(
                 modifier = Modifier.padding(top = 8.dp))
         }
 
+        Spacer(Modifier.height(20.dp))
+        // ── WebDAV Master 备份（M3-04，ADR-0003） ──
+        val wd = state.webdav
+        Text("WebDAV 备份（Master 终点）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Spacer(Modifier.height(6.dp))
+        // 本地记录的 baseURL/用户名回显；密码永不回显（只显示"已存"）
+        var davUrl by remember(cfg) { mutableStateOf(wd?.baseUrl ?: "") }
+        var davUser by remember(cfg) { mutableStateOf(wd?.username ?: "") }
+        var davPass by remember(cfg) { mutableStateOf("") }
+        OutlinedTextField(value = davUrl, onValueChange = { davUrl = it },
+            label = { Text("WebDAV 地址（含目录根，如 https://…/dav/）") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = davUser, onValueChange = { davUser = it },
+            label = { Text("账号") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = davPass, onValueChange = { davPass = it },
+            label = { Text(if (wd != null) "密码（已保存，重填即覆盖）" else "密码") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PillButton(
+                label = "保存 WebDAV",
+                filled = true,
+            ) { controller.saveWebDavConfig(davUrl, davUser, davPass) }
+            Spacer(Modifier.width(12.dp))
+            PillButton(
+                label = "测试连接",
+                filled = false,
+            ) { if (wd == null && davPass.isBlank())
+                    controller.saveWebDavConfig(davUrl, davUser, davPass)
+                else if (wd != null && davPass.isBlank()) controller.testWebDavConnection()
+                else { controller.saveWebDavConfig(davUrl, davUser, davPass); controller.testWebDavConnection() } }
+        }
+        if (wd != null && davPass.isBlank()) {
+            Text(
+                "已配置：${wd.baseUrl}（${wd.username}）",
+                fontSize = 11.sp, color = CreamFaint, modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        state.backup?.let { bk ->
+            Spacer(Modifier.height(10.dp))
+            when (bk.phase) {
+                BackupPhase.RUNNING -> {
+                    Text("备份中：${bk.done + bk.fail}/${bk.total}" +
+                        (bk.currentItem?.let { " —— $it" } ?: ""), fontSize = 12.sp, color = SageText)
+                    LinearProgressIndicator(
+                        progress = { if (bk.total > 0) (bk.done + bk.fail).toFloat() / bk.total else 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = InkTeal, trackColor = DividerCream,
+                    )
+                }
+                BackupPhase.VERIFIED -> {
+                    Text(
+                        "✓ ${bk.summary}　已核验可清出 ${bk.deletableNames.size} 项" +
+                            "（eq. 远端存在且字节一致的 Master）",
+                        fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                    )
+                    if (bk.deletableNames.size > 0) {
+                        Text(
+                            "样本：${bk.deletableNames.take(3).joinToString(" · ")}" +
+                                (if (bk.deletableNames.size > 3) " …" else ""),
+                            fontSize = 11.sp, color = CreamFaint,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PillButton(label = "都留着，不删", filled = false) { controller.dismissWebDavCleanup() }
+                        Spacer(Modifier.width(12.dp))
+                        PillButton(label = "确认清出 ${bk.deletableNames.size} 张", filled = true) {
+                            controller.confirmWebDavCleanup()
+                        }
+                    }
+                    Text(
+                        "清出 = 把已核验（上云比对通过）的 Master 从手机删除；NEF 体积大，先行清能腾很多空间。",
+                        fontSize = 11.sp, color = CreamFaint, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "备份语义：全部 Master（JPEG+NEF）→ <base>/Lumina/Master/<日期>/；远端同名同大小即跳过（幂等）。",
+            fontSize = 11.sp, color = CreamFaint,
+        )
         Spacer(Modifier.height(16.dp))
         Text("明细日志（最近 200 内）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-        Spacer(Modifier.height(4.dp))
         if (state.ledgerRecent.isEmpty()) {
             Text("还没有云端调用", fontSize = 12.sp, color = CreamFaint)
         } else {

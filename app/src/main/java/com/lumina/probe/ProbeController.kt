@@ -74,6 +74,7 @@ class ProbeController(
     private var lastGalleryStatus: String = ""
     // M2：补跑队列/智能层
     private val passQueueDao = db.passQueueDao()
+    private val webDavConfigDao = db.webDavConfigDao()
     private val resultsDao = db.smartResultsDao()
     private val ledgerDaoX = db.ledgerDao()
     private var catchupBanner: String? = null
@@ -1023,9 +1024,22 @@ class ProbeController(
                     galleryItems = lastGalleryItems,
                     ledgerRecent = lastLedgerLines,
                     catchupBanner = catchupBanner,
+                    webdav = webDavConfigDao.active()?.let { WebDavUi(it.baseUrl, it.username) },
                 ),
             )
         }
+    }
+
+    /** WebDAV 配置可 publish 的小发射（新鲜读 + 主要字段保底合并发生在这之后的 emit） */
+    private fun publishSettingsWebDav(status: String) {
+        webDavConfigDao.active()?.let { cfg ->
+            emit(lastEmitted.get().copy(
+                webdav = WebDavUi(cfg.baseUrl, cfg.username),
+                connectionText = status,
+                testResult = status,
+                ledgerRecent = lastLedgerLines,
+            ))
+        } ?: run { emit(ProbeUiState(status)) }
     }
 
     private fun dateOf(ms: Long): String =
@@ -1415,6 +1429,153 @@ class ProbeController(
         mainThread.post { onState(next) }
     }
 
+    /** WebDAV 备份专用发射（语义同 emitCardRun/emitSelection：清空/翻转合并吞不得）。 */
+    private fun emitBackup(run: BackupUi?) {
+        val next = lastEmitted.get().copy(backup = run)
+        lastEmitted.set(next)
+        mainThread.post { onState(next) }
+    }
+
+    // ---------- WebDAV Master 备份（M3-04） ----------
+
+    fun saveWebDavConfig(baseUrl: String, username: String, password: String) {
+        io.execute {
+            if (baseUrl.isBlank() || username.isBlank() || password.isBlank()) {
+                emit(ProbeUiState("WebDAV 配置三项不能留空"))
+                return@execute
+            }
+            val cfg = com.lumina.master.WebDavConfigEntity(
+                id = 1, baseUrl = baseUrl.trim(), username = username.trim(),
+                password = password, savedAtMs = System.currentTimeMillis(),
+            )
+            webDavConfigDao.upsert(cfg)
+            logEvents(listOf("dav: config saved (${cfg.baseUrl})"))
+            publishSettingsWebDav("WebDAV 配置已保存 ✓")
+        }
+    }
+
+    fun testWebDavConnection() {
+        io.execute {
+            val cfg = webDavConfigDao.active()
+            if (cfg == null) { emit(ProbeUiState("先保存 WebDAV 配置")); return@execute }
+            val ok = com.lumina.dav.OkHttpWebDavClient(cfg.baseUrl, cfg.username, cfg.password).propfind("/")
+            emit(ProbeUiState(
+                if (ok != null) "WebDAV 连接 ok（根目录可见 ${ok.files.size} 项）"
+                else "连接失败：地址/账号/密码或网络",
+            ))
+        }
+    }
+
+    fun startWebDavBackup() {
+        io.execute {
+            val cfg = webDavConfigDao.active()
+            if (cfg == null) { emit(ProbeUiState("先保存 WebDAV 配置")); return@execute }
+            if (!networkAvailable()) { emit(ProbeUiState("当前无网络：备份挂起，回网再试")); return@execute }
+            val masters = masterStore.snapshot()
+                .filter { isJpegName(it.origFileName) || it.origFileName.uppercase().endsWith(".NEF") }
+            if (masters.isEmpty()) { emit(ProbeUiState("Master 库是空的：无内容可备份")); return@execute }
+            val client = com.lumina.dav.OkHttpWebDavClient(cfg.baseUrl, cfg.username, cfg.password)
+            val dirBase = "/Lumina"
+            val dirMaster = "$dirBase/Master"
+            emitBackup(BackupUi(phase = BackupPhase.RUNNING, total = masters.size))
+            // 目录链（405=已存在不算错，DavClient 归一为 Ok）
+            client.mkcol(dirBase); client.mkcol(dirMaster)
+            // 幂等计划：远端名单 → 需要 PUT 的
+            val listing = client.propfind(dirMaster)
+            val plan = com.lumina.dav.BackupPlanner.plan(
+                masters.associate { it.origFileName to it.sizeBytes }, listing,
+            )
+            logEvents(listOf(
+                "dav: plan total=${masters.size} verified=${plan.verified.size} " +
+                    "mismatch=${plan.sizeMismatches.size} toUpload=${plan.toUpload.size}",
+            ))
+            var done = plan.verified.size
+            var fail = 0
+            for (name in plan.toUpload) {
+                val row = masters.firstOrNull { it.origFileName == name } ?: continue
+                emitBackup(BackupUi(
+                    phase = BackupPhase.RUNNING, total = masters.size,
+                    done = done, fail = fail, currentItem = name,
+                ))
+                val dateDir = "$dirMaster/${row.dateKey}"
+                client.mkcol(dateDir)
+                val bytes = runCatching {
+                    masterStore.fileOf(row.relPath).readBytes()
+                }.getOrNull()
+                if (bytes == null) { fail++; continue }
+                val remotePath = "$dateDir/${row.origFileName}"
+                when (val o = client.put(remotePath, bytes)) {
+                    is com.lumina.dav.DavOutcome.Ok -> { done++; logEvents(listOf("dav: put ${row.relPath} ${bytes.size}B ok(${o.code})")) }
+                    else -> {
+                        fail++
+                        logEvents(listOf("dav: put $remotePath fail=${o}"))
+                        emitBackup(BackupUi(
+                            phase = BackupPhase.RUNNING, total = masters.size,
+                            done = done, fail = fail, currentItem = name,
+                        ))
+                    }
+                }
+            }
+            // 核验：重新 PROPFIND，逐项存在且字节相等才算 deletable（Q5 保守语义）
+            val listing2 = client.propfind(dirMaster)
+            val plan2 = com.lumina.dav.BackupPlanner.plan(
+                masters.associate { it.origFileName to it.sizeBytes }, listing2,
+            )
+            val summary = if (fail > 0) "备份完成：出错 $fail（见日志）" else "备份完成 ✓"
+            if (fail > 0) {
+                emitBackup(null)
+                updateCatchupBanner()
+                lastIngestStatus = summary
+                emit(lastEmitted.get().copy(ingestStatus = summary))
+                return@execute
+            }
+            emitBackup(BackupUi(
+                phase = BackupPhase.VERIFIED,
+                total = masters.size, done = done, fail = 0,
+                deletableNames = plan2.verified,
+                summary = summary,
+            ))
+            logEvents(listOf("dav: verified ${plan2.verified.size} deletable (awaiting user)"))
+        }
+    }
+
+    /** 清出手机（ADR-0003）：用户在弹层确认后执行——只删已核验项，文件+盘点行一并对账。 */
+    fun confirmWebDavCleanup() {
+        io.execute {
+            val run = lastEmitted.get().backup ?: return@execute
+            if (run.phase != BackupPhase.VERIFIED) return@execute
+            val rowsByRoot = masterStore.snapshot().associateBy { it.origFileName }
+            var removed = 0
+            for (name in run.deletableNames) {
+                val row = rowsByRoot[name] ?: continue
+                val file = masterStore.fileOf(row.relPath)
+                val fileGone = runCatching { file.delete() }.getOrDefault(false) && !file.exists()
+                if (fileGone) {
+                    masterStore.deleteRow(row.relPath)
+                    removed++
+                }
+            }
+            logEvents(listOf("dav: cleanup removed $removed / ${run.deletableNames.size}"))
+            lastGalleryItems = buildGalleryItems()
+            masterStore.pruneAbsent()
+            emitBackup(null)
+            val summary = "已清出手机 × $removed（Remainder 见备份 log）"
+            lastIngestStatus = summary
+            lastGalleryStatus = summary
+            val next = lastEmitted.get().copy(
+                galleryItems = lastGalleryItems,
+                galleryStatus = summary,
+                passStatus = summary,
+            )
+            lastEmitted.set(next)
+            mainThread.post { onState(next) }
+        }
+    }
+
+    fun dismissWebDavCleanup() {
+        io.execute { emitBackup(null) }
+    }
+
     /** 全替换（断开等"清场"语义专用）。 */
     private fun emitReplace(state: ProbeUiState) {
         lastEmitted.set(state)
@@ -1471,6 +1632,16 @@ data class ProbeUiState(
     val passSelectedNames: Set<String> = emptySet(),
     /** M3 交互：滤镜包卡片执行的进行中状态（RUNNING → AWAIT_SAVE → 用户收尾后 null） */
     val cardRun: CardRunUi? = null,
+    /** M3-04：WebDAV 备份的进行中/待清出状态 */
+    val backup: BackupUi? = null,
+    /** M3-04：WebDAV 配置展示（设置页表单预填） */
+    val webdav: WebDavUi? = null,
+)
+
+/** 设置页 WebDAV 表单数据（password 不回显，只回显 presence）。 */
+data class WebDavUi(
+    val baseUrl: String,
+    val username: String,
 )
 
 /** 配方页卡条目。 */
@@ -1509,6 +1680,21 @@ data class CardRunUi(
     val currentItem: String? = null,
     /** 用户点了"取消执行"：在途条目跑完后停在收尾 */
     val cancelRequested: Boolean = false,
+)
+
+/** WebDAV 备份阶段（M3-04）：RUNNING → VERIFIED（核验完，可清出弹层等用户） */
+enum class BackupPhase { RUNNING, VERIFIED }
+
+/** WebDAV 备份（M3-04）进行中的 UI 数据 */
+data class BackupUi(
+    val phase: BackupPhase,
+    val total: Int = 0,
+    val done: Int = 0,
+    val fail: Int = 0,
+    val currentItem: String? = null,
+    /** VERIFIED：远端存在且字节一致的可清出清单（删除动作仍逐项人工确认，ADR-0003） */
+    val deletableNames: List<String> = emptyList(),
+    val summary: String = "",
 )
 
 /** 智能结果全文流条目。 */
