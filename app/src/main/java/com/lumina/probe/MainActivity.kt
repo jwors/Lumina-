@@ -1735,7 +1735,7 @@ private fun SettingsPage(
         val ig = state.imagegen
         Text("图像生成端点（生成式卡出图）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
         Spacer(Modifier.height(6.dp))
-        var igUrl by remember(ig) { mutableStateOf(ig?.baseUrl ?: "https://open.bigmodel.cn/api/paas/v4") }
+        var igUrl by remember(ig) { mutableStateOf(ig?.baseUrl ?: "https://open.bigmodel.cn/api/paas/v4/images/generations") }
         var igModel by remember(ig) { mutableStateOf(ig?.model ?: "glm-image") }
         var igSize by remember(ig) { mutableStateOf(ig?.size ?: "1056x1760") }
         var igKey by remember(ig) { mutableStateOf("") }

@@ -6,6 +6,9 @@ import java.io.File
 /**
  * M4-01：图像生成端点客户端（OpenAI 兼容 images/generations 形态；默认智谱 glm-image）。
  * 设置三元组（baseUrl/apiKey/model/size）由用户配置；失败**不再静默**——注入 logger 落日志。
+ * baseUrl 两种容忍写法（2026-11-09 对齐官网示例）：
+ *  - 完整端点：https://open.bigmodel.cn/api/paas/v4/images/generations
+ *  - 根前缀： https://open.bigmodel.cn/api/paas/v4（会自动补 /images/generations）
  */
 class ImageGenClient(
     private val baseUrl: String,
@@ -24,7 +27,8 @@ class ImageGenClient(
     /** 生成并返回图片字节（自拉 URL 转存）；失败 null。 */
     fun generate(prompt: String): ByteArray? = runCatching {
         val t0 = android.os.SystemClock.elapsedRealtime()
-        val url = baseUrl.trimEnd('/') + "/images/generations"
+        val root = baseUrl.trimEnd('/')
+        val url = if (root.endsWith("/images/generations")) root else "$root/images/generations"
         val body = org.json.JSONObject()
             .put("model", model)
             .put("prompt", prompt)
