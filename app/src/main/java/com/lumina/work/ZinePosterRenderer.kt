@@ -33,7 +33,7 @@ object ZinePosterRenderer {
             textSize = TITLE_SIZE
             letterSpacing = 0.04f
         }
-        val shown = PosterLayout.clampTitle(title)
+        val shown = PosterLayout.clampTitle(PosterLayout.sanitizeTitle(title), maxChars = 18, ellipsis = false)
         var ty = z.titleTop + TITLE_SIZE
         val lines = wrap(shown, titlePaint, PosterLayout.CANVAS_W - z.pad * 2, maxLines = 2)
         for (line in lines) { canvas.drawText(line, z.pad.toFloat(), ty, titlePaint); ty += TITLE_SIZE * 1.22f }
@@ -63,13 +63,13 @@ object ZinePosterRenderer {
             color = Color.rgb(0x76, 0x7F, 0x72)
             textSize = NOTE_SIZE
         }
-        canvas.drawText(PosterLayout.clampTitle(note, 30), z.pad.toFloat(), (z.noteTop + NOTE_SIZE).toFloat(), notePaint)
+        canvas.drawText(PosterLayout.clampTitle(note, 30, ellipsis = false), z.pad.toFloat(), (z.noteTop + z.noteHeight * 0.6f).toFloat(), notePaint)
         val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(0xB9, 0xB3, 0xA6)
             textSize = NOTE_SIZE * 0.8f
             typeface = Typeface.MONOSPACE
         }
-        canvas.drawText("LUMINA", (PosterLayout.CANVAS_W - z.pad - 210).toFloat(), (z.noteTop + NOTE_SIZE).toFloat(), mark)
+        canvas.drawText("LUMINA", (PosterLayout.CANVAS_W - z.pad - 210).toFloat(), (z.noteTop + z.noteHeight * 0.6f).toFloat(), mark)
 
         // 5) 颗粒覆盖（确定性噪声 tile 4 次平铺，省内存且视觉均匀）
         val grain = grainTile(128)

@@ -43,4 +43,15 @@ class PosterLayoutTest {
         assertEquals(22, PosterLayout.clampTitle(long).length)
         assertTrue(PosterLayout.clampTitle("短标题").endsWith("标题"))
     }
+
+    @Test
+    fun `sanitize strips markdown wrappers and key prefixes`() {
+        assertEquals(
+            "红案一角 衔接三两句",
+            PosterLayout.sanitizeTitle("**场景名**：红案一角  **衔接语**：衔接三两句"),
+        )
+        // 键名开头剥整段前缀（末尾键名型残留由上一步空格替换处理）
+        assertEquals("红案一角", PosterLayout.sanitizeTitle("场景名：红案一角"))
+        assertEquals("雾没进门 栈道让了路", PosterLayout.sanitizeTitle("#标题：雾没进门\n栈道让了路"))
+    }
 }

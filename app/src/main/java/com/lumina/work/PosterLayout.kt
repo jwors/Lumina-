@@ -57,10 +57,24 @@ object PosterLayout {
         return Crop(left, top, cropW, cropH)
     }
 
-    /** 标题截断（大字排版上限；按全角≈2em 保守估算）。 */
-    fun clampTitle(title: String, maxChars: Int = 22): String {
+    /** 标题截断（大字排版上限；按全角≈2em 保守估算）。ellipsis=false 时只截不加省略号。 */
+    fun clampTitle(title: String, maxChars: Int = 22, ellipsis: Boolean = true): String {
         val t = title.replace('\n', ' ').trim()
-        return if (t.length <= maxChars) t else t.take(maxChars - 1) + "…"
+        if (t.length <= maxChars) return t
+        return if (ellipsis) t.take(maxChars - 1) + "…" else t.take(maxChars)
+    }
+
+    /** LLM 文案 → 海报标题净化：剥 markdown 包装与键名前缀（**场景名**：/衔接语：/标题： 等）。 */
+    fun sanitizeTitle(raw: String): String {
+        var t = raw
+            .replace(Regex("[*_`#>~]"), "")              // markdown 包装符号
+            .replace(Regex("【.*?】"), "")               // 方括号族一并无视（结构标记）
+            .trim()
+        // 剥 "场景名：" / "衔接语：" / "标题：" / "文案：" 这类键名前缀（只剥出现于开头的组）
+        t = t.replace(Regex("^(场景名|衔接语|标题|文案|主标题|小注|图注)\\s*[:：]\\s*"), "")
+            .replace(Regex("\\s+(场景名|衔接语)\\s*[:：]\\s*"), " ")
+        return t.replace(Regex("\\s+"), " ").trim()
+        return t
     }
 
     /** 颗粒噪声种子（确定性：同一张出片两次逐像素一致）。 */
