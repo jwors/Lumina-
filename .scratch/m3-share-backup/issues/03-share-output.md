@@ -8,9 +8,10 @@
 
 **Blocked by:** 01（查看器是入口）、02（LUT 成片为素材）
 
-**Status:** claimed（2026-11-09 开工）
+**Status:** claimed→主线完成（2026-11-09 用户复验通过： repell顶部文案带取消、照片顶满、缩放进相框、两档分享+存相册全部真机可用）
+> 记三个事故：① drawBitmap 原尺寸粘贴溢出截断；② markdown 文案未净化（后随用户拍板整带取消）；③ **三轮 Success 拿旧 APK 反复安装**——`adb install` 前未 `assembleDebug`，装机纪律已立（AGENTS.md），版本号机制从此可肉眼验包。
 
-- [ ] 4:5 海报排版像素正确（字/照片/底注分区，颗粒覆盖）
-- [ ] 两档切换 + 分享面板可达（FileProvider 权域正确）
-- [ ] 配文预填可编辑并进分享
-- [ ] 纯函数布局数学 JVM 测试
+- [x] 4:5 海报排版像素正确（字/照片/底注分区，颗粒覆盖）——顶部文案带取消后 photo 顶满（>80% 几何测试锁）
+- [x] 两档切换 + 分享面板可达（FileProvider 权域正确）
+- [x] 配文预填可编辑并进分享（EXTRA_TEXT 走 sanitize 净化）
+- [x] 纯函数布局数学 JVM 测试（PosterLayoutTest 3 条）
