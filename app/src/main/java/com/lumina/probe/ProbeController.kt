@@ -75,6 +75,7 @@ class ProbeController(
     // M2：补跑队列/智能层
     private val passQueueDao = db.passQueueDao()
     private val webDavConfigDao = db.webDavConfigDao()
+    private val imageGenConfigDao = db.imageGenConfigDao()
     private val resultsDao = db.smartResultsDao()
     private val ledgerDaoX = db.ledgerDao()
     private var catchupBanner: String? = null
@@ -417,6 +418,12 @@ class ProbeController(
                     if (row != null && renderWorkFor(row, name, cardName = finished.cardName) == null) workFail++
                 }
                 if (workFail > 0) logEvents(listOf("work: $workFail items failed to render at await-save"))
+                // M4-01：生成式链（卡含 GENERATIVE 步才有意义；未配端点则静默占位+提示）
+                runGenerativePass(
+                    llmConfigDao.active(),
+                    rowsByRoot,
+                    finished.targets.filter { finished.itemStatus[it] == com.lumina.probe.ItemOutcome.OK },
+                )
                 lastGalleryItems = buildGalleryItems()
                 activeCardRun = finished.copy(
                     phase = com.lumina.probe.CardRunPhase.AWAIT_SAVE,
@@ -723,8 +730,11 @@ class ProbeController(
                 fallbackRelPath = fallbackRel,
                 smartCount = mine.size,
                 smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
-                workRelPath = appContext.filesDir.walkTopDown()
-                    .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" }
+                // M4-01：Work 层双约定——_g.jpg（生成式真身）优先于 _w.jpg（LUT 对照）
+                workRelPath = (appContext.filesDir.walkTopDown()
+                    .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_g.jpg" }
+                    ?: appContext.filesDir.walkTopDown()
+                        .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" })
                     ?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
             )
         }
@@ -1046,6 +1056,9 @@ class ProbeController(
                     ledgerRecent = lastLedgerLines,
                     catchupBanner = catchupBanner,
                     webdav = webDavConfigDao.active()?.let { WebDavUi(it.baseUrl, it.username) },
+                    imagegen = imageGenConfigDao.active()?.let {
+                        ImageGenUi(it.baseUrl, it.model, it.size)
+                    },
                 ),
             )
         }
@@ -1560,6 +1573,64 @@ class ProbeController(
         }
     }
 
+    /** M4-01：生成式链（在保存收尾弹层前跑）——对 OK 条目：
+     *  ① 看图+SKILL 工作流编 prompt（chat vision，一次调用）② glm-image 出图 ③ 存 Work `_g.jpg`。
+     *  未配端点 = 保持 M2 占位语义，提示语落 passStatus（设置→图像生成端点）。 */
+    private fun runGenerativePass(
+        chatCfg: com.lumina.llm.LlmConfigEntity?,
+        rowsByRoot: Map<String, com.lumina.master.MasterInventoryEntity>,
+        okNames: List<String>,
+    ) {
+        val cfg = imageGenConfigDao.active()
+        if (cfg == null) {
+            logEvents(listOf("imagegen: 未配端点 → 生成式步保持占位"))
+            passStatus = IMAGEGEN_HINT
+            emit(lastEmitted.get().copy(passStatus = passStatus))
+            return
+        }
+        if (chatCfg == null) {
+            logEvents(listOf("imagegen: 无 chat 配置 → 编译步跳过"))
+            return
+        }
+        val client = com.lumina.imagegen.ImageGenClient(
+            cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
+            log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
+        )
+        okNames.forEachIndexed { idx, name ->
+            passStatus = "生成中 ${idx + 1}/${okNames.size} —— $name"
+            emit(lastEmitted.get().copy(passStatus = passStatus))
+            val row = rowsByRoot[name] ?: return@forEachIndexed
+            val jpeg = jpegBytesFor(name) ?: return@forEachIndexed
+            // ① 读图 + 按工作流编译四段式 prompt（一次 vision 调用）
+            val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
+                chatCfg, PosterPromptCompiler.COMPILER_PROMPT, jpeg,
+            )) {
+                is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(2400)
+                else -> null
+            }
+            if (prompt.isNullOrBlank()) {
+                logEvents(listOf("imagegen: 编译步失败 → 跳过 $name"))
+                return@forEachIndexed
+            }
+            // ② 出图 + 转存 Work 层（_g.jpg：生成式真身；_w.jpg = LUT 对照仍保留）
+            val bytes = client.generate(prompt)
+            if (bytes == null) return@forEachIndexed
+            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
+                .replaceAfterLast('.', "g.jpg")
+            File(appContext.filesDir, rel).parentFile?.mkdirs()
+            File(appContext.filesDir, rel).writeBytes(bytes)
+            resultsDao.insert(com.lumina.pass.SmartResultEntity(
+                0, name, "_imagegen", "generative",
+                "海报已生成（glm-image，key 见 $rel）",
+                cfg.model, System.currentTimeMillis(),
+            ))
+            logEvents(listOf("imagegen: saved $rel (${bytes.size}B)"))
+        }
+        lastGalleryItems = buildGalleryItems()
+    }
+
+    /** M4-01 同款命名：生成式文件识别归 buildGalleryItems 扫描契约（_g.jpg）。 */
+
     /** 清出手机（ADR-0003）：用户在弹层确认后执行——只删已核验项，文件+盘点行一并对账。 */
     fun confirmWebDavCleanup() {
         io.execute {
@@ -1595,6 +1666,40 @@ class ProbeController(
 
     fun dismissWebDavCleanup() {
         io.execute { emitBackup(null) }
+    }
+
+    // ---------- 图像生成端点（M4-01） ----------
+
+    fun saveImageGenConfig(baseUrl: String, apiKey: String, model: String, size: String) {
+        io.execute {
+            if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank() || size.isBlank()) {
+                emit(ProbeUiState("生图端点四项不能留空"))
+                return@execute
+            }
+            imageGenConfigDao.upsert(
+                com.lumina.master.ImageGenConfigEntity(
+                    id = 1, baseUrl = baseUrl.trim().trimEnd('/'),
+                    apiKey = apiKey.trim(), model = model.trim(), size = size.trim(),
+                    savedAtMs = System.currentTimeMillis(),
+                ),
+            )
+            logEvents(listOf("imagegen: config saved (${model})"))
+            emit(ProbeUiState("生图端点已保存 ✓"))
+        }
+    }
+
+    fun testImageGenConfig() {
+        io.execute {
+            val cfg = imageGenConfigDao.active()
+            if (cfg == null) { emit(ProbeUiState("先保存生图端点配置")); return@execute }
+            val bytes = com.lumina.imagegen.ImageGenClient(
+                cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
+                log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
+            ).generate("一张安静的山间徒步测试图，奶油纸质，颗粒，留白")
+            emit(ProbeUiState(
+                if (bytes != null) "生图端点测试 ok（${bytes.size}B）" else "生图端点测试失败（看日志）",
+            ))
+        }
     }
 
     /** 全替换（断开等"清场"语义专用）。 */
@@ -1657,6 +1762,8 @@ data class ProbeUiState(
     val backup: BackupUi? = null,
     /** M3-04：WebDAV 配置展示（设置页表单预填） */
     val webdav: WebDavUi? = null,
+    /** M4-01：图像生成端点展示（设置页表单预填） */
+    val imagegen: ImageGenUi? = null,
 )
 
 /** 设置页 WebDAV 表单数据（password 不回显，只回显 presence）。 */
@@ -1704,6 +1811,8 @@ data class CardRunUi(
 )
 
 /** WebDAV 备份阶段（M3-04）：RUNNING → VERIFIED（核验完，可清出弹层等用户） */
+
+/** WebDAV 备份阶段（M3-04）：RUNNING → VERIFIED（核验完，可清出弹层等用户） */
 enum class BackupPhase { RUNNING, VERIFIED }
 
 /** WebDAV 备份（M3-04）进行中的 UI 数据 */
@@ -1717,6 +1826,16 @@ data class BackupUi(
     val deletableNames: List<String> = emptyList(),
     val summary: String = "",
 )
+
+/** 设置页展示的生图端点三元组（password 不回显，只回显 presence）。 */
+data class ImageGenUi(
+    val baseUrl: String,
+    val model: String,
+    val size: String,
+)
+
+/** 保存弹层提示（未配生图端点时的语义字） */
+const val IMAGEGEN_HINT = "未配生图端点：生成式步跳过。设置→图像生成端点 配好后重跑此卡。"
 
 /** 智能结果全文流条目。 */
 data class SmartFeedItem(

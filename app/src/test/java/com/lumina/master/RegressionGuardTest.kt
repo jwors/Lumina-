@@ -34,11 +34,14 @@ class RegressionGuardTest {
             .filter { it.isNotBlank() }
             .joinToString("\n")
         val policyFloor = 7   // v7 起"每 bump 必挂迁移"成为纪律（v1..v6 属破坏性迁移前史）
+        // 橫向候选：连续链（8→9 用 MIGRATION_8_9）；跳版（7→9）也认 MIGRATION_7_9
         for (i in (policyFloor + 1)..version) {
+            val chains = (policyFloor until i).joinToString(" / ") { prior ->
+                "MIGRATION_${prior}_$i"
+            }
             assertTrue(
-                "v$policyFloor→$i 的 Migration 缺失：请在 InventoryDb.kt 增加 MIGRATION_${policyFloor}_$i 并挂进 addMigrations",
-                src.contains("MIGRATION_${policyFloor}_$i")
-                    || src.contains("MIGRATION_${policyFloor - 1}_$i"),
+                "→$i 的 Migration 缺失：可选链任一：$chains",
+                (policyFloor until i).any { prior -> src.contains("MIGRATION_${prior}_$i") },
             )
         }
         assertFalse(

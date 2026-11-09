@@ -107,9 +107,29 @@ interface WebDavConfigDao {
     fun active(): WebDavConfigEntity?
 }
 
+/** M4-01：图像生成端点配置（单行 id=1 惯例；默认预填智谱 glm-image）。 */
+@Entity(tableName = "imagegen_configs")
+data class ImageGenConfigEntity(
+    @PrimaryKey val id: Int = 1,
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String,
+    val size: String,
+    val savedAtMs: Long,
+)
+
+@Dao
+interface ImageGenConfigDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(entry: ImageGenConfigEntity)
+
+    @Query("SELECT * FROM imagegen_configs WHERE id = 1 LIMIT 1")
+    fun active(): ImageGenConfigEntity?
+}
+
 @Database(
-    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class, SmartResultEntity::class, PassQueueEntity::class, LutLibraryEntity::class, WebDavConfigEntity::class],
-    version = 8,
+    entities = [MasterInventoryEntity::class, IngestQueueEntity::class, LlmConfigEntity::class, LedgerEntity::class, CardEntity::class, SmartResultEntity::class, PassQueueEntity::class, LutLibraryEntity::class, WebDavConfigEntity::class, ImageGenConfigEntity::class],
+    version = 9,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -122,10 +142,24 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun passQueueDao(): PassQueueDao
     abstract fun lutLibraryDao(): LutLibraryDao
     abstract fun webDavConfigDao(): WebDavConfigDao
+    abstract fun imageGenConfigDao(): ImageGenConfigDao
 
     companion object {
         @Volatile
         private var instance: AppDatabase? = null
+
+        /** M4-01：v8→v9 加 imagegen_configs（同构建表）。 */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `imagegen_configs` (" +
+                        "`id` INTEGER NOT NULL, " +
+                        "`baseUrl` TEXT NOT NULL, `apiKey` TEXT NOT NULL, " +
+                        "`model` TEXT NOT NULL, `size` TEXT NOT NULL, " +
+                        "`savedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+            }
+        }
 
         /** M3-02：v7 加 lut_library（纯建表迁移，用户数据不丢——不走破坏性降级路）。 */
         val MIGRATION_6_7 = object : Migration(6, 7) {
@@ -162,7 +196,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lumina.db",
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     // fallbackToDestructiveMigration 已移除（2026-11-09 实锤它清过全库）：
                     // 缺迁移就当场崩——开发商期立刻暴露，绝不静默清用户照片数据。
                     .build().also { instance = it }

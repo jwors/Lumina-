@@ -1730,6 +1730,39 @@ private fun SettingsPage(
             "备份语义：全部 Master（JPEG+NEF）→ <base>/Lumina/Master/<日期>/；远端同名同大小即跳过（幂等）。",
             fontSize = 11.sp, color = CreamFaint,
         )
+        Spacer(Modifier.height(20.dp))
+        // ── 图像生成端点（M4-01，默认智谱 glm-image） ──
+        val ig = state.imagegen
+        Text("图像生成端点（生成式卡出图）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Spacer(Modifier.height(6.dp))
+        var igUrl by remember(ig) { mutableStateOf(ig?.baseUrl ?: "https://open.bigmodel.cn/api/paas/v4") }
+        var igModel by remember(ig) { mutableStateOf(ig?.model ?: "glm-image") }
+        var igSize by remember(ig) { mutableStateOf(ig?.size ?: "1056x1760") }
+        var igKey by remember(ig) { mutableStateOf("") }
+        OutlinedTextField(value = igUrl, onValueChange = { igUrl = it },
+            label = { Text("Base URL（OpenAI 兼容 images/generations）") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = igModel, onValueChange = { igModel = it },
+            label = { Text("model（glm-image / cogview-4）") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = igSize, onValueChange = { igSize = it },
+            label = { Text("size（3:5 → 1056x1760）") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = igKey, onValueChange = { igKey = it },
+            label = { Text(if (ig != null) "API key（已存，重填即覆盖）" else "API key") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PillButton(label = "保存生图端点", filled = true) {
+                controller.saveImageGenConfig(igUrl, igKey, igModel, igSize)
+            }
+            Spacer(Modifier.width(12.dp))
+            PillButton(label = "测试生成", filled = false) {
+                if (igKey.isNotBlank()) { controller.saveImageGenConfig(igUrl, igKey, igModel, igSize); controller.testImageGenConfig() }
+                else controller.testImageGenConfig()
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "生成卡（scenes/pixel/gc-minimal 等）跑完标注/文案后，将按 SKILL 工作流出一张 3:5 纸刊海报存 Work 层；作者署名：Visual Skill by @Zeejay0（个人非商业）。",
+            fontSize = 11.sp, color = CreamFaint,
+        )
         Spacer(Modifier.height(16.dp))
         Text("明细日志（最近 200 内）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
         if (state.ledgerRecent.isEmpty()) {
