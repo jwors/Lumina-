@@ -80,6 +80,8 @@ class ProbeController(
     private val ledgerDaoX = db.ledgerDao()
     private var catchupBanner: String? = null
     private var passStatus: String = ""
+    /** M4-01：glm-image 资源包请求频次限制的冷却闸（elapsedRealtime 基准） */
+    private var _imagegenCoolUntil = 0L
     private var lastLedgerLines: List<String> = emptyList()
     private var galleryLoading = false
     private var cardsLoading = false
@@ -497,6 +499,7 @@ class ProbeController(
             val noun = if (mode == SaveMode.OVERWRITE) "已覆盖 Master" else "已另存 Work"
             val summary = "$noun × $saved" + if (skipped > 0) " · 跳过 $skipped" else ""
             logEvents(listOf("save: mode=$mode × $saved (skipped $skipped)"))
+            toastify(summary)
             // 用户指认的缺口：成片要与"看得见"绑定。保存时把 Work 成片一并写入系统相册
             // （MediaStore Pictures/Lumina；无运行时权限需求则为 API29+）——ADR-0004 的库内真相不变，
             // 系统相册是"导出的影子"，M3 正式导出会扩展这一通道。
@@ -1103,6 +1106,8 @@ class ProbeController(
                 ),
             )
             logEvents(listOf("llm config saved: baseUrl=${baseUrl.trim()} model=${model.trim()} cloud=$cloudEnabled"))
+            toastify("已保存 LLM 配置" +
+                (com.lumina.llm.LlmTemplates.presets.firstOrNull { it.name == templateName }?.image?.let { " + 生图端点（${it.model}）" } ?: ""))
             // M4-01：平台模板自带生图端点时，一键把生图配置也并上（同 key 两用，size 固定 3:5）
             com.lumina.llm.LlmTemplates.presets.firstOrNull { it.name == templateName }?.image?.let { im ->
                 imageGenConfigDao.upsert(
@@ -1121,6 +1126,7 @@ class ProbeController(
         }
     }
 
+
     fun setCloudEnabled(enabled: Boolean) {
         io.execute {
             val cfg = llmConfigDao.active()
@@ -1129,6 +1135,7 @@ class ProbeController(
                 return@execute
             }
             llmConfigDao.upsert(cfg.copy(cloudEnabled = enabled))
+            toastify(if (enabled) "云处理已开启" else "云处理已暂停")
             logEvents(listOf("cloud processing ${if (enabled) "enabled" else "suspended"}"))
             loadSettings()
         }
@@ -1465,6 +1472,12 @@ class ProbeController(
         }
     }
 
+    private fun toastify(msg: String) {
+        mainThread.post {
+            android.widget.Toast.makeText(appContext, msg, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun emit(state: ProbeUiState) {
         // 保留式合并：文本/状态类发射不把相机页/图库/勾选/卡库数据冲掉——
         // 语义已提取为 StateMerge 纯函数（StateMergeTest 锁语义，M1-07 三例之后立的护栏）
@@ -1584,9 +1597,11 @@ class ProbeController(
                 emitBackup(null)
                 updateCatchupBanner()
                 lastIngestStatus = summary
+                toastify("$summary · 失败文件看日志")
                 emit(lastEmitted.get().copy(ingestStatus = summary))
                 return@execute
             }
+            toastify("备份完成：成功 $done · 可清出 ${plan2.verified.size}")
             emitBackup(BackupUi(
                 phase = BackupPhase.VERIFIED,
                 total = masters.size, done = done, fail = 0,
@@ -1615,8 +1630,16 @@ class ProbeController(
             emit(lastEmitted.get().copy(passStatus = passStatus))
             return
         }
-        if (chatCfg == null) {
-            logEvents(listOf("imagegen: 无 chat 配置 → 编译步跳过"))
+        if (chatCfg == null) { logEvents(listOf("imagegen: 无 chat 配置 → 编译步跳过")); return }
+        // GLM-Image 资源包有请求频次限制（2026-11-09 实锤：429 频次码 1302）
+        // 连续失败 → 进入 60s 冷却，避免连点连环 429；给用户明确 Toast。
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < _imagegenCoolUntil) {
+            val remain = ((_imagegenCoolUntil - now) / 1000).toInt() + 1
+            val msg = "GLM 生图限流冷却中：还剩约 ${remain}s（glm-image 有请求频次上限，稍等再跑）"
+            passStatus = msg
+            toastify(msg)
+            emit(lastEmitted.get().copy(passStatus = passStatus))
             return
         }
         // 规则源优先级：卡内 SKILL 全文（忠实正主） > 蒸馏版（PosterPromptCompiler）
@@ -1641,15 +1664,32 @@ class ProbeController(
                 chatCfg, compilerPrompt, jpeg,
             )) {
                 is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(2400)
-                else -> null
+                else -> {
+                    val why = when (v) {
+                        is com.lumina.llm.LlmOutcome.RateLimited -> "限流"
+                        is com.lumina.llm.LlmOutcome.Http -> "HTTP ${(v as? com.lumina.llm.LlmOutcome.Http)?.code}"
+                        is com.lumina.llm.LlmOutcome.NetworkTimeout -> "网络超时"
+                        else -> "未知"
+                    }
+                    logEvents(listOf("imagegen: 编译步失败（$why）→ 跳过 $name；建议文本空是导致没有效果的根因"))
+                    null
+                }
             }
             if (prompt.isNullOrBlank()) {
-                logEvents(listOf("imagegen: 编译步失败 → 跳过 $name"))
+                _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 45_000
                 return@forEachIndexed
             }
-            // ② 出图 + 转存 Work 层（_g.jpg：生成式真身；_w.jpg = LUT 对照仍保留）
-            val bytes = client.generate(prompt)
-            if (bytes == null) return@forEachIndexed
+            // ② 出图 + 转存 Work 层（429 → 20s 后重试 1 次；仍败进冷却）
+            var bytes = client.generate(prompt)
+            if (bytes == null) {
+                Thread.sleep(20_000)
+                bytes = client.generate(prompt)
+            }
+            if (bytes == null) {
+                _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 60_000
+                toastify("GLM 生图失败/限流：60s 冷却后再试")
+                return@forEachIndexed
+            }
             val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
                 .replaceAfterLast('.', "g.jpg")
             File(appContext.filesDir, rel).parentFile?.mkdirs()
@@ -1756,11 +1796,14 @@ class ProbeController(
                     ),
                 )
                 logEvents(listOf("skills: imported \"$display\" (${text.length} chars, imagegen card)"))
+                toastify("SKILL 已导入：$display")
                 publishCards(loadCardRows(), cardStatus = "已导入 SKILL：$display（生成式卡，生图端点配置后生效）")
             } catch (e: SkillCardException) {
                 publishCards(loadCardRows(), cardStatus = "SKILL 导入失败：${e.reason}")
+                toastify("SKILL 导入失败：${e.reason}")
             } catch (e: Exception) {
                 publishCards(loadCardRows(), cardStatus = "SKILL 导入失败：${e.message}")
+                toastify("SKILL 导入失败：${e.message}")
             }
         }
     }
