@@ -106,6 +106,20 @@ class ProbeController(
         io.execute { emit(ProbeUiState("未连接 · 请插入相机")) }
         watchNetwork()
         io.execute { updateCatchupBanner() }
+        // M4-01 自愈：chat base_url 被 images/generations 污染的存量配置 → 启动时归位
+        // （历史代码把生图 URL 粘进 LLM 的 base_url 曾令编译步全 404，成片"无任何效果"）
+        io.execute {
+            llmConfigDao.active()?.let { c ->
+                if (c.baseUrl.contains("/images/generations")) {
+                    llmConfigDao.upsert(c.copy(
+                        baseUrl = c.baseUrl.substringBefore("/images/generations"),
+                        model = "glm-4v-flash",
+                    ))
+                    logEvents(listOf("heal: chat base was imagegen-polluted → 归位 paas/v4 + glm-4v-flash"))
+                    toastify("检测到 chat 配置被生图 URL 污染，已自动归位（重跑滤镜卡即可）")
+                }
+            }
+        }
     }
 
     // ---------- 公共动作（UI 入口，工单 03） ----------
