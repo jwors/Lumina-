@@ -63,6 +63,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumina.ptp.CameraObject
+import com.lumina.work.PosterLayout
+import com.lumina.work.ZinePosterRenderer
 import java.time.LocalDate
 
 /**
@@ -724,7 +726,7 @@ private fun GallerySelectBar(
 }
 
 /** 全屏查看器：大图横滑 + 底部工具栏（M3-01；承接原详情弹窗的智能三步）。 */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun GalleryViewerOverlay(
     state: ProbeUiState,
@@ -733,6 +735,7 @@ private fun GalleryViewerOverlay(
     onClose: () -> Unit,
 ) {
     val items = state.galleryItems
+    var shareItem by remember { mutableStateOf<GalleryItem?>(null) }
     val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
     Box(modifier = Modifier.fillMaxSize().background(FilmBackground)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -764,10 +767,132 @@ private fun GalleryViewerOverlay(
             ViewerToolbar(
                 gi = items.getOrNull(pagerState.currentPage),
                 controller = controller,
+                onShare = { shareItem = items.getOrNull(pagerState.currentPage) },
             )
         }
     }
+    shareItem?.let { gi ->
+        ModalBottomSheet(
+            onDismissRequest = { shareItem = null },
+            containerColor = FilmBackground,
+        ) {
+            ShareSheetBody(gi = gi, controller = controller)
+        }
+    }
 }
+
+/** 分享屏（M3-03）：两档预览（4:5 zine 海报 / 原比例）+ 配文编辑 + FileProvider 分享/存相册。 */
+@Composable
+private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var mode by remember { mutableStateOf(ShareMode.POSTER) }
+    var saveMsg by remember { mutableStateOf("") }
+    val captionPrefill = gi.smartTexts.firstOrNull { it.startsWith("caption：") }
+        ?.substringAfter("caption：") ?: gi.name.substringBeforeLast('.')
+    var caption by remember { mutableStateOf(captionPrefill) }
+
+    val workPath = gi.workRelPath
+    val preview by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = "${gi.relPath}-$mode", key2 = caption) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val path = workPath ?: return@withContext null
+            val bmp = ThumbCache.get<android.graphics.Bitmap>("share-$path-$mode")
+                ?: ThumbDecode.sampled(java.io.File(context.filesDir, path).absolutePath, target = 2048)
+                    ?.also { ThumbCache.put("share-$path-$mode", it, it.byteCount.toLong()) }
+                ?: return@withContext null
+            when (mode) {
+                ShareMode.POSTER ->
+                    ZinePosterRenderer.render(bmp, PosterLayout.clampTitle(caption, 22), "${gi.dateKey} · 行山记")
+                ShareMode.ORIGINAL -> bmp
+            }
+        }
+    }
+
+    Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("分享输出", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = InkTeal)
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (mode == ShareMode.POSTER) "原比例档 →" else "4:5 zine 海报 →",
+                fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .background(PillActive, RoundedCornerShape(14.dp))
+                    .clickable { mode = if (mode == ShareMode.POSTER) ShareMode.ORIGINAL else ShareMode.POSTER }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 440.dp)
+                .background(DividerCream, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val pv = preview
+            if (pv != null) {
+                Image(
+                    bitmap = pv.asImageBitmap(),
+                    contentDescription = "预览",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                CircularProgressIndicator(color = InkTeal, trackColor = DividerCream, modifier = Modifier.size(28.dp))
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = caption,
+            onValueChange = { caption = it },
+            label = { Text("配文（分享与海报标题共用；4:5 切回即重排）") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = InkTeal),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PillButton(
+                label = "存相册（${if (mode == ShareMode.POSTER) "4:5 海报" else "原比例"}）",
+                filled = false,
+            ) {
+                val pv = preview
+                if (pv != null) {
+                    val dir = java.io.File(context.cacheDir, "share").apply { mkdirs() }
+                    val f = java.io.File(dir, "lumina_${gi.name.substringBeforeLast('.')}${if (mode == ShareMode.POSTER) "_zine" else ""}.jpg")
+                    f.outputStream().use { pv.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+                    saveMsg = if (controller.exportToSystemGallery(f, f.name)) "已存相册 Pictures/Lumina：${f.name}" else "导出失败（API 版本或存储异常）"
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            PillButton(
+                label = "分享 →",
+                filled = true,
+            ) {
+                val pv = preview
+                if (pv != null) {
+                    val dir = java.io.File(context.cacheDir, "share").apply { mkdirs() }
+                    val f = java.io.File(dir, "lumina_${gi.name.substringBeforeLast('.')}${if (mode == ShareMode.POSTER) "_zine" else ""}.jpg")
+                    f.outputStream().use { pv.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", f,
+                    )
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "image/jpeg"
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        if (caption.isNotBlank()) putExtra(android.content.Intent.EXTRA_TEXT, caption)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(send, "分享 Lumina 成片"))
+                }
+            }
+        }
+        if (saveMsg.isNotBlank()) {
+            Text(saveMsg, fontSize = 12.sp, color = Color(0xFF5C7A4E), modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+}
+
+/** 两档（规格 §3.7）。 */
+enum class ShareMode { POSTER, ORIGINAL }
 
 /** 查看器大图：按屏宽 downsample 解码（走同一 ThumbCache 账本；NEF 无 Work 时提示）。 */
 @Composable
@@ -814,7 +939,7 @@ private fun ViewerImage(gi: GalleryItem) {
 
 /** 查看器底栏：文件信息 + 三步工具（标注/文案/滤镜同 M2 runSingleStep 链）+ 智能结果收合条。 */
 @Composable
-private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController) {
+private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare: () -> Unit = {}) {
     if (gi == null) return
     var busyStep by remember { mutableStateOf("") }
     var smartOpen by remember(gi.relPath) { mutableStateOf(false) }
@@ -859,6 +984,17 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController) {
                 Spacer(Modifier.width(8.dp))
             }
             Spacer(Modifier.weight(1f))
+            if (gi.workRelPath != null) {
+                Text(
+                    "分享",
+                    fontSize = 13.sp, color = FilmBackground, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(InkTeal, RoundedCornerShape(16.dp))
+                        .clickable { onShare() }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 if (smartOpen) "智能 N ▴" else "智能 N ▾",
                 fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
