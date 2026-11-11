@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 清爽版基础主题：状态栏/导航栏与画布同色，弹层窗口也继承 -->
+    <style name="Theme.Lumina" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#F7F8F3</item>
+        <item name="android:navigationBarColor">#F7F8F3</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">#F7F8F3</item>
+    </style>
+</resources>

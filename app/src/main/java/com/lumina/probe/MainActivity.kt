@@ -8,7 +8,20 @@ import androidx.compose.foundation.Image
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.lumina.ui.theme.LuminaTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,9 +68,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,6 +90,13 @@ import java.time.LocalDate
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = FilmBackground.toArgb()
+        window.navigationBarColor = FilmBackground.toArgb()
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         var state by mutableStateOf(ProbeUiState("未连接 · 请插入相机"))
         val controller = ProbeController(this) { next ->
             Log.i("Lumina.UI", "onState: conn='${next.connectionText.take(40)}' " +
@@ -83,22 +105,29 @@ class MainActivity : ComponentActivity() {
             state = next
         }
         setContent {
-            Surface(color = FilmBackground) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    AppScaffold(state, controller)
+            LuminaTheme {
+                Surface(color = FilmBackground) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AppScaffold(state, controller)
+                    }
                 }
             }
         }
     }
 }
 
-val FilmBackground = Color(0xFFF4F2EA)
-val InkTeal = Color(0xFF20251F)
-val SageText = Color(0xFF767F72)
-val CreamFaint = Color(0xFFB9B3A6)
-val DividerCream = Color(0xFFE3DFD3)
-val PillActive = Color(0xFFE0E5D8)
-val WarnBrown = Color(0xFF8A4A2A)
+// ── 清爽版 token（v2）：暖白画布 / 白卡 / 鼠尾草绿 ──
+val FilmBackground = Color(0xFFF7F8F3)
+val InkTeal = Color(0xFF1B231C)
+val SageText = Color(0xFF56625A)
+val CreamFaint = Color(0xFF66726A)
+val DividerCream = Color(0xFFE1E7DC)
+val PillActive = Color(0xFFDDEDE2)
+val WarnBrown = Color(0xFFB4552F)
+val Accent = Color(0xFF3F7B58)
+val AccentDeep = Color(0xFF33553F)
+val CardBg = Color(0xFFFFFFFF)
+val Lightbox = Color(0xFFEEF1EA)
 
 /** JPEG 判定（Master 图库/Pass 入队/收尾覆盖三处口径统一；GLOSSARY 惯例：仅此一处判断）。 */
 internal fun isJpegName(name: String): Boolean {
@@ -113,63 +142,65 @@ const val TAB_RECIPE = "recipe"
 const val TAB_SETTINGS = "settings"
 const val LABEL_CAMERA = "相机"
 const val LABEL_GALLERY = "图库"
-const val LABEL_RECIPE = "滤镜"
+const val LABEL_RECIPE = "配方"
 const val LABEL_SETTINGS = "设置"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
-    var tab by remember { mutableStateOf(TAB_CAMERA) }
-    // M3 交互：滤镜包执行弹层（半屏），全局浮标在弹层收起时可见
-    var runSheetOpen by remember { mutableStateOf(false) }
-    // 补跑横幅（顶部：网络可用 + 队列非空 + 总开关联动）
-    state.catchupBanner?.let { banner ->
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(PillActive)
-                .clickable { controller.runCatchUp() }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Text(banner, fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold)
-        }
-    }
-    state.cardRun?.let { run ->
-        if (!runSheetOpen) {
-            RunFloatingChip(run, onOpen = { runSheetOpen = true })
-        }
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-    ) {
-        // 顶部名字 + Tab
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("Lumina", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = InkTeal)
-            Modifier.weight(1f).let { Spacer(modifier = it) }
-            Text("M2", fontSize = 10.sp, color = CreamFaint)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier
-                .background(DividerCream)
-                .padding(4.dp),
-        ) {
-            TabPill(TAB_CAMERA, LABEL_CAMERA, tab, onSelect = { tab = it; controller.emitCameraUiRefresh() })
-            TabPill(TAB_GALLERY, LABEL_GALLERY, tab, onSelect = { tab = it; controller.loadGallery() })
-            TabPill(TAB_RECIPE, LABEL_RECIPE, tab, onSelect = { tab = it; controller.loadCards() })
-            TabPill(TAB_SETTINGS, LABEL_SETTINGS, tab, onSelect = { tab = it; controller.loadSettings() })
-        }
+    var tab by rememberSaveable { mutableStateOf(TAB_CAMERA) }
+    // 运行弹层（半屏）；浮标在弹层收起时可见
+    var runSheetOpen by rememberSaveable { mutableStateOf(false) }
 
-        when (tab) {
-            TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
-            TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
-                onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
-            TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller,
-                onRunStarted = { runSheetOpen = true },
-                onOpenSettings = { tab = TAB_SETTINGS; controller.loadSettings() })
-            else -> SettingsPage(Modifier.weight(1f), state, controller)
+    Column(Modifier.fillMaxSize().background(FilmBackground).statusBarsPadding()) {
+        // 补跑横幅：占位在主列里，不压标题
+        state.catchupBanner?.let { banner ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PillActive)
+                    .clickable { controller.runCatchUp() }
+                    .padding(horizontal = 20.dp, vertical = 9.dp),
+            ) {
+                Text(banner, fontSize = 12.5.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+        ) {
+            Text(
+                tabTitle(tab),
+                fontFamily = FontFamily.Serif,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = InkTeal,
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+            )
+            when (tab) {
+                TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
+                TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
+                    onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
+                TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller,
+                    onRunStarted = { runSheetOpen = true },
+                    onOpenSettings = { tab = TAB_SETTINGS; controller.loadSettings() })
+                else -> SettingsPage(Modifier.weight(1f), state, controller)
+            }
+        }
+        // 执行中/待保存：贴在 Tab 栏上方的状态条
+        state.cardRun?.let { run ->
+            if (!runSheetOpen) RunFloatingChip(run, onOpen = { runSheetOpen = true })
+        }
+        LuminaTabBar(tab) { next ->
+            tab = next
+            when (next) {
+                TAB_CAMERA -> controller.emitCameraUiRefresh()
+                TAB_GALLERY -> controller.loadGallery()
+                TAB_RECIPE -> controller.loadCards()
+                TAB_SETTINGS -> controller.loadSettings()
+            }
         }
     }
     // 半屏执行/收尾弹层（数据源 = state.cardRun；任何 Tab 打开都看得见）
@@ -177,7 +208,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         if (runSheetOpen) {
             ModalBottomSheet(
                 onDismissRequest = { runSheetOpen = false },
-                containerColor = FilmBackground,
+                containerColor = CardBg,
             ) {
                 CardRunSheetBody(state, run, controller)
             }
@@ -185,7 +216,103 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
     }
 }
 
-/** 全局浮标：执行进行中 → 深色条；收尾待保存 → 同位提示。 */
+private fun tabTitle(key: String): String = when (key) {
+    TAB_CAMERA -> "相机"
+    TAB_GALLERY -> "图库"
+    TAB_RECIPE -> "配方"
+    else -> "设置"
+}
+
+/** 底部四标签：白底、细线、绿色指示；主操作永远落在下半屏。 */
+@Composable
+private fun LuminaTabBar(current: String, onSelect: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(CardBg)) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(DividerCream))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                TAB_CAMERA to LABEL_CAMERA,
+                TAB_GALLERY to LABEL_GALLERY,
+                TAB_RECIPE to LABEL_RECIPE,
+                TAB_SETTINGS to LABEL_SETTINGS,
+            ).forEach { (key, label) ->
+                val active = key == current
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onSelect(key) }
+                        .padding(vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    TabIcon(key, active)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        label,
+                        fontSize = 10.sp,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (active) Accent else CreamFaint,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 四个手绘图标（不引 icons-extended，保持包体小）。 */
+@Composable
+private fun TabIcon(kind: String, active: Boolean) {
+    val color = if (active) Accent else CreamFaint
+    Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val sw = 1.8.dp.toPx()
+        val stroke = Stroke(width = sw, cap = StrokeCap.Round)
+        when (kind) {
+            TAB_CAMERA -> {
+                drawRoundRect(color, Offset(w * 0.08f, h * 0.28f), Size(w * 0.84f, h * 0.58f), CornerRadius(w * 0.13f), style = stroke)
+                drawCircle(color, radius = w * 0.15f, center = Offset(w * 0.5f, h * 0.57f), style = stroke)
+                drawLine(color, Offset(w * 0.3f, h * 0.28f), Offset(w * 0.38f, h * 0.16f), strokeWidth = sw, cap = StrokeCap.Round)
+                drawLine(color, Offset(w * 0.38f, h * 0.16f), Offset(w * 0.62f, h * 0.16f), strokeWidth = sw, cap = StrokeCap.Round)
+                drawLine(color, Offset(w * 0.62f, h * 0.16f), Offset(w * 0.7f, h * 0.28f), strokeWidth = sw, cap = StrokeCap.Round)
+            }
+            TAB_GALLERY -> {
+                val s = w * 0.34f
+                val g = w * 0.10f
+                listOf(0f to 0f, 1f to 0f, 0f to 1f, 1f to 1f).forEach { (cx, cy) ->
+                    drawRoundRect(color, Offset(w * 0.12f + cx * (s + g), h * 0.12f + cy * (s + g)), Size(s, s), CornerRadius(w * 0.06f), style = stroke)
+                }
+            }
+            TAB_RECIPE -> {
+                for (i in 0..2) {
+                    val y = h * (0.24f + i * 0.22f)
+                    drawLine(color, Offset(w * 0.18f, y), Offset(w * 0.5f, y + h * 0.14f), strokeWidth = sw, cap = StrokeCap.Round)
+                    drawLine(color, Offset(w * 0.5f, y + h * 0.14f), Offset(w * 0.82f, y), strokeWidth = sw, cap = StrokeCap.Round)
+                }
+            }
+            else -> {
+                drawCircle(color, radius = w * 0.17f, center = Offset(w * 0.5f, h * 0.5f), style = stroke)
+                for (i in 0 until 8) {
+                    val a = Math.PI * 2 * i / 8
+                    val cx = w * 0.5f
+                    val cy = h * 0.5f
+                    drawLine(
+                        color,
+                        Offset(cx + (w * 0.27f) * Math.cos(a).toFloat(), cy + (h * 0.27f) * Math.sin(a).toFloat()),
+                        Offset(cx + (w * 0.38f) * Math.cos(a).toFloat(), cy + (h * 0.38f) * Math.sin(a).toFloat()),
+                        strokeWidth = sw, cap = StrokeCap.Round,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 全局浮标：执行进行中 → 深绿条；收尾待保存 → 同位提示。 */
 @Composable
 private fun RunFloatingChip(run: CardRunUi, onOpen: () -> Unit) {
     val total = run.targets.size
@@ -194,18 +321,18 @@ private fun RunFloatingChip(run: CardRunUi, onOpen: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(InkTeal)
+            .background(AccentDeep)
             .clickable { onOpen() }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (run.phase == CardRunPhase.RUNNING) "⏳ ${run.cardName}（$i/$total）"
                     else "✓ ${run.cardName} 完成 · 待保存 · 点此继续",
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = FilmBackground,
+                    color = CardBg,
                 )
             }
             if (run.phase == CardRunPhase.RUNNING && total > 0) {
@@ -213,30 +340,11 @@ private fun RunFloatingChip(run: CardRunUi, onOpen: () -> Unit) {
                 LinearProgressIndicator(
                     progress = { i.toFloat() / total },
                     modifier = Modifier.fillMaxWidth(),
-                    color = FilmBackground,
-                    trackColor = DividerCream,
+                    color = CardBg,
+                    trackColor = Accent.copy(alpha = 0.35f),
                 )
             }
         }
-    }
-}
-
-/** Tab 药丸：key = 状态值（稳定），label = 显示名（可改），激活态用 currentKey 比对。 */
-@Composable
-private fun TabPill(key: String, label: String, currentKey: String, onSelect: (String) -> Unit) {
-    val active = key == currentKey
-    Box(
-        modifier = Modifier
-            .background(if (active) PillActive else FilmBackground)
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .clickable { onSelect(key) },
-    ) {
-        Text(
-            label,
-            fontSize = 16.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (active) InkTeal else SageText,
-        )
     }
 }
 
@@ -405,15 +513,15 @@ private fun PillButton(
 ) {
     val bg = when {
         !enabled -> DividerCream
-        danger -> DividerCream
-        filled -> InkTeal
+        danger -> PillActive
+        filled -> Accent
         else -> PillActive
     }
     val fg = when {
-        !enabled -> SageText
+        !enabled -> CreamFaint
         danger -> WarnBrown
-        filled -> FilmBackground
-        else -> InkTeal
+        filled -> CardBg
+        else -> AccentDeep
     }
     Box(
         modifier = Modifier
@@ -443,7 +551,7 @@ private fun GalleryPage(
                 modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(4.dp))
         } else {
-            Text(state.connectionText, fontSize = 14.sp, color = SageText)
+            Text(state.connectionText, fontSize = 12.5.sp, color = CreamFaint)
         }
         if (state.galleryStatus.isNotBlank()) {
             Text(state.galleryStatus, fontSize = 12.sp, color = CreamFaint)
@@ -465,10 +573,13 @@ private fun GalleryPage(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (viewFeed) "← 返回图库" else "⚡ 智能结果全文",
-                fontSize = 13.sp,
-                color = InkTeal,
+                fontSize = 12.sp,
+                color = AccentDeep,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clickable { controller.loadSmartFeed(); viewFeed = !viewFeed },
+                modifier = Modifier
+                    .background(PillActive, RoundedCornerShape(999.dp))
+                    .clickable { controller.loadSmartFeed(); viewFeed = !viewFeed }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
             )
             Modifier.weight(1f).let { Spacer(modifier = it) }
             Text(
@@ -493,7 +604,7 @@ private fun GalleryPage(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             dateKey,
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SageText,
+                            fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Accent,
                             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                         )
                         Text(
@@ -536,12 +647,17 @@ private fun GalleryPage(
         }
     } // Column
     viewerStart?.let { start ->
-        GalleryViewerOverlay(
-            state = state,
-            startIndex = start,
-            controller = controller,
-            onClose = { viewerStart = null },
-        )
+        Dialog(
+            onDismissRequest = { viewerStart = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        ) {
+            GalleryViewerOverlay(
+                state = state,
+                startIndex = start,
+                controller = controller,
+                onClose = { viewerStart = null },
+            )
+        }
     }
 }
 
@@ -560,7 +676,7 @@ private fun SmartFeedPage(modifier: Modifier = Modifier, state: ProbeUiState) {
         items(state.smartFeed, key = { "${it.name}|${it.kind}|${it.createdAtMs}" }) { item ->
             Column(
                 modifier = Modifier.fillMaxWidth()
-                    .background(CreamFaint.copy(alpha = 0.08f))
+                    .background(CardBg)
                     .padding(horizontal = 4.dp, vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -589,7 +705,7 @@ private fun GalleryCell(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .background(CreamFaint.copy(alpha = 0.08f))
+            .background(CardBg)
             .clickable { onOpen() },
     ) {
         when {
@@ -635,7 +751,7 @@ private fun GalleryCell(
                 color = FilmBackground,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .background(Color(0xFF5C7A4E))
+                    .background(Accent)
                     .padding(horizontal = 4.dp, vertical = 1.dp),
             )
         }
@@ -645,7 +761,7 @@ private fun GalleryCell(
                 fontSize = 10.sp, color = FilmBackground,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .background(Color(0x9920251F))
+                    .background(Color(0xCC1B231C))
                     .padding(horizontal = 3.dp, vertical = 1.dp),
             )
         }
@@ -656,19 +772,19 @@ private fun GalleryCell(
                 .padding(4.dp)
                 .size(22.dp)
                 .background(
-                    if (checked) InkTeal else Color(0x66F4F2EA),
+                    if (checked) Accent else Color(0x401B231C),
                     RoundedCornerShape(50),
                 )
                 .border(
                     1.5.dp,
-                    if (checked) InkTeal else SageText.copy(alpha = 0.6f),
+                    if (checked) Accent else Color(0xCCFFFFFF),
                     RoundedCornerShape(50),
                 )
                 .clickable { onCheck() },
             contentAlignment = Alignment.Center,
         ) {
             if (checked) {
-                Text("✓", fontSize = 12.sp, color = FilmBackground, fontWeight = FontWeight.Bold)
+                Text("✓", fontSize = 12.sp, color = CardBg, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -685,7 +801,8 @@ private fun GallerySelectBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .background(CardBg)
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -714,15 +831,10 @@ private fun GallerySelectBar(
         )
         Spacer(Modifier.weight(1f))
         PillButton(
-            label = "用滤镜包处理 ${state.passSelectedNames.size} 张 →",
+            label = "用配方处理 ${state.passSelectedNames.size} 张 →",
             filled = true,
         ) { onGo() }
     }
-    Text(
-        "勾选中已自动滤掉非 JPEG；确认弹层里会显示参与数",
-        fontSize = 10.sp, color = CreamFaint,
-        modifier = Modifier.padding(bottom = 4.dp),
-    )
 }
 
 /** 全屏查看器：大图横滑 + 底部工具栏（M3-01；承接原详情弹窗的智能三步）。 */
@@ -737,8 +849,8 @@ private fun GalleryViewerOverlay(
     val items = state.galleryItems
     var shareItem by remember { mutableStateOf<GalleryItem?>(null) }
     val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
-    Box(modifier = Modifier.fillMaxSize().background(FilmBackground)) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(Lightbox)) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -774,7 +886,7 @@ private fun GalleryViewerOverlay(
     shareItem?.let { gi ->
         ModalBottomSheet(
             onDismissRequest = { shareItem = null },
-            containerColor = FilmBackground,
+            containerColor = CardBg,
         ) {
             ShareSheetBody(gi = gi, controller = controller)
         }
@@ -788,13 +900,13 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
     var mode by remember { mutableStateOf(ShareMode.POSTER) }
     var saveMsg by remember { mutableStateOf("") }
     val captionPrefill = gi.smartTexts.firstOrNull { it.startsWith("caption：") }
-        ?.substringAfter("caption：") ?: gi.name.substringBeforeLast('.')
+        ?.substringAfter("caption：") ?: ""
     var caption by remember { mutableStateOf(captionPrefill) }
 
     val workPath = gi.workRelPath
     val preview by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = "${gi.relPath}-$mode") {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val path = workPath ?: return@withContext null
+            val path = workPath ?: gi.relPath
             val bmp = ThumbCache.get<android.graphics.Bitmap>("share-$path-$mode")
                 ?: ThumbDecode.sampled(java.io.File(context.filesDir, path).absolutePath, target = 2048)
                     ?.also { ThumbCache.put("share-$path-$mode", it, it.byteCount.toLong()) }
@@ -824,8 +936,8 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 440.dp)
-                .background(DividerCream, RoundedCornerShape(10.dp)),
+                .height(210.dp)
+                .background(PillActive, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center,
         ) {
             val pv = preview
@@ -834,7 +946,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
                     bitmap = pv.asImageBitmap(),
                     contentDescription = "预览",
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
                 )
             } else {
                 CircularProgressIndicator(color = InkTeal, trackColor = DividerCream, modifier = Modifier.size(28.dp))
@@ -844,7 +956,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
         OutlinedTextField(
             value = caption,
             onValueChange = { caption = it },
-            label = { Text("配文（随分享面板带出）") },
+            placeholder = { Text("写一句这次徒步…") },
             modifier = Modifier.fillMaxWidth(),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = InkTeal),
         )
@@ -886,7 +998,7 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
             }
         }
         if (saveMsg.isNotBlank()) {
-            Text(saveMsg, fontSize = 12.sp, color = Color(0xFF5C7A4E), modifier = Modifier.padding(top = 8.dp))
+            Text(saveMsg, fontSize = 12.sp, color = Accent, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -954,7 +1066,7 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
             if (gi.workRelPath != null) {
                 Text(
                     "  Work ✓",
-                    fontSize = 10.sp, color = Color(0xFF5C7A4E), fontWeight = FontWeight.SemiBold,
+                    fontSize = 10.sp, color = Accent, fontWeight = FontWeight.SemiBold,
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -972,7 +1084,7 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
             ).forEach { (label, kind) ->
                 Text(
                     label,
-                    fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
                         .background(PillActive, RoundedCornerShape(16.dp))
                         .clickable {
@@ -981,26 +1093,25 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
                         }
                         .padding(horizontal = 12.dp, vertical = 7.dp),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
             }
             Spacer(Modifier.weight(1f))
-            if (gi.workRelPath != null) {
-                Text(
-                    "分享",
-                    fontSize = 13.sp, color = FilmBackground, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .background(InkTeal, RoundedCornerShape(16.dp))
-                        .clickable { onShare() }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-            }
             Text(
-                if (smartOpen) "智能 N ▴" else "智能 N ▾",
-                fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                "分享",
+                fontSize = 12.sp, color = CardBg, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
+                    .background(Accent, RoundedCornerShape(16.dp))
+                    .clickable { onShare() }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "智能结果 · ${gi.smartTexts.size}" + if (smartOpen) " ▴" else " ▾",
+                fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .background(PillActive, RoundedCornerShape(16.dp))
                     .clickable { smartOpen = !smartOpen }
-                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
             )
         }
         if (busyStep.isNotBlank()) {
@@ -1047,7 +1158,11 @@ private fun CameraPage(
             )
             Spacer(Modifier.height(12.dp))
         }
-        Text(state.connectionText, fontSize = 14.sp, color = SageText)
+        Text(state.connectionText, fontSize = 13.sp, color = CreamFaint)
+        if (state.cameraItems.isEmpty() && state.ingestProgress == null) {
+            EmptyCameraCard(state, controller)
+            return@Column
+        }
         state.ingestProgress?.let { progress ->
             if (progress.running) {
                 LinearProgressIndicator(
@@ -1191,15 +1306,15 @@ private fun CameraPage(
             val enabled = state.engineReady && n > 0
             Box(
                 modifier = Modifier
-                    .background(if (enabled) InkTeal else DividerCream)
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .background(if (enabled) Accent else DividerCream, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
                     .clickable(enabled = enabled) { controller.startIngest() },
             ) {
                 Text(
-                    if (state.engineReady) "导出 $n 个" else "引擎未就绪（需 MTP 会话）",
-                    fontSize = 14.sp,
+                    if (state.engineReady) "导出 $n 个" else "未连接相机",
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (enabled) FilmBackground else SageText,
+                    color = if (enabled) CardBg else CreamFaint,
                 )
             }
             if (state.ingestStatus.contains("失败") && state.checkedNames.isNotEmpty()) {
@@ -1214,17 +1329,55 @@ private fun CameraPage(
             }
         }
         Spacer(Modifier.height(8.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(DividerCream)
-                .padding(vertical = 4.dp, horizontal = 8.dp),
-        ) {
-            Column {
-                state.logTail.forEach { line ->
-                    Text(line, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SageText)
-                }
+    }
+}
+
+/** 相机空态：三步引导 + 重新检测（不再是一屏空白加两个箭头）。 */
+@Composable
+private fun EmptyCameraCard(state: ProbeUiState, controller: ProbeController) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 18.dp)
+            .background(CardBg, RoundedCornerShape(18.dp))
+            .border(1.dp, DividerCream, RoundedCornerShape(18.dp))
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "把 Z30 接上手机",
+            fontFamily = FontFamily.Serif,
+            fontSize = 19.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = InkTeal,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "插上 OTG 线后，这里会按拍摄日期列出卡内照片，勾选即可导出。",
+            fontSize = 12.sp,
+            color = CreamFaint,
+            lineHeight = 18.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("1 插线", "2 允许访问", "3 勾选导出").forEach { s ->
+                Text(
+                    s,
+                    fontSize = 10.sp,
+                    color = AccentDeep,
+                    modifier = Modifier
+                        .background(PillActive, RoundedCornerShape(999.dp))
+                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                )
             }
+        }
+        Spacer(Modifier.height(18.dp))
+        PillButton(
+            label = if (state.pendingPermission) "重新授权" else "重新检测",
+            filled = true,
+        ) {
+            if (state.pendingPermission) controller.retryPermission() else controller.emitCameraUiRefresh()
         }
     }
 }
@@ -1238,7 +1391,7 @@ private fun CameraRow(
     checked: Boolean,
     onToggle: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().background(CreamFaint.copy(alpha = 0.08f))) {
+    Column(modifier = Modifier.fillMaxWidth().background(CardBg)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1323,14 +1476,14 @@ private fun RecipePage(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .background(InkTeal)
+                    .background(Accent, RoundedCornerShape(999.dp))
                     .clickable {
                         importLauncher.launch(arrayOf("application/json", "text/*"))
                     }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
-                Text("导入卡片 (.json)", fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, color = FilmBackground)
+                Text("卡片", fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, color = CardBg)
             }
             Spacer(Modifier.width(8.dp))
             Box(
@@ -1339,8 +1492,8 @@ private fun RecipePage(
                     .clickable { skillLauncher.launch(arrayOf("text/*", "text/markdown")) }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Text("导入 SKILL (.md)", fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Text("SKILL", fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, color = AccentDeep)
             }
             Spacer(Modifier.width(8.dp))
             Box(
@@ -1355,11 +1508,10 @@ private fun RecipePage(
                     }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Text("⤵ 导入相册图片", fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Text("⤵ 相册", fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, color = AccentDeep)
             }
             Spacer(Modifier.width(12.dp))
-            Text("共享的配方属于文件（无自有服务器）", fontSize = 11.sp, color = CreamFaint)
         }
         Spacer(Modifier.height(8.dp))
         if (state.passSelectedNames.isNotEmpty()) {
@@ -1394,7 +1546,7 @@ private fun RecipePage(
     confirmCard?.let { card ->
         ModalBottomSheet(
             onDismissRequest = { confirmCard = null },
-            containerColor = FilmBackground,
+            containerColor = CardBg,
         ) {
             // 口径与 startCardRun 一致：图库勾选里的非 JPEG（NEF 等）会由入队层自动滤掉，计数先对齐展示
             val selJpeg = state.passSelectedNames.count { isJpegName(it) }
@@ -1440,14 +1592,10 @@ private fun CardConfirmSheet(
         if (!cloudEnabled) {
             // 闸门前置：云开关关 = 两个 CTA 一并禁用（老实告诉用户为什么，别让点击无声吞掉）
             Text(
-                "⚠ 云处理总开关是关的：先到【设置】Tab 打开开关并确认 LLM key 已填。",
+                "⚠ 云处理总开关是关的：先到「设置」打开开关并确认 LLM key 已填。",
                 fontSize = 13.sp, color = WarnBrown, fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
-            Text(
-                "（飞控事故备注：v7 清库曾把 key 一并清掉——一次性重填即可，key 无法自动恢复。）",
-                fontSize = 11.sp, color = CreamFaint,
-            )
             Spacer(Modifier.height(14.dp))
             PillButton(
                 label = "去设置 Tab 开云处理",
@@ -1455,7 +1603,7 @@ private fun CardConfirmSheet(
             ) { onOpenSettings() }
             Spacer(Modifier.height(6.dp))
             Text(
-                "打开后回到本页重新点开滤镜包即可执行。",
+                "打开后回到本页重新点开这张配方即可执行。",
                 fontSize = 11.sp, color = CreamFaint,
             )
             return@Column
@@ -1501,10 +1649,11 @@ private fun CardTile(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp, horizontal = 4.dp)
-            .background(CreamFaint.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+            .padding(vertical = 8.dp)
+            .background(CardBg, RoundedCornerShape(14.dp))
+            .border(1.dp, DividerCream, RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .padding(12.dp),
+            .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -1527,17 +1676,12 @@ private fun CardTile(
                 fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = InkTeal,
             )
             Text("${card.stepsCount} 步 · ${card.steps.joinToString(" → ")}",
-                fontSize = 11.5.sp, color = SageText, modifier = Modifier.padding(top = 4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "导出",
-                    fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clickable { onExport() }
-                        .padding(top = 6.dp, end = 10.dp),
-                )
-                Text("共享配方属文件（无自有服务器）", fontSize = 10.sp, color = CreamFaint)
-            }
+                fontSize = 11.sp, color = CreamFaint, modifier = Modifier.padding(top = 3.dp))
+            Text("导出",
+                fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable { onExport() }
+                    .padding(top = 6.dp))
         }
         Text("›", fontSize = 18.sp, color = CreamFaint)
     }
@@ -1570,6 +1714,7 @@ private fun SettingsPage(
     var model by remember(cfg) { mutableStateOf(cfg?.model ?: "") }
     var templateName by remember(cfg) { mutableStateOf(cfg?.templateName ?: "") }
     var saved by remember { mutableStateOf("") }
+    var showKey by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
         Text(state.connectionText, fontSize = 14.sp, color = SageText)
@@ -1591,7 +1736,7 @@ private fun SettingsPage(
         }
 
         Spacer(Modifier.height(20.dp))
-        Text("平台模板（一键填选题）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Text("平台模板（一键填充）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
         Spacer(Modifier.height(6.dp))
         com.lumina.llm.LlmTemplates.presets.forEach { t ->
             val active = templateName == t.name
@@ -1599,7 +1744,12 @@ private fun SettingsPage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
-                    .background(if (active) PillActive else CreamFaint.copy(alpha = 0.4f))
+                    .background(if (active) PillActive else CardBg, RoundedCornerShape(10.dp))
+                    .border(
+                        1.dp,
+                        if (active) Accent.copy(alpha = 0.35f) else DividerCream,
+                        RoundedCornerShape(10.dp),
+                    )
                     .clickable {
                         templateName = t.name
                         baseUrl = t.baseUrl
@@ -1633,6 +1783,17 @@ private fun SettingsPage(
             value = apiKey,
             onValueChange = { apiKey = it },
             label = { Text("api_key") },
+            visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None
+                else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            trailingIcon = {
+                Text(
+                    if (showKey) "隐藏" else "显示",
+                    fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable { showKey = !showKey }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
@@ -1646,8 +1807,8 @@ private fun SettingsPage(
         Spacer(Modifier.height(16.dp))
         Box(
             modifier = Modifier
-                .background(InkTeal)
-                .padding(horizontal = 24.dp, vertical = 10.dp)
+                .background(Accent, RoundedCornerShape(999.dp))
+                .padding(horizontal = 24.dp, vertical = 11.dp)
                 .clickable {
                     if (baseUrl.isBlank() || model.isBlank()) {
                         saved = "base_url 与 model 不能为空"
@@ -1657,7 +1818,7 @@ private fun SettingsPage(
                     }
                 },
         ) {
-            Text("保存配置", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = FilmBackground)
+            Text("保存配置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = CardBg)
         }
         if (saved.isNotBlank()) {
             Text(saved, fontSize = 12.sp, color = InkTeal, modifier = Modifier.padding(top = 8.dp))
@@ -1667,7 +1828,10 @@ private fun SettingsPage(
         // 连接测试：真实 ping 一次 chat.completions（文本 only，无图）
         Box(
             modifier = Modifier
-                .background(if (state.cloudEnabled) PillActive else DividerCream)
+                .background(
+                    if (state.cloudEnabled) PillActive else DividerCream,
+                    RoundedCornerShape(999.dp),
+                )
                 .padding(horizontal = 20.dp, vertical = 10.dp)
                 .clickable(enabled = state.cloudEnabled) { controller.testLlmConnection() },
         ) {
@@ -1773,7 +1937,7 @@ private fun SettingsPage(
         if (ig != null) {
             Text(
                 "已并配：${ig.model} · ${ig.size} · ${ig.baseUrl.substringBeforeLast('/')}",
-                fontSize = 12.sp, color = Color(0xFF5C7A4E),
+                fontSize = 12.sp, color = Accent,
             )
         } else {
             Text(
@@ -1804,5 +1968,6 @@ private fun SettingsPage(
             fontSize = 11.sp,
             color = CreamFaint,
         )
+        Spacer(Modifier.height(28.dp))
     }
 }

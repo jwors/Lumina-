@@ -813,8 +813,11 @@ class ProbeController(
                     if (masterStore.adoptExistingDiskFile(rel)) adopted++
                 }
             lastGalleryItems = buildGalleryItems()
-            lastGalleryStatus = if (pruned > 0 || adopted > 0)
-                "对账：清理失效 $pruned · 收养新 $adopted" else ""
+            lastGalleryStatus = when {
+                adopted > 0 -> "新增 $adopted 张"
+                pruned > 0 -> "已清理 $pruned 条失效记录"
+                else -> ""
+            }
             galleryLoading = false
             updateCatchupBanner()
             // 发图库专用画布（保留式合并补全其它 Tab 字段）
