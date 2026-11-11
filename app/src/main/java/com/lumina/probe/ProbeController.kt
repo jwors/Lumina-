@@ -1669,14 +1669,16 @@ class ProbeController(
             return
         }
         val chatReady = chatCfg != null
-        // 规则源优先级：卡内 SKILL 全文（忠实正主） > 蒸馏版（PosterPromptCompiler）
-        val compilerPrompt = if (skillBody != null && skillBody.length >= 800) {
-            "你在为本台生图管线工作。照片是参考。请严格按用户提供的 SKILL 语言与工作流读照片，" +
-                "并以 SKILL 自带的最終生图 prompt 形态产出四段式指令（只输出提示词本身）：\n\n$skillBody"
+        // 规则源优先级：SKILL 蒸馏摘要（编译三节） > 蒸馏版 PosterPromptCompiler
+        val skillBrief = skillBody?.let { com.lumina.cards.SkillBrief.extract(it) }
+        val ownAnchor = skillBody?.let { com.lumina.cards.SkillBrief.hasOwnAnchor(it) } == true
+        val compilerPrompt = if (!skillBrief.isNullOrBlank()) {
+            "你在为本台生图管线工作。照片是参考。请严格按用户提供的 SKILL 规则读照片，" +
+                "并以 SKILL 自带的最終生图 prompt 形态产出四段式指令（只输出提示词本身）：\n\n$skillBrief"
         } else {
             PosterPromptCompiler.COMPILER_PROMPT
         }
-        val rulesLabel = if (skillBody != null && skillBody.length >= 800) "SKILL 全文($skillName)" else "蒸馏版"
+        val rulesLabel = if (!skillBrief.isNullOrBlank()) "SKILL 摘要($skillName ${skillBrief.length}字)" else "蒸馏版"
         val client = com.lumina.imagegen.ImageGenClient(
             cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
             log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
@@ -1686,9 +1688,17 @@ class ProbeController(
             emit(lastEmitted.get().copy(passStatus = passStatus))
             val row = rowsByRoot[name] ?: return@forEachIndexed
             val jpeg = jpegBytesFor(name) ?: return@forEachIndexed
+            // 前序步骤结果作为语义参考（场景名/文案/滤镜建议），不照抄
+            val prior = runCatching {
+                resultsDao.byName(name)
+                    .filter { it.kind == "annotate" || it.kind == "caption" || it.kind == "filter_suggest" }
+                    .joinToString("\n") { "${it.kind}：${it.text.take(200)}" }
+            }.getOrNull().orEmpty()
+            val promptForName = if (prior.isBlank()) compilerPrompt
+                else compilerPrompt + "\n\n【前序结果（仅语义参考，不要照抄）】\n" + prior
             // ① 读图 + 按工作流编译四段式 prompt（一次 vision 调用）
             val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
-                chatCfg, compilerPrompt, jpeg,
+                chatCfg, promptForName, jpeg,
             )) {
                 is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(2400)
                 else -> {
@@ -1706,11 +1716,12 @@ class ProbeController(
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 45_000
                 return@forEachIndexed
             }
-            // ② 出图（prompt 末尾强制拼接风格锚定，保纸刊下限；429 → 20s 后重试 1 次，仍败进冷却）
-            var bytes = client.generate(prompt + "\n\n" + PosterPromptCompiler.STYLE_ANCHOR)
+            // ② 出图（SKILL 自带锚定时不再追加内置 STYLE_ANCHOR；429 → 20s 后重试 1 次）
+            val anchor = if (ownAnchor) "" else "\n\n" + PosterPromptCompiler.STYLE_ANCHOR
+            var bytes = client.generate(prompt + anchor)
             if (bytes == null) {
                 Thread.sleep(20_000)
-                bytes = client.generate(prompt + "\n\n" + PosterPromptCompiler.STYLE_ANCHOR)
+                bytes = client.generate(prompt + anchor)
             }
             if (bytes == null) {
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 180_000
