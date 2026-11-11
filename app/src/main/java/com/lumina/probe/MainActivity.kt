@@ -1303,6 +1303,9 @@ private fun RecipePage(
     val skillLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri: android.net.Uri? -> uri?.let { controller.importSkillCard(it) } }
+    val albumLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri: android.net.Uri? -> uri?.let { controller.importFromAlbum(it) } }
 
     Column(modifier = modifier) {
         if (state.cardsLoading) {
@@ -1337,6 +1340,22 @@ private fun RecipePage(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text("导入 SKILL (.md)", fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, color = InkTeal)
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .background(PillActive)
+                    .clickable {
+                        albumLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text("⤵ 导入相册图片", fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, color = InkTeal)
             }
             Spacer(Modifier.width(12.dp))

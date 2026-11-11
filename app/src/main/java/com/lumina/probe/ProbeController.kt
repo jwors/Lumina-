@@ -1788,6 +1788,53 @@ class ProbeController(
         }
     }
 
+    /** M4-01 新增：从系统相册导入图片为 Master（Photo Picker/SAF 皆可）。
+     *  名称取 DISPLAY_NAME；非 JPG 后缀归一为 .jpg（BitmapFactory 按内容解码）；
+     *  同名冲突自动加时间戳；入库后立即可跑滤镜卡/生成链。 */
+    fun importFromAlbum(uri: android.net.Uri) {
+        io.execute {
+            runCatching {
+                val bytes = appContext.contentResolver.openInputStream(uri)?.readBytes()
+                    ?: throw Exception("读不到图片内容")
+                if (bytes.isEmpty()) throw Exception("图片为空")
+                val cursor = appContext.contentResolver.query(
+                    uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null,
+                )
+                val rawName = cursor?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: "album"
+                cursor?.close()
+                var name = (rawName.substringAfterLast('/').ifBlank { "album" })
+                    .substringBeforeLast('.') + ".jpg"
+                val now = System.currentTimeMillis()
+                var rel = com.lumina.master.MasterPaths.relativePath(null, now, name)
+                if (masterStore.findByRelPath(rel) != null) {
+                    name = name.substringBeforeLast('.') + "_${now % 100000}.jpg"
+                    rel = com.lumina.master.MasterPaths.relativePath(null, now, name)
+                }
+                val f = masterStore.fileOf(rel)
+                f.parentFile?.mkdirs()
+                f.writeBytes(bytes)
+                when (masterStore.register(null, now, name, bytes.size.toLong())) {
+                    is com.lumina.master.MasterStore.RegisterResult.Registered -> {
+                        logEvents(listOf("album import: $name (${bytes.size}B) → $rel"))
+                        lastGalleryItems = buildGalleryItems()
+                        toastify("已导入 Master：$name")
+                        emit(lastEmitted.get().copy(
+                            galleryItems = lastGalleryItems,
+                            galleryStatus = "已导入相册图片：$name",
+                        ))
+                    }
+                    else -> throw Exception("登记失败：$rel")
+                }
+            }.onFailure { e ->
+                logEvents(listOf("album import fail: ${e.message}"))
+                toastify("导入失败：${e.message}")
+                emit(lastEmitted.get().copy(galleryStatus = "导入失败：${e.message}"))
+            }
+        }
+    }
+
     /** M4-01：导入 Codex 生图 SKILL(.md) — frontmatter name/标题 → 卡名；全文 → GENERATIVE 步。 */
     fun importSkillCard(uri: android.net.Uri) {
         io.execute {
