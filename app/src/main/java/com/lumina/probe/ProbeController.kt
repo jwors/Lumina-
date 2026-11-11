@@ -119,6 +119,15 @@ class ProbeController(
                     toastify("检测到 chat 配置被生图 URL 污染，已自动归位（重跑滤镜卡即可）")
                 }
             }
+            // M4-01 自愈 2：早期生成文件命名事故（*_w.g.jpg）→ 归位 *_g.jpg（扫描契约）
+            appContext.filesDir.walkTopDown()
+                .filter { f -> f.isFile && f.name.endsWith("_w.g.jpg") }
+                .forEach { f ->
+                    val fixed = File(f.parentFile, f.name.removeSuffix("_w.g.jpg") + "_g.jpg")
+                    if (f.renameTo(fixed)) {
+                        logEvents(listOf("heal: renamed ${f.name} → ${fixed.name}"))
+                    }
+                }
         }
     }
 
@@ -1704,8 +1713,10 @@ class ProbeController(
                 toastify("GLM 生图失败/限流：60s 冷却后再试")
                 return@forEachIndexed
             }
-            val rel = com.lumina.work.WorkRenderer.workRelPath(row.dateKey, name)
-                .replaceAfterLast('.', "g.jpg")
+            // 命名契约与 buildGalleryItems 扫描严格一致：<base>_g.jpg
+            // （事故记录：曾用 replaceAfterLast('.', "g.jpg") 把 CHY_3671_w.jpg 变成
+            //   CHY_3671_w.g.jpg，扫描找 CHY_3671_g.jpg 永远落空 → "生成的还是原图"）
+            val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
             File(appContext.filesDir, rel).parentFile?.mkdirs()
             File(appContext.filesDir, rel).writeBytes(bytes)
             resultsDao.insert(com.lumina.pass.SmartResultEntity(
