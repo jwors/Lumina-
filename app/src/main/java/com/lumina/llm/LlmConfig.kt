@@ -60,5 +60,7 @@ object LlmTemplates {
             ),
         ),
         Template("Kimi 月之暗面", "https://api.moonshot.cn/v1", "moonshot-v1-8k-vision-preview", "视觉预览模型"),
+        Template("OpenCode Go（你的套餐）", "https://opencode.ai/inference/go/openai/v1", "glm-5.3-flash",
+            "文本+多模态编译用；生图端点仍走智谱 glm-image"),
     )
 }

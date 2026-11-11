@@ -1702,11 +1702,11 @@ class ProbeController(
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 45_000
                 return@forEachIndexed
             }
-            // ② 出图 + 转存 Work 层（429 → 20s 后重试 1 次；仍败进冷却）
-            var bytes = client.generate(prompt)
+            // ② 出图（prompt 末尾强制拼接风格锚定，保纸刊下限；429 → 20s 后重试 1 次，仍败进冷却）
+            var bytes = client.generate(prompt + "\n\n" + PosterPromptCompiler.STYLE_ANCHOR)
             if (bytes == null) {
                 Thread.sleep(20_000)
-                bytes = client.generate(prompt)
+                bytes = client.generate(prompt + "\n\n" + PosterPromptCompiler.STYLE_ANCHOR)
             }
             if (bytes == null) {
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 60_000
