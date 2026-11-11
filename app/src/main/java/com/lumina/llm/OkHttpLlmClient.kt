@@ -25,6 +25,11 @@ class OkHttpLlmClient(
 
     private val jsonType = "application/json; charset=utf-8".toMediaTypeOrNull()
 
+    private companion object {
+        /** 进程内稳定会话 ID：OpenCode Go 用它做路由/缓存，缺了会 400 MissingSessionID。 */
+        val SESSION_ID: String = java.util.UUID.randomUUID().toString()
+    }
+
     override fun complete(cfg: LlmConfigEntity, prompt: String, imageJpeg: ByteArray?): LlmOutcome {
         val content = JSONArray().put(
             JSONObject().put("type", "text").put("text", prompt),
@@ -51,6 +56,13 @@ class OkHttpLlmClient(
         val request = Request.Builder()
             .url(cfg.baseUrl.trimEnd('/') + "/chat/completions")
             .header("Authorization", "Bearer " + cfg.apiKey)
+            .header("User-Agent", "Lumina/0.4 (Android)")
+            .apply {
+                // OpenCode Go 要求客户端带稳定会话头，否则 400 MissingSessionID
+                if (cfg.baseUrl.contains("opencode.ai")) {
+                    header("x-opencode-session", SESSION_ID)
+                }
+            }
             .post(body.toString().toRequestBody(jsonType))
             .build()
 

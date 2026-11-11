@@ -1065,7 +1065,7 @@ class ProbeController(
                 is com.lumina.llm.LlmOutcome.RateLimited ->
                     msg = "✗ 限流（429）——等 ${outcome.retryAfterSec ?: 60} 秒再试"
                 is com.lumina.llm.LlmOutcome.Http ->
-                    msg = "✗ HTTP ${outcome.code}（key/域名/模型名检查：${outcome.snippet.take(60)}）"
+                    msg = "✗ HTTP ${outcome.code}（key/域名/模型名检查：${outcome.snippet.take(200)}）"
                 is com.lumina.llm.LlmOutcome.NetworkTimeout ->
                     msg = "✗ 网络不可达：${outcome.reason}"
             }
