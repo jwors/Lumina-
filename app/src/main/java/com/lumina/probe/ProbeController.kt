@@ -1659,12 +1659,13 @@ class ProbeController(
         val now = android.os.SystemClock.elapsedRealtime()
         if (now < _imagegenCoolUntil) {
             val remain = ((_imagegenCoolUntil - now) / 1000).toInt() + 1
-            val msg = "GLM 生图限流冷却中：还剩约 ${remain}s（glm-image 有请求频次上限，稍等再跑）"
+            val msg = "GLM 生图限流冷却中：还剩约 ${remain}s（资源包有请求频次上限，稍等再跑）"
             passStatus = msg
             toastify(msg)
             emit(lastEmitted.get().copy(passStatus = passStatus))
             return
         }
+        val chatReady = chatCfg != null
         // 规则源优先级：卡内 SKILL 全文（忠实正主） > 蒸馏版（PosterPromptCompiler）
         val compilerPrompt = if (skillBody != null && skillBody.length >= 800) {
             "你在为本台生图管线工作。照片是参考。请严格按用户提供的 SKILL 语言与工作流读照片，" +
@@ -1709,8 +1710,8 @@ class ProbeController(
                 bytes = client.generate(prompt + "\n\n" + PosterPromptCompiler.STYLE_ANCHOR)
             }
             if (bytes == null) {
-                _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 60_000
-                toastify("GLM 生图失败/限流：60s 冷却后再试")
+                _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 180_000
+                toastify("GLM 生图限流：180s 冷却后再试（资源包有频次上限）")
                 return@forEachIndexed
             }
             // 命名契约与 buildGalleryItems 扫描严格一致：<base>_g.jpg
