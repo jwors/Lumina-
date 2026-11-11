@@ -10,6 +10,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -171,14 +174,16 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),
         ) {
-            Text(
-                tabTitle(tab),
-                fontFamily = FontFamily.Serif,
-                fontSize = 27.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = InkTeal,
-                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
-            )
+            if (tab != TAB_GALLERY && tab != TAB_SETTINGS) {
+                Text(
+                    tabTitle(tab),
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = InkTeal,
+                    modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+                )
+            }
             when (tab) {
                 TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
                 TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
@@ -543,15 +548,42 @@ private fun GalleryPage(
     // 查看/多选状态放函数体层：查看器覆盖层在 Column 收口后仍要能给整页上盖
     var viewerStart by remember { mutableStateOf<Int?>(null) }
     var viewFeed by remember { mutableStateOf(false) }
+    val albumLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri: android.net.Uri? -> uri?.let { controller.importFromAlbum(it) } }
     Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "图库",
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = InkTeal,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Text(
+                    if (state.galleryItems.isEmpty()) "还没有照片"
+                    else "${state.galleryItems.maxOfOrNull { it.dateKey } ?: ""} · 共 ${state.galleryItems.size} 张",
+                    fontSize = 11.5.sp, color = CreamFaint,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                )
+            }
+            RoundIcon("↥") {
+                albumLauncher.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                    ),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            RoundIcon("↯") { controller.loadSmartFeed(); viewFeed = !viewFeed }
+        }
         if (state.galleryLoading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth(),
                 color = InkTeal, trackColor = DividerCream)
-            Text("图库对账中…", fontSize = 12.sp, color = SageText,
+            Text("图库加载中…", fontSize = 12.sp, color = SageText,
                 modifier = Modifier.padding(top = 4.dp))
-            Spacer(Modifier.height(4.dp))
-        } else {
-            Text(state.connectionText, fontSize = 12.5.sp, color = CreamFaint)
         }
         if (state.galleryStatus.isNotBlank()) {
             Text(state.galleryStatus, fontSize = 12.sp, color = CreamFaint)
@@ -569,7 +601,6 @@ private fun GalleryPage(
             }
             return@Column
         }
-        var viewFeed by remember { mutableStateOf(false) }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (viewFeed) "← 返回图库" else "⚡ 智能结果全文",
@@ -658,6 +689,21 @@ private fun GalleryPage(
                 onClose = { viewerStart = null },
             )
         }
+    }
+}
+
+/** 圆形图标按钮（图库右上角导入/智能）。 */
+@Composable
+private fun RoundIcon(icon: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .background(CardBg, RoundedCornerShape(50))
+            .border(1.dp, DividerCream, RoundedCornerShape(50))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(icon, fontSize = 15.sp, color = InkTeal)
     }
 }
 
@@ -772,12 +818,12 @@ private fun GalleryCell(
                 .padding(4.dp)
                 .size(22.dp)
                 .background(
-                    if (checked) Accent else Color(0x401B231C),
+                    if (checked) Accent else Color(0x33FFFFFF),
                     RoundedCornerShape(50),
                 )
                 .border(
                     1.5.dp,
-                    if (checked) Accent else Color(0xCCFFFFFF),
+                    if (checked) Accent else Color(0xE6FFFFFF),
                     RoundedCornerShape(50),
                 )
                 .clickable { onCheck() },
@@ -1702,6 +1748,20 @@ internal fun humanBytes(bytes: Long): String {
 
 // ---------- 设置页（M2 工单 01） ----------
 
+/** 设置分节白卡。 */
+@Composable
+private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardBg, RoundedCornerShape(16.dp))
+            .border(1.dp, DividerCream, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        content = content,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsPage(
     modifier: Modifier = Modifier,
@@ -1715,58 +1775,79 @@ private fun SettingsPage(
     var templateName by remember(cfg) { mutableStateOf(cfg?.templateName ?: "") }
     var saved by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val versionName = remember(ctx) {
+        @Suppress("DEPRECATION")
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
+    }
 
     Column(modifier = modifier.verticalScroll(rememberScrollState())) {
-        Text(state.connectionText, fontSize = 14.sp, color = SageText)
-
-        Spacer(Modifier.height(16.dp))
-        Text("云处理总开关", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-        Text(
-            if (state.cloudEnabled) "开启中：联网模型仅用于你配置的 API 域" else "关闭中：所有云端请求挂起（回网也不跑）",
-            fontSize = 12.sp,
-            color = if (state.cloudEnabled) InkTeal else CreamFaint,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = state.cloudEnabled,
-                onCheckedChange = { controller.setCloudEnabled(it) },
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            modifier = Modifier.padding(top = 14.dp),
+        ) {
+            Text(
+                "设置",
+                fontFamily = FontFamily.Serif,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = InkTeal,
             )
-            Text(if (state.cloudEnabled) "开" else "关", fontSize = 14.sp, color = InkTeal,
-                modifier = Modifier.padding(start = 8.dp))
+            Spacer(Modifier.weight(1f))
+            Text("v$versionName", fontSize = 10.sp, color = CreamFaint)
         }
+        Text(
+            "自用构建 · 云端与备份",
+            fontSize = 11.5.sp, color = CreamFaint,
+            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+        )
 
-        Spacer(Modifier.height(20.dp))
-        Text("平台模板（一键填充）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
-        Spacer(Modifier.height(6.dp))
-        com.lumina.llm.LlmTemplates.presets.forEach { t ->
-            val active = templateName == t.name
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .background(if (active) PillActive else CardBg, RoundedCornerShape(10.dp))
-                    .border(
-                        1.dp,
-                        if (active) Accent.copy(alpha = 0.35f) else DividerCream,
-                        RoundedCornerShape(10.dp),
+        SettingsPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("云处理总开关", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                    Text(
+                        if (state.cloudEnabled) "开启中：联网模型仅用于你配置的 API 域" else "关闭中：所有云端请求挂起（回网也不跑）",
+                        fontSize = 11.5.sp,
+                        color = if (state.cloudEnabled) Accent else CreamFaint,
                     )
-                    .clickable {
-                        templateName = t.name
-                        baseUrl = t.baseUrl
-                        model = t.model
-                    }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    if (active) "● " else "○ ",
-                    fontSize = 13.sp,
-                    color = InkTeal,
+                }
+                Switch(
+                    checked = state.cloudEnabled,
+                    onCheckedChange = { controller.setCloudEnabled(it) },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedThumbColor = CardBg,
+                        checkedTrackColor = Accent,
+                        uncheckedThumbColor = CreamFaint,
+                        uncheckedTrackColor = DividerCream,
+                        uncheckedBorderColor = Color.Transparent,
+                    ),
                 )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("平台模板", fontSize = 11.sp, color = Accent)
+            Spacer(Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            com.lumina.llm.LlmTemplates.presets.forEach { t ->
+                val active = templateName == t.name
                 Text(
-                    "${t.name}　${t.model}",
-                    fontSize = 13.sp,
-                    color = if (active) InkTeal else SageText,
-                    modifier = Modifier.weight(1f),
+                    t.name,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (active) CardBg else AccentDeep,
+                    modifier = Modifier
+                        .background(if (active) Accent else CardBg, RoundedCornerShape(999.dp))
+                        .border(1.dp, if (active) Accent else DividerCream, RoundedCornerShape(999.dp))
+                        .clickable {
+                            templateName = t.name
+                            baseUrl = t.baseUrl
+                            model = t.model
+                        }
+                        .padding(horizontal = 11.dp, vertical = 6.dp),
                 )
             }
         }
@@ -1845,12 +1926,14 @@ private fun SettingsPage(
             Text(state.testResult, fontSize = 12.sp, color = SageText,
                 modifier = Modifier.padding(top = 8.dp))
         }
+        }
 
         Spacer(Modifier.height(20.dp))
         // ── WebDAV Master 备份（M3-04，ADR-0003） ──
         val wd = state.webdav
         Text("WebDAV 备份（Master 终点）", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
         Spacer(Modifier.height(6.dp))
+        SettingsPanel {
         // 本地记录的 baseURL/用户名回显；密码永不回显（只显示"已存"）
         var davUrl by remember(cfg) { mutableStateOf(wd?.baseUrl ?: "") }
         var davUser by remember(cfg) { mutableStateOf(wd?.username ?: "") }
@@ -1926,6 +2009,7 @@ private fun SettingsPage(
             "备份语义：全部 Master（JPEG+NEF）→ <base>/Lumina/Master/<日期>/；远端同名同大小即跳过（幂等）。",
             fontSize = 11.sp, color = CreamFaint,
         )
+        }
         Spacer(Modifier.height(20.dp))
         // ── 图像生成端点（M4-01，合并进平台模板：选模板/保存 LLM 时一键并配，无独立表单） ──
         Text(
@@ -1961,13 +2045,21 @@ private fun SettingsPage(
                 Text(line, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SageText)
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "隐私姿态（ADR-0005）：联网仅指向你配置的模型 API 域；App 无自有服务器；" +
-                "App 无其他任何敏感权限（无定位/媒体/相机/麦克风）。",
-            fontSize = 11.sp,
-            color = CreamFaint,
-        )
+        Spacer(Modifier.height(20.dp))
+        Text("关于", fontSize = 11.sp, color = Accent)
+        Spacer(Modifier.height(6.dp))
+        SettingsPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("版本", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Spacer(Modifier.weight(1f))
+                Text("v$versionName", fontSize = 11.sp, color = CreamFaint)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "联网仅指向你配置的模型 API 域；无自有服务器；无定位 / 相机 / 麦克风权限。",
+                fontSize = 10.5.sp, lineHeight = 16.sp, color = CreamFaint,
+            )
+        }
         Spacer(Modifier.height(28.dp))
     }
 }
