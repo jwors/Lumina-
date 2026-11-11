@@ -68,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -897,24 +898,50 @@ private fun GalleryViewerOverlay(
     val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
     Box(modifier = Modifier.fillMaxSize().background(Lightbox)) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
                 Text(
                     "✕",
                     fontSize = 18.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
+                        .align(Alignment.CenterStart)
                         .clickable { onClose() }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 )
-                Spacer(Modifier.width(12.dp))
                 Text(
-                    "${pagerState.currentPage + 1}/${items.size}",
+                    "${pagerState.currentPage + 1} / ${items.size}",
                     fontSize = 12.sp, color = CreamFaint,
+                    modifier = Modifier.align(Alignment.Center),
                 )
+                var menuOpen by remember { mutableStateOf(false) }
+                Box(Modifier.align(Alignment.CenterEnd)) {
+                    Text(
+                        "⋯",
+                        fontSize = 18.sp, color = InkTeal,
+                        modifier = Modifier
+                            .clickable { menuOpen = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("分享成片") },
+                            onClick = {
+                                menuOpen = false
+                                shareItem = items.getOrNull(pagerState.currentPage)
+                            },
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("关闭") },
+                            onClick = { menuOpen = false; onClose() },
+                        )
+                    }
+                }
             }
             HorizontalPager(
                 state = pagerState,
@@ -1084,7 +1111,10 @@ private fun ViewerImage(gi: GalleryItem) {
             bitmap = it.asImageBitmap(),
             contentDescription = gi.name,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp)),
         )
     } ?: Column(
         modifier = Modifier.fillMaxSize(),
@@ -1104,7 +1134,7 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DividerCream.copy(alpha = 0.35f))
+            .background(CardBg)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1122,44 +1152,30 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
             )
         }
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            listOf(
-                "标注" to com.lumina.cards.StepKind.ANNOTATE,
-                "文案" to com.lumina.cards.StepKind.CAPTION,
-                "滤镜" to com.lumina.cards.StepKind.FILTER_SUGGEST,
-            ).forEach { (label, kind) ->
-                Text(
-                    label,
-                    fontSize = 12.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .background(PillActive, RoundedCornerShape(16.dp))
-                        .clickable {
-                            busyStep = "$label 执行中…"
-                            controller.runSingleStep(gi.name, kind)
-                        }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                )
-                Spacer(Modifier.width(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            ViewerAction("标注", "tag") {
+                busyStep = "标注 执行中…"
+                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.ANNOTATE)
             }
-            Spacer(Modifier.weight(1f))
-            Text(
-                "分享",
-                fontSize = 12.sp, color = CardBg, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .background(Accent, RoundedCornerShape(16.dp))
-                    .clickable { onShare() }
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "智能结果 · ${gi.smartTexts.size}" + if (smartOpen) " ▴" else " ▾",
-                fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .background(PillActive, RoundedCornerShape(16.dp))
-                    .clickable { smartOpen = !smartOpen }
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
-            )
+            ViewerAction("文案", "text") {
+                busyStep = "文案 执行中…"
+                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.CAPTION)
+            }
+            ViewerAction("滤镜", "filter") {
+                busyStep = "滤镜 执行中…"
+                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.FILTER_SUGGEST)
+            }
+            ViewerAction("分享", "share") { onShare() }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "智能结果 · ${gi.smartTexts.size}" + if (smartOpen) " ▴" else " ▾",
+            fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .background(PillActive, RoundedCornerShape(999.dp))
+                .clickable { smartOpen = !smartOpen }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
         if (busyStep.isNotBlank()) {
             Text("⏳ $busyStep", fontSize = 11.sp, color = SageText, modifier = Modifier.padding(top = 6.dp))
         }
@@ -1183,6 +1199,59 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
                         modifier = Modifier.padding(top = 6.dp),
                     )
                 }
+            }
+        }
+    }
+}
+
+/** 查看器工具项：图标在上、文字在下（对齐 v2 原型）。 */
+@Composable
+private fun ViewerAction(label: String, icon: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        ViewerIcon(icon)
+        Spacer(Modifier.height(4.dp))
+        Text(label, fontSize = 9.5.sp, color = InkTeal)
+    }
+}
+
+@Composable
+private fun ViewerIcon(kind: String) {
+    Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val sw = 1.6.dp.toPx()
+        when (kind) {
+            "tag" -> {
+                drawRoundRect(
+                    color = InkTeal,
+                    topLeft = Offset(w * 0.18f, h * 0.18f),
+                    size = Size(w * 0.64f, h * 0.64f),
+                    cornerRadius = CornerRadius(w * 0.12f),
+                    style = Stroke(width = sw, cap = StrokeCap.Round),
+                )
+                drawCircle(InkTeal, radius = w * 0.07f, center = Offset(w * 0.36f, h * 0.36f), style = Stroke(width = sw))
+            }
+            "text" -> {
+                drawLine(InkTeal, Offset(w * 0.2f, h * 0.3f), Offset(w * 0.8f, h * 0.3f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.2f, h * 0.5f), Offset(w * 0.65f, h * 0.5f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.2f, h * 0.7f), Offset(w * 0.8f, h * 0.7f), sw, StrokeCap.Round)
+            }
+            "filter" -> {
+                drawCircle(InkTeal, radius = w * 0.24f, center = Offset(w * 0.38f, h * 0.5f), style = Stroke(width = sw))
+                drawCircle(InkTeal, radius = w * 0.24f, center = Offset(w * 0.62f, h * 0.5f), style = Stroke(width = sw))
+            }
+            else -> {
+                drawLine(InkTeal, Offset(w * 0.5f, h * 0.75f), Offset(w * 0.5f, h * 0.2f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.5f, h * 0.2f), Offset(w * 0.34f, h * 0.36f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.5f, h * 0.2f), Offset(w * 0.66f, h * 0.36f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.25f, h * 0.55f), Offset(w * 0.25f, h * 0.8f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.25f, h * 0.8f), Offset(w * 0.75f, h * 0.8f), sw, StrokeCap.Round)
+                drawLine(InkTeal, Offset(w * 0.75f, h * 0.8f), Offset(w * 0.75f, h * 0.55f), sw, StrokeCap.Round)
             }
         }
     }
