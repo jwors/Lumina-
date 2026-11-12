@@ -104,3 +104,19 @@ SKILL 的原始用法是「对话式 agent + 参考图 + 一次纠错」，四�
 - 本周：P0 + P1（2 天）→ 能出图、prompt 可控。
 - 下周：P2 探针与 IMG2IMG（视端点）。
 - P3 视反馈再排。
+
+## 10. P2 探测结果（2026-11-12 实测）
+
+| 探测 | 结果 |
+|---|---|
+| GLM-Image 官方文档 | 输入模态**仅文本**（标称最大 1000 字符），不是图片编辑接口 |
+| `POST /api/paas/v4/images/edits`（multipart） | **404 Not Found** |
+| 1440 字长 prompt 走 `images/generations` | 200，出图（标称 1000 字上限未被硬拒） |
+
+结论：
+
+- **glm-image 无法做参考图**；P2 的“以原照片为 reference”在当前端点不可实现。
+- App 侧已落地适配：`baseUrl` 含 `/images/edits` 时，`ImageGenClient` 自动切 multipart 上传源图；
+  用户换成支持图生图的服务（OpenAI `images/edits`、WaveSpeed `glm-image/edit` 等）即可生效，无需改代码。
+- 设置页会提示“当前是纯文生图端点，不会上传参考图”。
+- 若要默认体验接近 SKILL 示例，需要选定一个支持参考图的端点/模型（待拍板）。

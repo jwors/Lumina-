@@ -2092,6 +2092,13 @@ private fun SettingsPage(
                 "已并配：${ig.model} · ${ig.size} · ${ig.baseUrl.substringBeforeLast('/')}",
                 fontSize = 12.sp, color = Accent,
             )
+            if (!com.lumina.imagegen.ImageGenClient.isEditEndpoint(ig.baseUrl)) {
+                Text(
+                    "当前是纯文生图端点，不会上传参考图；要“以原照片为参考”请把生图地址换成支持 /images/edits 的服务。",
+                    fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         } else {
             Text(
                 "选择【智谱 GLM】模板并保存后，生图端点（glm-image · 3:5）自动一并配好（key 同平台两用）。",

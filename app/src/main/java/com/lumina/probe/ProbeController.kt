@@ -1718,10 +1718,12 @@ class ProbeController(
             }
             // ② 出图（SKILL 自带锚定时不再追加内置 STYLE_ANCHOR；429 → 20s 后重试 1 次）
             val anchor = if (ownAnchor) "" else "\n\n" + PosterPromptCompiler.STYLE_ANCHOR
-            var bytes = client.generate(prompt + anchor)
+            // 只有端点声明是 images/edits 时才上传参考图；GLM-Image 是纯文生图
+            val reference = if (com.lumina.imagegen.ImageGenClient.isEditEndpoint(cfg.baseUrl)) jpeg else null
+            var bytes = client.generate(prompt + anchor, reference)
             if (bytes == null) {
                 Thread.sleep(20_000)
-                bytes = client.generate(prompt + anchor)
+                bytes = client.generate(prompt + anchor, reference)
             }
             if (bytes == null) {
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 180_000
