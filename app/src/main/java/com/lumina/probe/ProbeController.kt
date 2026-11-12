@@ -1715,6 +1715,7 @@ class ProbeController(
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 45_000
                 return@forEachIndexed
             }
+            logEvents(listOf("imagegen: compiled ${prompt.length} chars · ${prompt.take(300)}"))
             // ② 出图（SKILL 自带锚定时不再追加内置 STYLE_ANCHOR；429 → 20s 后重试 1 次）
             val anchor = if (ownAnchor) "" else "\n\n" + PosterPromptCompiler.STYLE_ANCHOR
             // 只有端点声明是 images/edits 时才上传参考图；GLM-Image 是纯文生图
