@@ -1707,10 +1707,8 @@ class ProbeController(
                     val photoBmp = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
                     if (bg != null && photoBmp != null) {
                         val title = runCatching {
-                            resultsDao.byName(name)
-                                .firstOrNull { it.kind == "caption" }
-                                ?.text?.substringAfter("caption：")?.trim()?.take(12)
-                        }.getOrNull().orEmpty().ifBlank { "行山记" }
+                            TitlePicker.pick(resultsDao.byName(name))
+                        }.getOrNull().orEmpty().ifBlank { TitlePicker.FALLBACK }
                         val poster = com.lumina.work.HybridZineRenderer.render(bg, photoBmp, title, row.dateKey)
                         val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
                         val f = java.io.File(appContext.filesDir, rel)
