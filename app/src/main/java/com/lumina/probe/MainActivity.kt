@@ -2107,6 +2107,31 @@ private fun SettingsPage(
         }
         Spacer(Modifier.height(6.dp))
         PillButton(label = "测试生图一次", filled = false) { controller.testImageGenConfig() }
+        Spacer(Modifier.height(10.dp))
+        var watermarkOff by remember { mutableStateOf(!com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(ctx)) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("关闭 AI 生成水印", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Text(
+                    "需先在智谱控制台签署去水印声明；关闭后新图不再带「AI生成」",
+                    fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+                )
+            }
+            Switch(
+                checked = watermarkOff,
+                onCheckedChange = {
+                    watermarkOff = it
+                    com.lumina.imagegen.ImageGenPrefs.setWatermarkEnabled(ctx, !it)
+                },
+                colors = androidx.compose.material3.SwitchDefaults.colors(
+                    checkedThumbColor = CardBg,
+                    checkedTrackColor = Accent,
+                    uncheckedThumbColor = CreamFaint,
+                    uncheckedTrackColor = DividerCream,
+                    uncheckedBorderColor = Color.Transparent,
+                ),
+            )
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             "生成卡（scenes/pixel/gc-minimal 等）跑完标注/文案后，将按 SKILL 工作流出一张 3:5 纸刊海报存 Work 层；作者署名：Visual Skill by @Zeejay0（个人非商业）。",

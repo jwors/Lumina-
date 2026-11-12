@@ -1682,6 +1682,7 @@ class ProbeController(
         val client = com.lumina.imagegen.ImageGenClient(
             cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
             log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
+            watermarkEnabled = com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(appContext),
         )
         okNames.forEachIndexed { idx, name ->
             passStatus = "生成中 ${idx + 1}/${okNames.size} —— $name"
@@ -1904,6 +1905,7 @@ class ProbeController(
             val bytes = com.lumina.imagegen.ImageGenClient(
                 cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
                 log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
+                watermarkEnabled = com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(appContext),
             ).generate("一张安静的山间徒步测试图，奶油纸质，颗粒，留白")
             emit(ProbeUiState(
                 if (bytes != null) "生图端点测试 ok（${bytes.size}B）" else "生图端点测试失败（看日志）",

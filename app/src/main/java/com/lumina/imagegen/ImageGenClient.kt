@@ -21,6 +21,8 @@ class ImageGenClient(
     private val model: String,
     private val size: String,
     private val log: (String) -> Unit = {},
+    /** 智谱生图默认加水印；false 需账户已在控制台签署去水印声明。 */
+    private val watermarkEnabled: Boolean = true,
 ) {
 
     private val client = okhttp3.OkHttpClient.Builder()
@@ -32,24 +34,31 @@ class ImageGenClient(
     /** 生成并返回图片字节（自拉 URL 转存）；失败 null。 */
     fun generate(prompt: String, reference: ByteArray? = null): ByteArray? = runCatching {
         val t0 = android.os.SystemClock.elapsedRealtime()
-        val req = if (reference != null && isEditEndpoint(baseUrl)) {
-            editRequest(prompt, reference)
+        val useEdit = reference != null && isEditEndpoint(baseUrl)
+        val req = if (useEdit) editRequest(prompt, reference!!) else textRequest(prompt)
+        val first = exec(req, t0)
+        // 去水印未签声明时接口会拒绝；回退带水印，别让整张图失败
+        if (first == null && !useEdit && !watermarkEnabled && baseUrl.contains("bigmodel.cn")) {
+            log("imagegen: 去水印请求失败 → 回退带水印重试")
+            exec(textRequest(prompt, forceWatermark = true), t0)
         } else {
-            textRequest(prompt)
+            first
         }
-        exec(req, t0)
     }.getOrElse { e ->
         log("imagegen: FAILED ${e.javaClass.simpleName}: ${e.message}")
         null
     }
 
-    private fun textRequest(prompt: String): Request {
+    private fun textRequest(prompt: String, forceWatermark: Boolean = false): Request {
         val root = baseUrl.trimEnd('/')
         val url = if (root.endsWith("/images/generations")) root else "$root/images/generations"
         val body = org.json.JSONObject()
             .put("model", model)
             .put("prompt", prompt)
             .put("size", size)
+        if (baseUrl.contains("bigmodel.cn")) {
+            body.put("watermark_enabled", watermarkEnabled || forceWatermark)
+        }
         return Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $apiKey")
