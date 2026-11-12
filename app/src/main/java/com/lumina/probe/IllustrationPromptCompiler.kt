@@ -9,9 +9,10 @@ object IllustrationPromptCompiler {
     fun prompt(skillBrief: String?): String = buildString {
         append(
             "你在为纸刊海报生成「插画场」底图。先读照片，再只输出一段可直接给文生图模型的提示词：\n" +
-                "竖 3:5（1056×1760）奶油手工纸面、平扫、纸纤维与墨粒；" +
-                "从照片只提取「颜色关系」和 1-2 个抽象源形（轮廓/路径/色带），做成大面积平面色场；" +
-                "55-85% 留白；画面必须保持抽象：不要照片、不要人物、不要衣物帽子、不要具体物体、不要文字、不要水印、不要 mockup 边框。\n" +
+                "竖 3:5（1056×1760）奶油手工纸面、平扫、纸纤维与墨粒。\n" +
+                "只允许：平涂色场、色带、网点/颗粒、纸纤维；最多两种颜色（奶油纸 + 一种取自照片的高纯度色）。\n" +
+                "构图：70% 以上纸面留白；一大块平涂色场偏置在画面一侧；可把照片里的一条轮廓/路径做抽象延续。\n" +
+                "禁止：任何可识别物体（人物、衣物、帽子、植物、山、云的具体形状）、照片感、文字、水印、mockup、3D、渐变光。\n" +
                 "只输出提示词正文，不要解释、不要标题。",
         )
         if (!skillBrief.isNullOrBlank()) {
@@ -20,8 +21,9 @@ object IllustrationPromptCompiler {
         }
     }
 
-    /** 底图专用锚定：不含照片/撕边/文字，避免和本地合成打架。 */
+    /** 底图专用锚定：只允许平涂色场与纸纤维，避免和本地照片/文字打架。 */
     const val FIELD_ANCHOR =
-        "Flat scanned cream paper, visible fibers and ink grain, one large abstract printed field, " +
-            "one high-chroma accent hue, generous negative space, no photograph, no people, no text, no watermark."
+        "Flat scanned cream paper with visible fibers and ink grain, one large flat color field in a single " +
+            "high-chroma hue placed off-center, at least 70% empty paper, abstract color bands only, " +
+            "no objects, no plants, no people, no clothing, no text, no watermark, no photograph."
 }

@@ -58,18 +58,21 @@ object HybridZineRenderer {
         val bottom = (box.top + box.height).toFloat()
 
         val rand = Random(seed)
+        val steps = 46
+        val edgePoints = ArrayList<android.graphics.PointF>(steps + 1)
+        edgePoints.add(android.graphics.PointF(left, top))
+        for (i in 1..steps) {
+            val y = bottom - (i * box.height / steps).toFloat()
+            val jitter = if (i % 9 == 0) -rand.nextInt(8, 25) else rand.nextInt(-9, 8)
+            edgePoints.add(android.graphics.PointF(left + jitter, y))
+        }
+
         val path = Path().apply {
             moveTo(left, top)
             lineTo(right, top)
             lineTo(right, bottom)
             lineTo(left, bottom)
-            // 左边自下而上做不规则撕口
-            val steps = 46
-            for (i in 1..steps) {
-                val y = bottom - (i * box.height / steps).toFloat()
-                val jitter = if (i % 9 == 0) -rand.nextInt(8, 25) else rand.nextInt(-9, 8)
-                lineTo(left + jitter, y)
-            }
+            for (p in edgePoints) lineTo(p.x, p.y)
             lineTo(left, top)
             close()
         }
@@ -83,21 +86,29 @@ object HybridZineRenderer {
         )
         canvas.restoreToCount(save)
 
-        // 3) 撕口纤维：沿左边描一条奶油细线
+        // 3) 撕口纤维：主描边 + 半透明晕边 + 单根毛刺
         val fiber = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 3f
             color = Color.rgb(0xEE, 0xE9, 0xDA)
         }
-        val edge = Path().apply {
-            moveTo(left, top)
-            for (i in 1..46) {
-                val y = bottom - (i * box.height / 46).toFloat()
-                val jitter = if (i % 9 == 0) -rand.nextInt(8, 25) else rand.nextInt(-9, 8)
-                lineTo(left + jitter, y)
-            }
+        val fiberPath = Path().apply {
+            moveTo(edgePoints[0].x, edgePoints[0].y)
+            for (i in 1 until edgePoints.size) lineTo(edgePoints[i].x, edgePoints[i].y)
         }
-        canvas.drawPath(edge, fiber)
+        canvas.drawPath(fiberPath, Paint(fiber).apply { alpha = 90; strokeWidth = 7f })
+        canvas.drawPath(fiberPath, fiber)
+        val hairRand = Random(seed + 17)
+        val hair = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            strokeWidth = 1.4f
+            color = Color.rgb(0xEE, 0xE9, 0xDA)
+        }
+        for (i in 2 until edgePoints.size step 3) {
+            val p = edgePoints[i]
+            val len = 4f + hairRand.nextInt(0, 12)
+            hair.alpha = 120 + hairRand.nextInt(0, 90)
+            canvas.drawLine(p.x, p.y, p.x - len, p.y + hairRand.nextInt(-2, 3), hair)
+        }
 
         // 4) 底部纸标签：保证文字对比，同时盖掉底图可能带的水印
         val bandTop = 1300f
