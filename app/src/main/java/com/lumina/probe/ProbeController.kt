@@ -1694,8 +1694,7 @@ class ProbeController(
                     .filter { it.kind == "annotate" || it.kind == "caption" || it.kind == "filter_suggest" }
                     .joinToString("\n") { "${it.kind}：${it.text.take(200)}" }
             }.getOrNull().orEmpty()
-            val promptForName = if (prior.isBlank()) compilerPrompt
-                else compilerPrompt + "\n\n【前序结果（仅语义参考，不要照抄）】\n" + prior
+            val promptForName = GenerativePrompt.assemble(compilerPrompt, prior, idx, okNames.size)
             // ① 读图 + 按工作流编译四段式 prompt（一次 vision 调用）
             val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
                 chatCfg, promptForName, jpeg,
