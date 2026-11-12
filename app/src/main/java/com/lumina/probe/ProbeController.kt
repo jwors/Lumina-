@@ -1691,6 +1691,44 @@ class ProbeController(
             emit(lastEmitted.get().copy(passStatus = passStatus))
             val row = rowsByRoot[name] ?: return@forEachIndexed
             val jpeg = jpegBytesFor(name) ?: return@forEachIndexed
+            // 混合渲染：AI 只出纸面底图，照片本地贴回（纯文生图端点也能保住原图）
+            if (com.lumina.imagegen.HybridPrefs.enabled(appContext)) {
+                val fieldPrompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
+                    chatCfg, IllustrationPromptCompiler.prompt(skillBrief), jpeg,
+                )) {
+                    is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(900)
+                    else -> null
+                }
+                if (!fieldPrompt.isNullOrBlank()) {
+                    val bgBytes = client.generate(
+                        fieldPrompt + "\n\n" + IllustrationPromptCompiler.FIELD_ANCHOR,
+                    )
+                    val bg = bgBytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    val photoBmp = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+                    if (bg != null && photoBmp != null) {
+                        val title = runCatching {
+                            resultsDao.byName(name)
+                                .firstOrNull { it.kind == "caption" }
+                                ?.text?.substringAfter("caption：")?.trim()?.take(12)
+                        }.getOrNull().orEmpty().ifBlank { "行山记" }
+                        val poster = com.lumina.work.HybridZineRenderer.render(bg, photoBmp, title, row.dateKey)
+                        val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
+                        val f = java.io.File(appContext.filesDir, rel)
+                        f.parentFile?.mkdirs()
+                        f.outputStream().use { poster.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+                        logEvents(listOf("imagegen: hybrid saved $rel (${f.length()}B, title=$title)"))
+                        resultsDao.insert(com.lumina.pass.SmartResultEntity(
+                            0, name, "_imagegen", "generative",
+                            "海报已生成（混合渲染，照片为锚）", cfg.model, System.currentTimeMillis(),
+                        ))
+                        lastGalleryItems = buildGalleryItems()
+                        return@forEachIndexed
+                    }
+                    logEvents(listOf("imagegen: hybrid 底图/照片解码失败 → 回退文生图"))
+                } else {
+                    logEvents(listOf("imagegen: hybrid 编译失败 → 回退文生图"))
+                }
+            }
             // 前序步骤结果作为语义参考（场景名/文案/滤镜建议），不照抄
             val prior = runCatching {
                 resultsDao.byName(name)

@@ -2133,6 +2133,31 @@ private fun SettingsPage(
             )
         }
         Spacer(Modifier.height(6.dp))
+        var hybrid by remember { mutableStateOf(com.lumina.imagegen.HybridPrefs.enabled(ctx)) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("混合渲染（照片为锚）", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Text(
+                    "AI 只出纸面底图，真实照片本地贴回并做手撕边；glm-image 也能保住原图",
+                    fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+                )
+            }
+            Switch(
+                checked = hybrid,
+                onCheckedChange = {
+                    hybrid = it
+                    com.lumina.imagegen.HybridPrefs.setEnabled(ctx, it)
+                },
+                colors = androidx.compose.material3.SwitchDefaults.colors(
+                    checkedThumbColor = CardBg,
+                    checkedTrackColor = Accent,
+                    uncheckedThumbColor = CreamFaint,
+                    uncheckedTrackColor = DividerCream,
+                    uncheckedBorderColor = Color.Transparent,
+                ),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
         Text(
             "生成卡（scenes/pixel/gc-minimal 等）跑完标注/文案后，将按 SKILL 工作流出一张 3:5 纸刊海报存 Work 层；作者署名：Visual Skill by @Zeejay0（个人非商业）。",
             fontSize = 11.sp, color = CreamFaint,
