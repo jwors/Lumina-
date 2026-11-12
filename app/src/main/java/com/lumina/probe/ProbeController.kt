@@ -1674,7 +1674,9 @@ class ProbeController(
         val ownAnchor = skillBody?.let { com.lumina.cards.SkillBrief.hasOwnAnchor(it) } == true
         val compilerPrompt = if (!skillBrief.isNullOrBlank()) {
             "你在为本台生图管线工作。照片是参考。请严格按用户提供的 SKILL 规则读照片，" +
-                "并以 SKILL 自带的最終生图 prompt 形态产出四段式指令（只输出提示词本身）：\n\n$skillBrief"
+                "并以 SKILL 自带的最終生图 prompt 形态产出四段式正文（只输出提示词本身）。" +
+                "不要输出章节标题、编号、Markdown 加粗或解释；四段之间空行分隔。画布比例固定为竖 3:5（1056×1760），" +
+                "不要写成 3:4 或 4:3：\n\n$skillBrief"
         } else {
             PosterPromptCompiler.COMPILER_PROMPT
         }
@@ -1700,7 +1702,10 @@ class ProbeController(
             val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
                 chatCfg, promptForName, jpeg,
             )) {
-                is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(2400)
+                is com.lumina.llm.LlmOutcome.Text ->
+                    GenerativePrompt.normalizeAspect(
+                        GenerativePrompt.sanitize(v.text.trim()),
+                    ).take(2400)
                 else -> {
                     val why = when (v) {
                         is com.lumina.llm.LlmOutcome.RateLimited -> "限流"

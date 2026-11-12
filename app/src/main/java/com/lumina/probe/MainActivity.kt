@@ -2113,7 +2113,7 @@ private fun SettingsPage(
             Column(Modifier.weight(1f)) {
                 Text("关闭 AI 生成水印", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
                 Text(
-                    "需先在智谱控制台签署去水印声明；关闭后新图不再带「AI生成」",
+                    "需先在智谱控制台签署去水印声明；未签署时接口可能仍带「AI生成」水印（以控制台为准）",
                     fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
                 )
             }
