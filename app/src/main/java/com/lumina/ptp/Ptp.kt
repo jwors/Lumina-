@@ -15,12 +15,24 @@ object OpCode {
     const val GET_STORAGE_IDS = 0x1004
     const val GET_OBJECT_HANDLES = 0x1007
     const val GET_OBJECT_INFO = 0x1008
+
+    /** 遥控快门（15740 表 3）：参数 storageID + objectFormat，storage 用 0xFFFFFFFF 表示默认卡。 */
+    const val INITIATE_CAPTURE = 0x100C
+
+    /** 设备属性描述/取值（15740 表 3）：M5 遥控页读镜头参数。 */
+    const val GET_DEVICE_PROP_DESC = 0x1015
+    const val GET_DEVICE_PROP_VALUE = 0x1016
+    const val SET_DEVICE_PROP_VALUE = 0x1017
 }
 
 /** 响应码：OK 之外的都是错误 */
 object RespCode {
     const val OK = 0x2001
     const val SESSION_NOT_OPEN = 0x2003
+    const val DEVICE_PROP_NOT_SUPPORTED = 0x200A
+    const val ACCESS_DENIED = 0x200F
+    const val CAPTURE_ALREADY_TERMINATED = 0x2018
+    const val DEVICE_BUSY = 0x2019
 
     /** 相机残留会话未关（拔线粗暴常见）：OpenSession 时当成功处理，直接沿用 */
     const val SESSION_ALREADY_OPENED = 0x201E

@@ -6,6 +6,19 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      M5 遥控（ADR-0006）：蓝牙只用于配对/唤醒相机热点，不用于定位；
+      近场 Wi-Fi 只用于加入相机热点。遥控功能要求 Android 12+，
+      因此不声明 ACCESS_FINE_LOCATION（31/32 的 Wi-Fi 入网降级为系统面板手动）。
+    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <application
         android:label="Lumina"
         android:icon="@mipmap/ic_launcher"

@@ -28,6 +28,18 @@ class MtpReader(private val bytes: ByteArray) {
         return v
     }
 
+    fun u64(): Long {
+        val b = take(8)
+        var v = 0L
+        for (i in 7 downTo 0) v = (v shl 8) or (b[i].toLong() and 0xFF)
+        return v
+    }
+
+    /** 原样取出 n 字节（未知类型的设备属性兜底）。 */
+    fun raw(n: Int): ByteArray = take(n)
+
+    val remaining: Int get() = bytes.size - pos
+
     /** MTP string：uint8 长度（0 = 空）+ 若干 UTF-16LE 字元 */
     fun mtpString(): String {
         val len = u8()

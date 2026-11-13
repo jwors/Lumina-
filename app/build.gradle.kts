@@ -5,6 +5,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// 环境逃逸口：受限/沙箱环境把构建输出挪到工作区内新建目录（默认仍为 app/build）。
+// 用法：gradle -Plumina.buildDir=E:\chyProject\Lumina\build-out ...
+providers.gradleProperty("lumina.buildDir").orNull?.let { layout.buildDirectory.set(file(it)) }
+
 android {
     namespace = "com.lumina"
     compileSdk = 34
@@ -13,13 +17,19 @@ android {
         applicationId = "com.lumina"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0-ui"
+        versionCode = 5
+        versionName = "0.5.0-remote"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+        }
+    }
+    // 环境逃逸口：受限环境把 debug keystore 拷到工作区，避免写 ~/.android 的锁文件。
+    signingConfigs {
+        getByName("debug") {
+            providers.gradleProperty("lumina.debugKeystore").orNull?.let { storeFile = file(it) }
         }
     }
     compileOptions {

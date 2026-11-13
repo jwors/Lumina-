@@ -87,11 +87,34 @@ class PtpSession(
     }
 
     /**
+     * GetDevicePropDesc (0x1015)：相机自报属性类型 + 当前值。
+     * 返回的数据集自带数据类型，调用方无需按属性号猜类型。
+     */
+    fun getDevicePropDesc(code: Int): DevicePropDesc {
+        check(state == State.Open || state == State.Ready) { "getDevicePropDesc requires session, state=$state" }
+        val data = sendWithPayload(OpCode.GET_DEVICE_PROP_DESC, longArrayOf(code.toLong()))
+        return parseDevicePropDesc(data)
+    }
+
+    /**
+     * InitiateCapture (0x100C)：触发一次快门。
+     * storageId=0xFFFFFFFF 表示默认存储；format=0 表示相机默认格式。
+     * 相机忙（0x2019）由调用方决定重试节奏。
+     */
+    fun initiateCapture(storageId: Long = DEFAULT_STORAGE, format: Int = 0) {
+        check(state == State.Ready) { "initiateCapture requires Ready, state=$state" }
+        send(OpCode.INITIATE_CAPTURE, longArrayOf(storageId, format.toLong()))
+    }
+
+    /**
      * MTP/PTP 约定：GetObjectHandles 的 parent 参数 0xFFFFFFFF = 枚举全部对象。
      * （PTP 规格语义；真机若只回根列表，改用逐父遍历，挂 05/06 号校验。）
      */
     companion object {
         const val PARENT_ALL = 0xFFFFFFFFL
+
+        /** PTP 默认存储哨兵：InitiateCapture 的 storageId 用它表示"相机当前卡"。 */
+        const val DEFAULT_STORAGE = 0xFFFFFFFFL
 
         /** 单次 GetObjectHandles 允许的最大对象数（远超一张 SD 卡的现实容量）。 */
         const val MAX_OBJECT_COUNT = 1 shl 20
@@ -274,6 +297,10 @@ object OpName {
         OpCode.GET_STORAGE_IDS -> "GetStorageIDs"
         OpCode.GET_OBJECT_HANDLES -> "GetObjectHandles"
         OpCode.GET_OBJECT_INFO -> "GetObjectInfo"
+        OpCode.INITIATE_CAPTURE -> "InitiateCapture"
+        OpCode.GET_DEVICE_PROP_DESC -> "GetDevicePropDesc"
+        OpCode.GET_DEVICE_PROP_VALUE -> "GetDevicePropValue"
+        OpCode.SET_DEVICE_PROP_VALUE -> "SetDevicePropValue"
         else -> "Op0x%04X".format(code)
     }
 }

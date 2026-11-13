@@ -22,12 +22,19 @@ adb connect 192.168.1.4:5555          # 之后拔线也保持连接
 files/m0-probe.log
 ```
 
+M5 遥控另有一份协议日志（不含 Wi-Fi 密码）：
+
+```
+files/m5-remote.log
+```
+
 **测试前清空、测试后取回**（debug 包可 run-as）：
 
 ```
-adb shell run-as com.lumina sh -c "rm -f files/m0-probe.log"
-# ……用 OTG 接相机测试一顿操作……
+adb shell run-as com.lumina sh -c "rm -f files/m0-probe.log files/m5-remote.log"
+# ……用 OTG 接相机导出 / 进遥控页扫相机配对按快门……
 adb shell run-as com.lumina cat files/m0-probe.log
+adb shell run-as com.lumina cat files/m5-remote.log
 ```
 
 ## 3. 实时 logcat（无线 adb 时）

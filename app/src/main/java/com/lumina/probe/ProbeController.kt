@@ -10,6 +10,7 @@ import com.lumina.cards.CardEngine
 import com.lumina.cards.CardEntity
 import com.lumina.cards.SkillCard
 import com.lumina.cards.SkillCardException
+import com.lumina.ble.BleCameraHit
 import com.lumina.ingest.IngestCallback
 import com.lumina.ingest.IngestEngine
 import com.lumina.ingest.IngestItem
@@ -25,6 +26,8 @@ import com.lumina.ptp.ObjectCatalog
 import com.lumina.ptp.ObjectFormat
 import com.lumina.ptp.PtpResponseException
 import com.lumina.ptp.PtpSession
+import com.lumina.remote.CameraParams
+import com.lumina.remote.RemoteSession
 import com.lumina.usb.UsbCameraMonitor
 import com.lumina.usb.UsbCameraStateMachine
 import com.lumina.usb.UsbDeviceClassifier
@@ -51,6 +54,12 @@ class ProbeController(
     private val mainThread = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var session: PtpSession? = null
+
+    /** M5 遥控：独立线程，蓝牙/Wi-Fi 连接可能阻塞数十秒，不能占着 USB 的 io。 */
+    private val remoteIo = Executors.newSingleThreadExecutor()
+    private var remoteSession: RemoteSession? = null
+    @Volatile private var remoteState = RemoteUi()
+    private var remoteScanGeneration = 0
 
     private val db = AppDatabase.get(appContext)
     private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
@@ -135,6 +144,195 @@ class ProbeController(
 
     fun retryPermission() {
         io.execute { monitor.retryPermission() }
+    }
+
+    // ---------- M5 遥控（ADR-0006）：BLE 配对 → Wi-Fi PTP → 参数/快门 ----------
+
+    private fun remoteSessionOrCreate(): RemoteSession =
+        remoteSession ?: RemoteSession(appContext) { line -> appendRemoteLog(line) }
+            .also { remoteSession = it }
+
+    fun openRemote() {
+        remoteState = RemoteUi(stage = RemoteStage.IDLE, status = "点「扫描相机」开始")
+        emitRemote()
+    }
+
+    fun closeRemote() {
+        mainThread.removeCallbacks(remoteTicker)
+        remoteIo.execute {
+            runCatching { remoteSession?.close() }
+            remoteSession = null
+        }
+        remoteState = RemoteUi()
+        emitRemote(clear = true)
+    }
+
+    fun remoteScan() {
+        val generation = ++remoteScanGeneration
+        remoteState = remoteState.copy(
+            stage = RemoteStage.SCANNING,
+            status = "扫描附近相机…",
+            error = null,
+            devices = emptyList(),
+        )
+        emitRemote()
+        remoteIo.execute {
+            val result = runCatching { remoteSessionOrCreate().scan() }
+            if (generation != remoteScanGeneration) return@execute
+            result.onSuccess { hits ->
+                val devices = hits.map {
+                    RemoteDeviceUi(it.name.ifBlank { "尼康相机" }, it.address, it.rssi)
+                }
+                remoteState = remoteState.copy(
+                    stage = if (devices.isEmpty()) RemoteStage.FAILED else RemoteStage.IDLE,
+                    status = if (devices.isEmpty()) {
+                        "没找到相机：确认相机停在「连接至智能设备」页、蓝牙已开、离手机近一点"
+                    } else {
+                        "找到 ${devices.size} 台，点一台连接"
+                    },
+                    devices = devices,
+                )
+            }.onFailure { e ->
+                remoteState = remoteState.copy(
+                    stage = RemoteStage.FAILED,
+                    status = "扫描失败：${e.message}",
+                    error = e.message,
+                )
+            }
+            emitRemote()
+        }
+    }
+
+    fun remoteConnect(address: String) {
+        val device = remoteState.devices.firstOrNull { it.address == address } ?: return
+        remoteState = remoteState.copy(
+            stage = RemoteStage.PAIRING,
+            status = "正在配对 ${device.name}…",
+            error = null,
+        )
+        emitRemote()
+        remoteIo.execute {
+            val outcome = runCatching {
+                remoteSessionOrCreate().connect(BleCameraHit(device.name, device.address, device.rssi))
+            }.getOrElse {
+                com.lumina.remote.RemoteConnectOutcome(failure = it.message ?: "连接失败")
+            }
+            applyRemoteOutcome(outcome)
+        }
+    }
+
+    /** 打开系统 Wi-Fi 面板（Android 12 手动入网路径）。 */
+    fun remoteOpenWifiPanel() {
+        runCatching { com.lumina.remote.WifiLink(appContext).openWifiPanel() }
+    }
+
+    /** Android 12 手动入网后继续（用户在系统 Wi-Fi 里连好相机热点）。 */
+    fun remoteContinueWifi() {        remoteState = remoteState.copy(stage = RemoteStage.CONNECTING, status = "连相机中…")
+        emitRemote()
+        remoteIo.execute {
+            val outcome = runCatching { remoteSessionOrCreate().connectWifiOnly() }
+                .getOrElse { com.lumina.remote.RemoteConnectOutcome(failure = it.message ?: "连接失败") }
+            applyRemoteOutcome(outcome)
+        }
+    }
+
+    /** 高级降级：用户从相机菜单抄来 SSID/密码，绕过 BLE 直连 PTP。 */
+    fun remoteManualConnect(ssid: String, password: String) {
+        remoteState = remoteState.copy(stage = RemoteStage.CONNECTING, status = "连接热点 $ssid…")
+        emitRemote()
+        remoteIo.execute {
+            val outcome = runCatching { remoteSessionOrCreate().connectManual(ssid, password) }
+                .getOrElse { com.lumina.remote.RemoteConnectOutcome(failure = it.message ?: "连接失败") }
+            applyRemoteOutcome(outcome)
+        }
+    }
+
+    fun remoteCapture() {
+        if (remoteState.stage != RemoteStage.READY) return
+        remoteState = remoteState.copy(status = "拍摄中…")
+        emitRemote()
+        remoteIo.execute {
+            val result = runCatching { remoteSessionOrCreate().capture() }
+            result.onSuccess { at ->
+                val params = runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
+                remoteState = remoteState.copy(
+                    stage = RemoteStage.READY,
+                    status = "已拍摄 · ${REMOTE_TIME_FMT.format(Instant.ofEpochMilli(at))}",
+                    shotCount = remoteState.shotCount + 1,
+                    lastShotMs = at,
+                    params = params ?: remoteState.params,
+                )
+            }.onFailure { e ->
+                remoteState = remoteState.copy(
+                    status = "拍摄失败：${e.message}",
+                    error = e.message,
+                )
+            }
+            emitRemote()
+        }
+    }
+
+    private fun applyRemoteOutcome(outcome: com.lumina.remote.RemoteConnectOutcome) {
+        val params = if (outcome.ok) {
+            runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
+        } else {
+            null
+        }
+        remoteState = when {
+            outcome.manualWifiSsid != null -> remoteState.copy(
+                stage = RemoteStage.WIFI,
+                status = "请在系统 Wi-Fi 里连接「${outcome.manualWifiSsid}」，连好后点「已连好，继续」",
+                manualSsid = outcome.manualWifiSsid,
+                warning = outcome.warning,
+            )
+            outcome.ok -> {
+                mainThread.postDelayed(remoteTicker, 2_000)
+                remoteState.copy(
+                    stage = RemoteStage.READY,
+                    status = "已连接 ${outcome.model ?: "相机"}",
+                    model = outcome.model,
+                    warning = outcome.warning,
+                    error = null,
+                    manualSsid = null,
+                    params = params,
+                )
+            }
+            else -> remoteState.copy(
+                stage = RemoteStage.FAILED,
+                status = outcome.failure ?: "连接失败",
+                error = outcome.failure,
+                warning = outcome.warning,
+            )
+        }
+        emitRemote()
+    }
+
+    /** 参数 2 秒轮询（只在 READY 态跑；关闭遥控/断线即停）。 */
+    private val remoteTicker = object : Runnable {
+        override fun run() {
+            if (remoteState.stage != RemoteStage.READY) return
+            remoteIo.execute {
+                if (remoteState.stage != RemoteStage.READY) return@execute
+                val params = runCatching { remoteSession?.readParams() }.getOrNull()
+                if (params != null && !params.isEmpty && remoteState.stage == RemoteStage.READY) {
+                    remoteState = remoteState.copy(params = params)
+                    emitRemote()
+                }
+            }
+            mainThread.postDelayed(this, 2_000)
+        }
+    }
+
+    private fun appendRemoteLog(line: String) {
+        remoteState = remoteState.copy(log = (remoteState.log + line).takeLast(5))
+        emitRemote()
+    }
+
+    /** 遥控状态专用发射（同 emitCardRun：清空/翻转不经合并语义）。 */
+    private fun emitRemote(clear: Boolean = false) {
+        val next = lastEmitted.get().copy(remote = if (clear) null else remoteState)
+        lastEmitted.set(next)
+        mainThread.post { onState(next) }
     }
 
     /** 勾选/取消一条：Room 是真相，引擎是镜像 */
@@ -714,6 +912,23 @@ class ProbeController(
         bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
         return out.toByteArray()
     }
+
+    /** 首张照片取一个整卷共用主色（降采样 24×24，避免整图进内存）。 */
+    private fun accentHexFor(jpeg: ByteArray): String? = runCatching {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= 24 && bounds.outHeight / (sample * 2) >= 24) sample *= 2
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(
+            jpeg, 0, jpeg.size,
+            android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return null
+        val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, 24, 24, true)
+        val pixels = IntArray(24 * 24)
+        scaled.getPixels(pixels, 0, 24, 0, 0, 24, 24)
+        com.lumina.work.PhotoPalette.accentHex(pixels)
+    }.getOrNull()
 
     /** 刷新图库快照（附智能结果行；不覆盖连接文本——任何 Tab 都不会被顶掉） */
     private fun publishGalleryWithResults() {
@@ -1681,43 +1896,57 @@ class ProbeController(
             PosterPromptCompiler.COMPILER_PROMPT
         }
         val rulesLabel = if (!skillBrief.isNullOrBlank()) "SKILL 摘要($skillName ${skillBrief.length}字)" else "蒸馏版"
+        // 整卷页序：本趟所有可读 OK 条目共用卷名/主色；色场侧按构图设置（AUTO 左右交替）。
+        // 先滤掉没有 JPEG 的条目，否则跳过后页码会出现空洞（第 3 幕/共 3 幕却只有 2 页）。
+        val names = okNames.filter { jpegBytesFor(it) != null }
+        val composition = com.lumina.imagegen.HybridPrefs.composition(appContext)
+        val titles = names.map { name ->
+            runCatching { TitlePicker.pick(resultsDao.byName(name)) }.getOrNull()
+                .orEmpty().ifBlank { TitlePicker.FALLBACK }
+        }
+        val accentHex = names.firstOrNull()?.let { n -> jpegBytesFor(n)?.let { accentHexFor(it) } }
+        val pages = ZinePlanner.plan(titles, composition, accentHex)
+        val issueTitle = pages.firstOrNull()?.issueTitle ?: TitlePicker.FALLBACK
         val client = com.lumina.imagegen.ImageGenClient(
             cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
             log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
             watermarkEnabled = com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(appContext),
+            referenceMode = com.lumina.imagegen.ImageGenPrefs.referenceMode(appContext),
         )
-        okNames.forEachIndexed { idx, name ->
-            passStatus = "生成中 ${idx + 1}/${okNames.size} —— $name"
+        logEvents(listOf("imagegen: zine 《$issueTitle》 ${pages.size} 页 · accent=${accentHex ?: "auto"} · composition=${composition.name}"))
+        names.forEachIndexed { idx, name ->
+            val page = pages.getOrNull(idx)
+            val pageTitle = titles.getOrNull(idx) ?: TitlePicker.FALLBACK
+            passStatus = "生成中 ${idx + 1}/${names.size} —— 《$issueTitle》第 ${idx + 1} 幕 · $name"
             emit(lastEmitted.get().copy(passStatus = passStatus))
             val row = rowsByRoot[name] ?: return@forEachIndexed
             val jpeg = jpegBytesFor(name) ?: return@forEachIndexed
             // 混合渲染：AI 只出纸面底图，照片本地贴回（纯文生图端点也能保住原图）
             if (com.lumina.imagegen.HybridPrefs.enabled(appContext)) {
                 val fieldPrompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
-                    chatCfg, IllustrationPromptCompiler.prompt(skillBrief), jpeg,
+                    chatCfg, IllustrationPromptCompiler.prompt(skillBrief, page), jpeg,
                 )) {
                     is com.lumina.llm.LlmOutcome.Text -> v.text.trim().take(900)
                     else -> null
                 }
                 if (!fieldPrompt.isNullOrBlank()) {
                     val bgBytes = client.generate(
-                        fieldPrompt + "\n\n" + IllustrationPromptCompiler.FIELD_ANCHOR,
+                        fieldPrompt + "\n\n" + IllustrationPromptCompiler.fieldAnchor(page),
                     )
                     val bg = bgBytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
                     val photoBmp = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
                     if (bg != null && photoBmp != null) {
-                        val title = runCatching {
-                            TitlePicker.pick(resultsDao.byName(name))
-                        }.getOrNull().orEmpty().ifBlank { TitlePicker.FALLBACK }
-                        val poster = com.lumina.work.HybridZineRenderer.render(bg, photoBmp, title, row.dateKey)
+                        val poster = com.lumina.work.HybridZineRenderer.render(
+                            bg, photoBmp, pageTitle, row.dateKey, page = page,
+                        )
                         val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
                         val f = java.io.File(appContext.filesDir, rel)
                         f.parentFile?.mkdirs()
                         f.outputStream().use { poster.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
-                        logEvents(listOf("imagegen: hybrid saved $rel (${f.length()}B, title=$title)"))
+                        logEvents(listOf("imagegen: hybrid saved $rel (${f.length()}B, title=$pageTitle, ${page?.label})"))
                         resultsDao.insert(com.lumina.pass.SmartResultEntity(
                             0, name, "_imagegen", "generative",
-                            "海报已生成（混合渲染，照片为锚）", cfg.model, System.currentTimeMillis(),
+                            "海报已生成（混合渲染，照片为锚 · ${page?.label}）", cfg.model, System.currentTimeMillis(),
                         ))
                         lastGalleryItems = buildGalleryItems()
                         return@forEachIndexed
@@ -1733,7 +1962,7 @@ class ProbeController(
                     .filter { it.kind == "annotate" || it.kind == "caption" || it.kind == "filter_suggest" }
                     .joinToString("\n") { "${it.kind}：${it.text.take(200)}" }
             }.getOrNull().orEmpty()
-            val promptForName = GenerativePrompt.assemble(compilerPrompt, prior, idx, okNames.size)
+            val promptForName = GenerativePrompt.assemble(compilerPrompt, prior, idx, okNames.size, page)
             // ① 读图 + 按工作流编译四段式 prompt（一次 vision 调用）
             val prompt = when (val v = com.lumina.llm.OkHttpLlmClient().complete(
                 chatCfg, promptForName, jpeg,
@@ -1760,12 +1989,11 @@ class ProbeController(
             logEvents(listOf("imagegen: compiled ${prompt.length} chars · ${prompt.take(300)}"))
             // ② 出图（SKILL 自带锚定时不再追加内置 STYLE_ANCHOR；429 → 20s 后重试 1 次）
             val anchor = if (ownAnchor) "" else "\n\n" + PosterPromptCompiler.STYLE_ANCHOR
-            // 只有端点声明是 images/edits 时才上传参考图；GLM-Image 是纯文生图
-            val reference = if (com.lumina.imagegen.ImageGenClient.isEditEndpoint(cfg.baseUrl)) jpeg else null
-            var bytes = client.generate(prompt + anchor, reference)
+            // 参考图交给客户端按端点/模式判定：纯文生图端点会记一行“跳过参考图”。
+            var bytes = client.generate(prompt + anchor, listOf(jpeg))
             if (bytes == null) {
                 Thread.sleep(20_000)
-                bytes = client.generate(prompt + anchor, reference)
+                bytes = client.generate(prompt + anchor, listOf(jpeg))
             }
             if (bytes == null) {
                 _imagegenCoolUntil = android.os.SystemClock.elapsedRealtime() + 180_000
@@ -1780,11 +2008,12 @@ class ProbeController(
             File(appContext.filesDir, rel).writeBytes(bytes)
             resultsDao.insert(com.lumina.pass.SmartResultEntity(
                 0, name, "_imagegen", "generative",
-                "海报已生成（glm-image，key 见 $rel）",
+                "海报已生成（${cfg.model} · ${page?.label}，key 见 $rel）",
                 cfg.model, System.currentTimeMillis(),
             ))
-            logEvents(listOf("imagegen: saved $rel (${bytes.size}B)"))
+            logEvents(listOf("imagegen: saved $rel (${bytes.size}B, ${page?.label})"))
         }
+        logEvents(listOf("imagegen: zine done 《$issueTitle》 · ${okNames.size} 页"))
         lastGalleryItems = buildGalleryItems()
     }
 
@@ -1947,11 +2176,45 @@ class ProbeController(
                 cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
                 log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
                 watermarkEnabled = com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(appContext),
+                referenceMode = com.lumina.imagegen.ImageGenPrefs.referenceMode(appContext),
             ).generate("一张安静的山间徒步测试图，奶油纸质，颗粒，留白")
             emit(ProbeUiState(
                 if (bytes != null) "生图端点测试 ok（${bytes.size}B）" else "生图端点测试失败（看日志）",
             ))
         }
+    }
+
+    /** 参考图端点探针：带一张合成测试图走 edits 路径，验证 multipart 与返回解析。 */
+    fun testImageGenReference() {
+        io.execute {
+            val cfg = imageGenConfigDao.active()
+            if (cfg == null) { emit(ProbeUiState("先保存生图端点配置")); return@execute }
+            val probe = referenceProbeJpeg()
+            val mode = com.lumina.imagegen.ImageGenPrefs.referenceMode(appContext)
+            logEvents(listOf("imagegen: reference probe mode=${mode.name} · ${cfg.baseUrl}"))
+            val bytes = com.lumina.imagegen.ImageGenClient(
+                cfg.baseUrl, cfg.apiKey, cfg.model, cfg.size,
+                log = { l -> logEvents(listOf(l)); android.util.Log.i("Lumina.UI", l) },
+                watermarkEnabled = com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(appContext),
+                referenceMode = com.lumina.imagegen.ReferenceMode.FORCE,
+            ).generate("把这张测试图改成奶油纸质、留白的 zine 海报，保留蓝色块面", listOf(probe))
+            emit(ProbeUiState(
+                if (bytes != null) "参考图端点测试 ok（${bytes.size}B）" else "参考图端点测试失败（看日志）",
+            ))
+        }
+    }
+
+    private fun referenceProbeJpeg(): ByteArray {
+        val bmp = android.graphics.Bitmap.createBitmap(128, 176, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.drawColor(android.graphics.Color.rgb(0xF5, 0xF1, 0xE4))
+        canvas.drawRect(
+            18f, 30f, 110f, 146f,
+            android.graphics.Paint().apply { color = android.graphics.Color.rgb(0x2F, 0x5D, 0x8A) },
+        )
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+        return out.toByteArray()
     }
 
     /** 全替换（断开等"清场"语义专用）。 */
@@ -1962,6 +2225,8 @@ class ProbeController(
 
     private companion object {
         const val LOG_TAIL = 8
+        val REMOTE_TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+            .withZone(ZoneOffset.systemDefault())
     }
 }
 
@@ -2016,6 +2281,31 @@ data class ProbeUiState(
     val webdav: WebDavUi? = null,
     /** M4-01：图像生成端点展示（设置页表单预填） */
     val imagegen: ImageGenUi? = null,
+    /** M5 遥控（ADR-0006）：null = 未进入遥控页 */
+    val remote: RemoteUi? = null,
+)
+
+/** 遥控页阶段 */
+enum class RemoteStage { IDLE, SCANNING, PAIRING, WIFI, CONNECTING, READY, FAILED }
+
+/** 扫描到的相机行 */
+data class RemoteDeviceUi(val name: String, val address: String, val rssi: Int)
+
+/** 遥控页数据（全量快照；参数每 2 秒刷新） */
+data class RemoteUi(
+    val stage: RemoteStage = RemoteStage.IDLE,
+    val status: String = "",
+    val devices: List<RemoteDeviceUi> = emptyList(),
+    val params: CameraParams? = null,
+    val model: String? = null,
+    val warning: String? = null,
+    val error: String? = null,
+    /** Android 12：需要在系统 Wi-Fi 面板手动加入的热点名 */
+    val manualSsid: String? = null,
+    val shotCount: Int = 0,
+    val lastShotMs: Long? = null,
+    /** 最近几行协议日志（真机排障用） */
+    val log: List<String> = emptyList(),
 )
 
 /** 设置页 WebDAV 表单数据（password 不回显，只回显 presence）。 */

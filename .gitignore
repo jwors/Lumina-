@@ -5,6 +5,11 @@
 local.properties
 .DS_Store
 build/
+build-out/
+gradle-home/
+gradle-project-cache/
+debug.keystore
+*.apk
 captures/
 .externalNativeBuild/
 .cxx/

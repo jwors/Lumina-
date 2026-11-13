@@ -21,6 +21,7 @@ class StateMergeTest {
             targets = listOf("A.JPG"), phase = CardRunPhase.RUNNING,
         ),
         passSelectedNames = setOf("A.JPG"),
+        remote = RemoteUi(stage = RemoteStage.READY, status = "已连接"),
     )
 
     @Test
@@ -34,6 +35,7 @@ class StateMergeTest {
         assertEquals(base.cards, merged.cards)
         assertEquals(base.cardRun, merged.cardRun)
         assertEquals(base.passSelectedNames, merged.passSelectedNames)
+        assertEquals(base.remote, merged.remote)
     }
 
     @Test

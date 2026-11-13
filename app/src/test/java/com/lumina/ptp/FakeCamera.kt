@@ -52,6 +52,35 @@ object FakeCamera {
         return out.toByteArray()
     }
 
+    /** DevicePropDesc 的值字段（按 PTP 数据类型编码） */
+    fun typedValue(type: Int, value: Long, text: String = ""): ByteArray = when (type) {
+        PtpDataType.INT8, PtpDataType.UINT8 -> byteArrayOf(value.toByte())
+        PtpDataType.INT16, PtpDataType.UINT16 -> u16(value.toInt())
+        PtpDataType.INT32, PtpDataType.UINT32 -> u32(value)
+        PtpDataType.INT64, PtpDataType.UINT64 -> bb(8).putLong(value).array()
+        PtpDataType.STRING -> mtpString(text)
+        else -> error("unsupported type $type")
+    }
+
+    /** DevicePropDesc：code + dataType + getSet + 默认值 + 当前值 + FormFlag(0) */
+    fun devicePropDesc(
+        code: Int,
+        type: Int = PtpDataType.UINT16,
+        current: Long,
+        default: Long = current,
+        getSet: Int = 0x01,
+        text: String = "",
+    ): ByteArray {
+        val out = ByteArrayOutputStream()
+        out.write(u16(code))
+        out.write(u16(type))
+        out.write(byteArrayOf(getSet.toByte()))
+        out.write(typedValue(type, default, text))
+        out.write(typedValue(type, current, text))
+        out.write(byteArrayOf(0))
+        return out.toByteArray()
+    }
+
     /** DeviceInfo 数据集（M0 只消费 Model 字段） */
     fun deviceInfo(model: String): ByteArray {
         val out = ByteArrayOutputStream()

@@ -30,5 +30,7 @@ internal object StateMerge {
         webdav = if (state.webdav == null) base.webdav else state.webdav,
         // 图像生成端点展示：同走保留式
         imagegen = if (state.imagegen == null) base.imagegen else state.imagegen,
+        // M5 遥控：部分状态包不得冲掉（进出遥控页走 emitRemote 专用发射器）
+        remote = if (state.remote == null) base.remote else state.remote,
     )
 }

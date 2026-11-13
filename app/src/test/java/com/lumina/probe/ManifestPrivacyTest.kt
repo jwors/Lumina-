@@ -1,15 +1,16 @@
 package com.lumina.probe
 
 import java.io.File
-import java.util.regex.Pattern
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ADR-0005（M2）：隐私断言 V2——
- * 允许唯一 INTERNET 权限；**任何其他危险权限都是失败**（定位/媒体/相机/麦克风/存储…）。
- * 用户素材走应用私有目录 + SAF，系统相册读权限永远不需要。
+ * 隐私断言 V3（ADR-0006 / M5 遥控）：
+ * - 允许：INTERNET（模型 API）、ACCESS_NETWORK_STATE（补跑横幅）、
+ *   BLUETOOTH_SCAN/BLUETOOTH_CONNECT（仅配对，neverForLocation）、
+ *   NEARBY_WIFI_DEVICES（仅加入相机热点，neverForLocation）。
+ * - 仍然不存在任何定位/存储/相机/麦克风权限。
  */
 class ManifestPrivacyTest {
 
@@ -22,19 +23,44 @@ class ManifestPrivacyTest {
     }
 
     @Test
-    fun `no dangerous permissions beyond network pair`() {
+    fun `only the remote and network allowlist is declared`() {
         val declared = Regex("""android\.permission\.([A-Z_]+)""")
             .findAll(manifest)
             .map { it.groupValues[1] }
             .toSet()
-        // 白名单：INTERNET（模型 API）+ ACCESS_NETWORK_STATE（补跑横幅判定，普通级）
-        assertEquals(setOf("INTERNET", "ACCESS_NETWORK_STATE"), declared)
+        assertEquals(
+            setOf(
+                "INTERNET",
+                "ACCESS_NETWORK_STATE",
+                "BLUETOOTH_SCAN",
+                "BLUETOOTH_CONNECT",
+                "NEARBY_WIFI_DEVICES",
+            ),
+            declared,
+        )
     }
 
     @Test
-    fun `manifest references nothing in raw`() {
+    fun `bluetooth and nearby wifi never claim location`() {
+        assertTrue(
+            "BLUETOOTH_SCAN 必须带 neverForLocation（ADR-0006：蓝牙不用于定位）",
+            Regex("""android\.permission\.BLUETOOTH_SCAN[\s\S]{0,120}?neverForLocation""")
+                .containsMatchIn(manifest),
+        )
+        assertTrue(
+            "NEARBY_WIFI_DEVICES 必须带 neverForLocation",
+            Regex("""android\.permission\.NEARBY_WIFI_DEVICES[\s\S]{0,120}?neverForLocation""")
+                .containsMatchIn(manifest),
+        )
+    }
+
+    @Test
+    fun `manifest references nothing sensitive in raw`() {
         // 粗筛：无任何其他敏感关键字以任何形式出现（防止注释外引用）
-        listOf("CAMERA", "LOCATION", "RECORD_AUDIO", "READ_MEDIA", "EXTERNAL_STORAGE").forEach { banned ->
+        listOf(
+            "CAMERA", "LOCATION", "RECORD_AUDIO", "READ_MEDIA", "EXTERNAL_STORAGE",
+            "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION",
+        ).forEach { banned ->
             assertTrue(
                 "不得声明敏感权限：$banned",
                 !Regex("""android\.permission\.$banned""").containsMatchIn(manifest),

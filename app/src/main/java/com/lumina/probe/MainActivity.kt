@@ -1,9 +1,15 @@
 package com.lumina.probe
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -156,6 +162,50 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
     // 运行弹层（半屏）；浮标在弹层收起时可见
     var runSheetOpen by rememberSaveable { mutableStateOf(false) }
 
+    // M5 遥控：全屏覆盖层（不新增底部 Tab）。权限只在进入遥控页时申请。
+    var remoteOpen by rememberSaveable { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val remotePermissions = remember {
+        buildList {
+            add(Manifest.permission.BLUETOOTH_SCAN)
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }.toTypedArray()
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result.values.all { it }) {
+            controller.openRemote()
+            remoteOpen = true
+        } else {
+            Toast.makeText(ctx, "遥控需要蓝牙/附近设备权限，否则无法配对相机", Toast.LENGTH_LONG).show()
+        }
+    }
+    val startRemote: () -> Unit = {
+        when {
+            Build.VERSION.SDK_INT < 31 -> Toast.makeText(
+                ctx, "遥控需要 Android 12 及以上", Toast.LENGTH_LONG,
+            ).show()
+            else -> {
+                val missing = remotePermissions.filter {
+                    ctx.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+                }
+                if (missing.isEmpty()) {
+                    controller.openRemote()
+                    remoteOpen = true
+                } else {
+                    permissionLauncher.launch(missing.toTypedArray())
+                }
+            }
+        }
+    }
+    if (remoteOpen) {
+        BackHandler { controller.closeRemote(); remoteOpen = false }
+        RemoteScreen(state.remote, controller, onClose = { remoteOpen = false })
+        return
+    }
+
     Column(Modifier.fillMaxSize().background(FilmBackground).statusBarsPadding()) {
         // 补跑横幅：占位在主列里，不压标题
         state.catchupBanner?.let { banner ->
@@ -186,7 +236,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 )
             }
             when (tab) {
-                TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller)
+                TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller, onStartRemote = startRemote)
                 TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
                     onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
                 TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller,
@@ -510,7 +560,7 @@ private fun SaveOptionRow(
 
 /** 药丸按钮（执行/收尾 CTA 用）。 */
 @Composable
-private fun PillButton(
+internal fun PillButton(
     label: String,
     filled: Boolean,
     enabled: Boolean = true,
@@ -536,6 +586,24 @@ private fun PillButton(
             .padding(horizontal = 18.dp, vertical = 10.dp),
     ) {
         Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = fg)
+    }
+}
+
+/** 小号选择药丸（构图/参考图模式三选一）。 */
+@Composable
+private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(if (selected) Accent else PillActive, RoundedCornerShape(999.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) CardBg else AccentDeep,
+        )
     }
 }
 
@@ -1262,6 +1330,7 @@ private fun CameraPage(
     modifier: Modifier = Modifier,
     state: ProbeUiState,
     controller: ProbeController,
+    onStartRemote: () -> Unit = {},
 ) {
     Column(modifier = modifier) {
         Spacer(Modifier.height(12.dp))
@@ -1274,8 +1343,24 @@ private fun CameraPage(
             Spacer(Modifier.height(12.dp))
         }
         Text(state.connectionText, fontSize = 13.sp, color = CreamFaint)
+        // M5：无线遥控入口常驻（没插线时最需要它）
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .background(PillActive, RoundedCornerShape(14.dp))
+                .clickable { onStartRemote() }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("无线遥控", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AccentDeep)
+                Text("蓝牙配对相机 · 看镜头参数 · 手机按快门", fontSize = 10.sp, color = SageText)
+            }
+            Text("进入 ›", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AccentDeep)
+        }
         if (state.cameraItems.isEmpty() && state.ingestProgress == null) {
-            EmptyCameraCard(state, controller)
+            EmptyCameraCard(state, controller, onStartRemote)
             return@Column
         }
         state.ingestProgress?.let { progress ->
@@ -1449,7 +1534,11 @@ private fun CameraPage(
 
 /** 相机空态：三步引导 + 重新检测（不再是一屏空白加两个箭头）。 */
 @Composable
-private fun EmptyCameraCard(state: ProbeUiState, controller: ProbeController) {
+private fun EmptyCameraCard(
+    state: ProbeUiState,
+    controller: ProbeController,
+    onStartRemote: () -> Unit = {},
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1494,6 +1583,8 @@ private fun EmptyCameraCard(state: ProbeUiState, controller: ProbeController) {
         ) {
             if (state.pendingPermission) controller.retryPermission() else controller.emitCameraUiRefresh()
         }
+        Spacer(Modifier.height(10.dp))
+        PillButton(label = "无线遥控（蓝牙配对）", filled = false) { onStartRemote() }
     }
 }
 
@@ -2087,18 +2178,12 @@ private fun SettingsPage(
         )
         Spacer(Modifier.height(6.dp))
         val ig = state.imagegen
+        var refMode by remember { mutableStateOf(com.lumina.imagegen.ImageGenPrefs.referenceMode(ctx)) }
         if (ig != null) {
             Text(
                 "已并配：${ig.model} · ${ig.size} · ${ig.baseUrl.substringBeforeLast('/')}",
                 fontSize = 12.sp, color = Accent,
             )
-            if (!com.lumina.imagegen.ImageGenClient.isEditEndpoint(ig.baseUrl)) {
-                Text(
-                    "当前是纯文生图端点，不会上传参考图；要“以原照片为参考”请把生图地址换成支持 /images/edits 的服务。",
-                    fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
         } else {
             Text(
                 "选择【智谱 GLM】模板并保存后，生图端点（glm-image · 3:5）自动一并配好（key 同平台两用）。",
@@ -2106,7 +2191,10 @@ private fun SettingsPage(
             )
         }
         Spacer(Modifier.height(6.dp))
-        PillButton(label = "测试生图一次", filled = false) { controller.testImageGenConfig() }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton(label = "测试生图一次", filled = false) { controller.testImageGenConfig() }
+            PillButton(label = "测试参考图", filled = false) { controller.testImageGenReference() }
+        }
         Spacer(Modifier.height(10.dp))
         var watermarkOff by remember { mutableStateOf(!com.lumina.imagegen.ImageGenPrefs.watermarkEnabled(ctx)) }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2157,6 +2245,57 @@ private fun SettingsPage(
                 ),
             )
         }
+        Spacer(Modifier.height(10.dp))
+        var composition by remember { mutableStateOf(com.lumina.imagegen.HybridPrefs.composition(ctx)) }
+        Text("底图构图", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Text(
+            "色场在哪一侧，照片就贴另一侧；“自动”按第 N 幕左右交替，整卷更有节奏",
+            fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                com.lumina.work.HybridComposition.AUTO to "自动",
+                com.lumina.work.HybridComposition.FIELD_LEFT to "色场在左",
+                com.lumina.work.HybridComposition.FIELD_RIGHT to "色场在右",
+            ).forEach { (value, label) ->
+                ChoicePill(label = label, selected = composition == value) {
+                    composition = value
+                    com.lumina.imagegen.HybridPrefs.setComposition(ctx, value)
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("参考图端点", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Text(
+            "图生图走 /images/edits：单图 image、多图 image[]；兼容 url 与 b64_json 返回",
+            fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                com.lumina.imagegen.ReferenceMode.AUTO to "自动",
+                com.lumina.imagegen.ReferenceMode.FORCE to "强制",
+                com.lumina.imagegen.ReferenceMode.OFF to "关闭",
+            ).forEach { (value, label) ->
+                ChoicePill(label = label, selected = refMode == value) {
+                    refMode = value
+                    com.lumina.imagegen.ImageGenPrefs.setReferenceMode(ctx, value)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        val editLikely = ig != null && com.lumina.imagegen.ImageGenProtocol.isEditEndpoint(ig.baseUrl)
+        Text(
+            when (refMode) {
+                com.lumina.imagegen.ReferenceMode.OFF -> "已关闭：只走文生图，不上传参考图。"
+                com.lumina.imagegen.ReferenceMode.FORCE -> "强制：按 /images/edits 上传参考图；端点不支持会 404。"
+                com.lumina.imagegen.ReferenceMode.AUTO ->
+                    if (editLikely) "自动：当前端点/模型支持图生图，会带参考图上传。"
+                    else "自动：当前 URL/模型看起来是纯文生图，不会上传参考图；支持图生图时选「强制」或换 /images/edits 地址。"
+            },
+            fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
+        )
         Spacer(Modifier.height(6.dp))
         Text(
             "生成卡（scenes/pixel/gc-minimal 等）跑完标注/文案后，将按 SKILL 工作流出一张 3:5 纸刊海报存 Work 层；作者署名：Visual Skill by @Zeejay0（个人非商业）。",
