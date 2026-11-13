@@ -47,4 +47,18 @@ class GenerativePromptTest {
         assertTrue(clean.contains("Vertical 3:5 paper"))
         assertTrue(clean.contains("大段正文保留"))
     }
+
+    @Test
+    fun appendsZineDirectiveWhenPageProvided() {
+        val page = ZinePlanner.plan(
+            listOf("行山记", "云海"),
+            com.lumina.work.HybridComposition.FIELD_RIGHT,
+            "#3A3AD1",
+        )[1]
+        val p = GenerativePrompt.assemble("BASE", "", 1, 2, page)
+        assertTrue(p.contains("【整卷】"))
+        assertTrue(p.contains("《云海》第 2 幕 / 共 2 幕"))
+        assertTrue(p.contains("#3A3AD1"))
+        assertTrue(p.contains("右侧"))
+    }
 }

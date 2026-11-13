@@ -15,14 +15,22 @@ import kotlin.random.Random
 object HybridLayout {
     data class Box(val left: Int, val top: Int, val width: Int, val height: Int)
 
-    fun photoBox(srcW: Int, srcH: Int, canvasW: Int = 1056, canvasH: Int = 1760): Box {
+    fun photoBox(
+        srcW: Int,
+        srcH: Int,
+        canvasW: Int = 1056,
+        canvasH: Int = 1760,
+        fieldSide: FieldSide = FieldSide.LEFT,
+    ): Box {
         if (srcW <= 0 || srcH <= 0) return Box(330, 380, 0, 0)
-        val maxW = (canvasW * 0.66f).toInt()
+        val maxW = (canvasW * 0.60f).toInt()
         val maxH = (canvasH * 0.52f).toInt()
         val scale = min(maxW.toFloat() / srcW, maxH.toFloat() / srcH)
         val w = (srcW * scale).toInt().coerceAtLeast(1)
         val h = (srcH * scale).toInt().coerceAtLeast(1)
-        return Box(canvasW - w - 50, 380, w, h)
+        // 照片永远落在色场对侧：色场在左 → 照片靠右；色场在右 → 照片靠左。
+        val left = if (fieldSide == FieldSide.LEFT) canvasW - w - 50 else 50
+        return Box(left, 380, w, h)
     }
 }
 
@@ -41,6 +49,7 @@ object HybridZineRenderer {
         photo: Bitmap,
         title: String,
         dateKey: String,
+        page: ZinePage? = null,
         seed: Int = 20261112,
     ): Bitmap {
         val out = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888)
@@ -50,30 +59,47 @@ object HybridZineRenderer {
         // 1) 底图 cover 铺满
         drawCover(canvas, background, paint)
 
-        // 2) 照片：左侧手撕边
-        val box = HybridLayout.photoBox(photo.width, photo.height)
+        // 2) 照片：色场对侧 + 手撕边；整卷页才垫奶油纸，单张旧输出保持不变
+        val fieldSide = page?.fieldSide ?: FieldSide.LEFT
+        val box = HybridLayout.photoBox(photo.width, photo.height, fieldSide = fieldSide)
         val left = box.left.toFloat()
         val top = box.top.toFloat()
         val right = (box.left + box.width).toFloat()
         val bottom = (box.top + box.height).toFloat()
 
+        if (page != null) {
+            val mattePad = 18f
+            canvas.drawRect(
+                left - mattePad, top - mattePad, right + mattePad, bottom + mattePad,
+                Paint().apply { color = Color.rgb(0xF5, 0xF1, 0xE4); alpha = 232 },
+            )
+        }
+
         val rand = Random(seed)
+        val tearLeft = fieldSide == FieldSide.LEFT
+        val tearX = if (tearLeft) left else right
+        val outward = if (tearLeft) -1f else 1f
         val steps = 46
         val edgePoints = ArrayList<android.graphics.PointF>(steps + 1)
-        edgePoints.add(android.graphics.PointF(left, top))
+        edgePoints.add(android.graphics.PointF(tearX, top))
         for (i in 1..steps) {
             val y = bottom - (i * box.height / steps).toFloat()
-            val jitter = if (i % 9 == 0) -rand.nextInt(8, 25) else rand.nextInt(-9, 8)
-            edgePoints.add(android.graphics.PointF(left + jitter, y))
+            val spike = if (i % 9 == 0) rand.nextInt(8, 25) else rand.nextInt(-9, 8)
+            edgePoints.add(android.graphics.PointF(tearX + outward * spike, y))
         }
 
         val path = Path().apply {
-            moveTo(left, top)
-            lineTo(right, top)
-            lineTo(right, bottom)
-            lineTo(left, bottom)
-            for (p in edgePoints) lineTo(p.x, p.y)
-            lineTo(left, top)
+            if (tearLeft) {
+                moveTo(left, top)
+                lineTo(right, top)
+                lineTo(right, bottom)
+                lineTo(left, bottom)
+                for (p in edgePoints) lineTo(p.x, p.y)
+            } else {
+                moveTo(left, top)
+                for (i in edgePoints.indices.reversed()) lineTo(edgePoints[i].x, edgePoints[i].y)
+                lineTo(left, bottom)
+            }
             close()
         }
 
@@ -107,7 +133,7 @@ object HybridZineRenderer {
             val p = edgePoints[i]
             val len = 4f + hairRand.nextInt(0, 12)
             hair.alpha = 120 + hairRand.nextInt(0, 90)
-            canvas.drawLine(p.x, p.y, p.x - len, p.y + hairRand.nextInt(-2, 3), hair)
+            canvas.drawLine(p.x, p.y, p.x + outward * len, p.y + hairRand.nextInt(-2, 3), hair)
         }
 
         // 4) 底部纸标签：保证文字对比，同时盖掉底图可能带的水印
@@ -150,10 +176,37 @@ object HybridZineRenderer {
             textSize = 16f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         }
-        val safeTitle = title.trim().ifBlank { "行山记" }
-        canvas.drawText(safeTitle, 62f, 1450f, ink)
-        canvas.drawText("$dateKey · 行山记", 66f, 1510f, soft)
-        canvas.drawText("L U M I N A", 66f, 1630f, mark)
+        val folio = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(0x56, 0x62, 0x5A)
+            textSize = 18f
+            textAlign = Paint.Align.RIGHT
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+        }
+        // 整卷主色：在安静侧边缘画一条 6px 竖线，让“同主色”落成像素而不是只写在 prompt 里。
+        page?.accentHex?.let { hex ->
+            val accent = runCatching { Color.parseColor(hex) }.getOrNull()
+            if (accent != null) {
+                val barX = if (fieldSide == FieldSide.LEFT) CANVAS_W - 34f else 28f
+                canvas.drawRect(barX, 380f, barX + 6f, 1290f, Paint().apply { color = accent })
+            }
+        }
+        val issueTitle = page?.issueTitle?.takeIf { it.isNotBlank() } ?: "行山记"
+        val safeTitle = title.trim().ifBlank { issueTitle }
+        // 文字永远在安静侧：色场在左 → 文字右对齐；色场在右 → 文字左对齐。
+        val textOnRight = page?.fieldSide == FieldSide.LEFT
+        val textX = if (textOnRight) CANVAS_W - 62f else 62f
+        if (textOnRight) {
+            ink.textAlign = Paint.Align.RIGHT
+            soft.textAlign = Paint.Align.RIGHT
+            mark.textAlign = Paint.Align.RIGHT
+            folio.textAlign = Paint.Align.LEFT
+        }
+        canvas.drawText(safeTitle, textX, 1450f, ink)
+        canvas.drawText("$dateKey · 《$issueTitle》", textX, 1510f, soft)
+        canvas.drawText("L U M I N A", textX, 1630f, mark)
+        page?.let {
+            canvas.drawText(it.label, if (textOnRight) 62f else CANVAS_W - 62f, 1630f, folio)
+        }
 
         return out
     }

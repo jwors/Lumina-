@@ -1,8 +1,11 @@
 package com.lumina.probe
 
+import com.lumina.work.ZinePage
+
 /**
  * 生成式编译的输入拼装（纯函数，JVM 可测）：
- * 基础规则 + 前序标注/文案/滤镜 + 本次执行序号（供 SKILL 的“第 N 幕”使用）。
+ * 基础规则 + 前序标注/文案/滤镜 + 本次执行序号（供 SKILL 的“第 N 幕”使用）
+ * + 整卷页序（卷名/统一主色/色场侧）。
  */
 object GenerativePrompt {
 
@@ -35,7 +38,13 @@ object GenerativePrompt {
             .trim()
     }
 
-    fun assemble(base: String, prior: String, index: Int, total: Int): String = buildString {
+    fun assemble(
+        base: String,
+        prior: String,
+        index: Int,
+        total: Int,
+        page: ZinePage? = null,
+    ): String = buildString {
         append(base)
         if (prior.isNotBlank()) {
             append("\n\n【前序结果（仅语义参考，不要照抄）】\n")
@@ -48,5 +57,9 @@ object GenerativePrompt {
         append(" 张；若 SKILL 需要拼贴序号，用“第 ")
         append(index + 1)
         append(" 幕”。")
+        page?.let {
+            append("\n\n【整卷】")
+            append(ZinePlanner.promptDirective(it))
+        }
     }
 }
