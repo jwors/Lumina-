@@ -35,6 +35,9 @@
 - `:app:assembleDebug` → BUILD SUCCESSFUL。
 - 新增：`ZinePlannerTest`、`PhotoPaletteTest`、`IllustrationPromptCompilerTest`；
   扩充 `HybridLayoutTest` / `ImageGenClientTest` / `GenerativePromptTest`。
+- **提交**：核心模块 `bf98db3`；生成链/设置 UI 因与并行 M5 会话共享
+  `MainActivity.kt` / `ProbeController.kt`，随 `7e7513c`（M5 遥控）一并入库。
+  本票的整卷/构图/参考图接线以 `bf98db3 + 7e7513c` 两笔为准。
 
 **Review closure:**
 - Standards：色场侧中英文案收口到 `FieldSide` 扩展；删除未用的 `ZinePage.isFirst`、
