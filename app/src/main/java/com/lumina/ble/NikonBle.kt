@@ -194,7 +194,7 @@ object WifiCredentialsDecoder {
                     val password = decryptCbc(hasher, cipherPassword)
                     if (!isPaddedPrintable(password, allowEmpty = security == 0x00 || security == 0x01)) continue
                     return WifiCredentials(
-                        trimNul(ssid), trimNul(password), security,
+                        normalizeSsid(trimNul(ssid)), trimNul(password), security,
                         "lss-kdf $tag lay=${lay.name}",
                     )
                 }
@@ -207,7 +207,7 @@ object WifiCredentialsDecoder {
                     val password = decrypt(hasher, cipherPassword, cbc)
                     if (!isPaddedPrintable(password, allowEmpty = security == 0x00 || security == 0x01)) continue
                     return WifiCredentials(
-                        trimNul(ssid), trimNul(password), security,
+                        normalizeSsid(trimNul(ssid)), trimNul(password), security,
                         "fixed-nikon-key${if (cbc) "+cbc-iv0" else "+ecb"}",
                     )
                 }
@@ -317,4 +317,11 @@ object WifiCredentialsDecoder {
         while (end > 0 && bytes[end - 1].toInt() == 0) end--
         return String(bytes, 0, end, Charsets.US_ASCII)
     }
+
+    /**
+     * Z30 真机（2026-11-14）：0x2004 里解出的 SSID 带 `_SnapBridge` 后缀，
+     * 但相机实际广播的是去掉后缀的名字（扫描实测 `NIKON_Z_30_82949` vs
+     * 解密值 `NIKON_Z_30_82949_SnapBridge`）。不剥掉就会一直 NO AP FOUND。
+     */
+    private fun normalizeSsid(ssid: String): String = ssid.removeSuffix("_SnapBridge")
 }

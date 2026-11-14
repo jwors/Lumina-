@@ -80,7 +80,11 @@ fun parseDevicePropDesc(bytes: ByteArray): DevicePropDesc {
     return DevicePropDesc(code, type, getSet, factory, current, form)
 }
 
-private fun readTypedValue(r: MtpReader, type: Int): PtpValue = when (type) {
+/** 解 GetDevicePropValue 的数据相：只有值，不带 code/type/默认值。 */
+fun parsePtpValue(bytes: ByteArray, type: Int): PtpValue =
+    readTypedValue(MtpReader(bytes), type)
+
+internal fun readTypedValue(r: MtpReader, type: Int): PtpValue = when (type) {
     PtpDataType.INT8 -> PtpValue.Num(r.u8().toByte().toLong())
     PtpDataType.UINT8 -> PtpValue.Num(r.u8().toLong())
     PtpDataType.INT16 -> PtpValue.Num(r.u16().toShort().toLong())

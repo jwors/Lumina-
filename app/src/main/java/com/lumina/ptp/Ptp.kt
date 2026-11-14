@@ -25,6 +25,12 @@ object OpCode {
     const val SET_DEVICE_PROP_VALUE = 0x1017
 }
 
+/** 尼康厂商扩展操作码（gphoto2/SnapBridge 口径） */
+object NikonOpCode {
+    /** 尼康快门（Capture）：参数 storageID + format，与 0x100C 同语义但 Z 系认这个。 */
+    const val CAPTURE = 0x9207
+}
+
 /** 响应码：OK 之外的都是错误 */
 object RespCode {
     const val OK = 0x2001

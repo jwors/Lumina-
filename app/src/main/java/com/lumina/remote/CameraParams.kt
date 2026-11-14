@@ -1,6 +1,7 @@
 package com.lumina.remote
 
 import com.lumina.ptp.CameraProp
+import com.lumina.ptp.PtpDataType
 import com.lumina.ptp.PtpSession
 import com.lumina.ptp.PtpValue
 import com.lumina.ptp.RespCode
@@ -33,12 +34,21 @@ data class CameraParams(
 
 object CameraParamsReader {
 
+    /** 属性 → PTP 类型：Z30 的 0x1015 只回值，必须按已知类型解 0x1016。 */
+    private val PROP_TYPES = listOf(
+        CameraProp.FOCAL_LENGTH to PtpDataType.UINT32,
+        CameraProp.F_NUMBER to PtpDataType.UINT16,
+        CameraProp.EXPOSURE_TIME to PtpDataType.UINT32,
+        CameraProp.EXPOSURE_INDEX to PtpDataType.UINT16,
+        CameraProp.BATTERY_LEVEL to PtpDataType.UINT8,
+    )
+
     /** 逐项读，单项不支持/超时不拖垮整页；返回已读到的部分。 */
     fun read(session: PtpSession): CameraParams {
         val values = LinkedHashMap<Int, Long>()
-        for (code in CameraProp.shootingParams) {
-            val desc = runCatching { session.getDevicePropDesc(code) }.getOrNull() ?: continue
-            val num = (desc.current as? PtpValue.Num)?.value ?: continue
+        for ((code, type) in PROP_TYPES) {
+            val value = runCatching { session.getDevicePropValueCompat(code, type) }.getOrNull() ?: continue
+            val num = (value as? PtpValue.Num)?.value ?: continue
             values[code] = num
         }
         return CameraParams(

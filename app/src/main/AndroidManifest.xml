@@ -5,6 +5,10 @@
     <!-- M2（ADR-0005）：模型 API 域联网 + 网络状态（补跑横幅判定用，普通级权限）-->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- requestNetwork/bindProcessToNetwork 所需（均为普通级，无运行时弹窗） -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
     <!--
       M5 遥控（ADR-0006）：蓝牙只用于配对/唤醒相机热点，不用于定位；

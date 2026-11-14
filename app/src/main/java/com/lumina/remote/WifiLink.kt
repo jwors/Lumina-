@@ -40,7 +40,7 @@ class WifiLink(private val context: Context) {
     private var boundNetwork: Network? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
 
-    fun join(ssid: String, password: String, timeoutMs: Long = 30_000): WifiJoinResult {
+    fun join(ssid: String, password: String, timeoutMs: Long = 60_000): WifiJoinResult {
         if (Build.VERSION.SDK_INT < 33) {
             openWifiPanel()
             return WifiJoinResult.NeedsManual(ssid)
@@ -118,8 +118,9 @@ class WifiLink(private val context: Context) {
 
     private fun gatewayOf(network: Network): String? {
         val props = cm.getLinkProperties(network) ?: return null
-        return props.routes.firstOrNull { it.isDefaultRoute && it.gateway != null }?.gateway?.hostAddress
-            ?: props.routes.firstOrNull { it.gateway != null }?.gateway?.hostAddress
+        val candidates = props.routes.mapNotNull { it.gateway?.hostAddress }
+        // 相机热点常见 0.0.0.0 网关（DHCP 未给默认路由），不能拿来连 15740。
+        return candidates.firstOrNull { it != "0.0.0.0" && it != "::" }
     }
 
     companion object {

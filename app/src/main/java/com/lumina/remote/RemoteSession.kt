@@ -55,12 +55,22 @@ class RemoteSession(
         val link = ble ?: BleCameraLink(context) { line -> log(line) }.also { ble = it }
         log("BLE 配对开始：${hit.name} ${hit.address}")
         var pair: BlePairResult? = null
-        try {
-            pair = link.pair(hit, saved)
-            saveIdentity(pair.identity)
-        } catch (e: Exception) {
+        for (attempt in 0 until 3) {
+            pair = try {
+                link.pair(hit, saved)
+            } catch (e: Exception) {
+                log("BLE 配对第 ${attempt + 1} 次失败：${e.message}")
+                null
+            }
+            if (pair != null) {
+                pair?.let { saveIdentity(it.identity) }
+                break
+            }
+            Thread.sleep(1_500)
+        }
+        if (pair == null) {
             // 配对失败不代表没救：相机 Wi-Fi 可能已经开着，且上次凭据还在。
-            log("BLE 配对失败：${e.message}（尝试用已保存的 Wi-Fi 凭据继续）")
+            log("BLE 配对失败（尝试用已保存的 Wi-Fi 凭据继续）")
         }
         val credentials = pair?.credentials ?: savedCredentials()
         if (credentials == null) {
@@ -71,14 +81,22 @@ class RemoteSession(
             )
         }
         saveCredentials(credentials)
-        log("Wi-Fi 凭据就绪（${credentials.keySource}，密码不落日志）")
+        log("Wi-Fi 凭据就绪（${credentials.ssid} / ${credentials.securityLabel}，密码不落日志）")
+        // 0x2005 之后相机起热点要 2~4 秒：先等一拍，避免系统 Wi-Fi 直接搜空。
+        Thread.sleep(2_000)
 
-        // 热点刚被唤醒：给它 2~3 秒广播，最多试 4 次。
+        // 热点刚被唤醒：Z30 实测约 40 秒才广播 SSID，入网窗口必须覆盖它（60s）；
+        // 每次重试前重发 0x2005，因为相机会在 BLE 空闲后收回热点。
         var lastFailure = "加入相机热点失败"
-        repeat(4) { attempt ->
+        repeat(3) { attempt ->
+            if (attempt > 0) {
+                val woke = link.wakeWifi()
+                log("重发唤醒 Wi-Fi：${if (woke) "已写" else "BLE 已断，无法唤醒"}")
+            }
+            val startedAt = System.currentTimeMillis()
             when (val joined = (wifi ?: WifiLink(context).also { wifi = it }).join(credentials.ssid, credentials.password)) {
                 is WifiJoinResult.Joined -> {
-                    log("已入网，网关=${joined.gatewayIp}")
+                    log("已入网，网关=${joined.gatewayIp}（用时 ${System.currentTimeMillis() - startedAt}ms）")
                     return openPtp(joined.gatewayIp, pair?.warning)
                 }
                 is WifiJoinResult.NeedsManual -> {
@@ -90,8 +108,8 @@ class RemoteSession(
                 }
                 is WifiJoinResult.Failed -> {
                     lastFailure = joined.message
-                    log("入网第 ${attempt + 1} 次失败：${joined.message}")
-                    Thread.sleep(1_500)
+                    log("入网第 ${attempt + 1} 次失败（${System.currentTimeMillis() - startedAt}ms）：${joined.message}")
+                    Thread.sleep(1_000)
                 }
             }
         }
@@ -103,6 +121,17 @@ class RemoteSession(
         val gateway = (wifi ?: WifiLink(context).also { wifi = it }).activeWifiGateway()
             ?: WifiLink.FALLBACK_GATEWAY
         return openPtp(gateway, null)
+    }
+
+    /** 相机 Wi-Fi 已在相机菜单手动打开：跳过 BLE，直接用已保存凭据入网 + PTP。 */
+    fun connectSavedWifi(): RemoteConnectOutcome {
+        val credentials = savedCredentials()
+            ?: return RemoteConnectOutcome(failure = "还没保存过相机 Wi-Fi，先走一次蓝牙配对")
+        when (val joined = (wifi ?: WifiLink(context).also { wifi = it }).join(credentials.ssid, credentials.password)) {
+            is WifiJoinResult.Joined -> return openPtp(joined.gatewayIp, null)
+            is WifiJoinResult.NeedsManual -> return RemoteConnectOutcome(manualWifiSsid = joined.ssid)
+            is WifiJoinResult.Failed -> return RemoteConnectOutcome(failure = joined.message)
+        }
     }
 
     fun connectManual(ssid: String, password: String): RemoteConnectOutcome {
@@ -210,7 +239,7 @@ class RemoteSession(
     }
 
     private fun savedCredentials(): WifiCredentials? {
-        val ssid = prefs.getString("ssid", null) ?: return null
+        val ssid = prefs.getString("ssid", null)?.removeSuffix("_SnapBridge") ?: return null
         return WifiCredentials(
             ssid = ssid,
             password = prefs.getString("password", "") ?: "",

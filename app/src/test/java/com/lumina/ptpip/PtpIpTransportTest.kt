@@ -41,7 +41,12 @@ class PtpIpTransportTest {
 
             session.initiateCapture()
             assertEquals(
-                listOf(OpCode.OPEN_SESSION, OpCode.GET_DEVICE_INFO, OpCode.GET_DEVICE_PROP_DESC, OpCode.INITIATE_CAPTURE),
+                listOf(
+                    OpCode.OPEN_SESSION,
+                    OpCode.GET_DEVICE_INFO,
+                    OpCode.GET_DEVICE_PROP_DESC,
+                    com.lumina.ptp.NikonOpCode.CAPTURE,
+                ),
                 cam.seenOps.toList(),
             )
             session.close()
@@ -116,6 +121,7 @@ private class FakePtpIpCamera {
                 response(output, 0x2001, tid)
             }
             OpCode.INITIATE_CAPTURE -> response(output, 0x2001, tid)
+            com.lumina.ptp.NikonOpCode.CAPTURE -> response(output, 0x2001, tid)
             OpCode.CLOSE_SESSION -> response(output, 0x2001, tid)
             else -> response(output, 0x2005, tid) // OperationNotSupported
         }

@@ -66,27 +66,27 @@ class CameraParamsTest {
                 FakeCamera.resp(RespCode.OK, 0),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 1,
-                    FakeCamera.devicePropDesc(CameraProp.FOCAL_LENGTH, PtpDataType.UINT32, 5000),
+                    FakeCamera.typedValue(PtpDataType.UINT32, 5000),
                 ),
                 FakeCamera.resp(RespCode.OK, 1),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 2,
-                    FakeCamera.devicePropDesc(CameraProp.F_NUMBER, PtpDataType.UINT16, 560),
+                    FakeCamera.typedValue(PtpDataType.UINT16, 560),
                 ),
                 FakeCamera.resp(RespCode.OK, 2),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 3,
-                    FakeCamera.devicePropDesc(CameraProp.EXPOSURE_TIME, PtpDataType.UINT32, 40),
+                    FakeCamera.typedValue(PtpDataType.UINT32, 40),
                 ),
                 FakeCamera.resp(RespCode.OK, 3),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 4,
-                    FakeCamera.devicePropDesc(CameraProp.EXPOSURE_INDEX, PtpDataType.UINT16, 400),
+                    FakeCamera.typedValue(PtpDataType.UINT16, 400),
                 ),
                 FakeCamera.resp(RespCode.OK, 4),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 5,
-                    FakeCamera.devicePropDesc(CameraProp.BATTERY_LEVEL, PtpDataType.UINT8, 82),
+                    FakeCamera.typedValue(PtpDataType.UINT8, 82),
                 ),
                 FakeCamera.resp(RespCode.OK, 5),
             ),
@@ -110,7 +110,7 @@ class CameraParamsTest {
                 FakeCamera.resp(RespCode.DEVICE_PROP_NOT_SUPPORTED, 1),
                 FakeCamera.dataPack(
                     OpCode.GET_DEVICE_PROP_DESC, 2,
-                    FakeCamera.devicePropDesc(CameraProp.F_NUMBER, PtpDataType.UINT16, 560),
+                    FakeCamera.typedValue(PtpDataType.UINT16, 560),
                 ),
                 FakeCamera.resp(RespCode.OK, 2),
                 FakeCamera.resp(RespCode.DEVICE_PROP_NOT_SUPPORTED, 3),

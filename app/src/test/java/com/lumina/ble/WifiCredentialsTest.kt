@@ -33,6 +33,15 @@ class WifiCredentialsTest {
     }
 
     @Test
+    fun `snapbridge suffix is stripped from decoded ssid`() {
+        // Z30 真机：0x2004 解出 ..._SnapBridge，实际广播不带后缀
+        val blob = buildBlob("NIKON_Z_30_82949_SnapBridge", "12345678", security = 1)
+        val creds = WifiCredentialsDecoder.decode(blob)
+        assertNotNull(creds)
+        assertEquals("NIKON_Z_30_82949", creds!!.ssid)
+    }
+
+    @Test
     fun `garbage blob is rejected instead of inventing plaintext`() {
         val blob = ByteArray(97) { 0xFF.toByte() }
         blob[96] = 1

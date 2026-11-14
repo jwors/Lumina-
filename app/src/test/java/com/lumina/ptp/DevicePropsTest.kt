@@ -65,7 +65,7 @@ class DevicePropsTest {
     }
 
     @Test
-    fun `initiateCapture request carries 0xFFFFFFFF storage`() {
+    fun `initiateCapture uses nikon capture opcode with 0xFFFFFFFF storage`() {
         val t = FakeTransport(
             listOf(
                 resp(RespCode.OK, 0),
@@ -80,7 +80,7 @@ class DevicePropsTest {
         s.initiateCapture()
         assertArrayEquals(
             encodeRequest(
-                OpCode.INITIATE_CAPTURE, 2,
+                NikonOpCode.CAPTURE, 2,
                 longArrayOf(0xFFFFFFFFL, 0L),
             ),
             t.observedWrites().last(),

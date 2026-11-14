@@ -32,6 +32,9 @@ class ManifestPrivacyTest {
             setOf(
                 "INTERNET",
                 "ACCESS_NETWORK_STATE",
+                "CHANGE_NETWORK_STATE",
+                "ACCESS_WIFI_STATE",
+                "CHANGE_WIFI_STATE",
                 "BLUETOOTH_SCAN",
                 "BLUETOOTH_CONNECT",
                 "NEARBY_WIFI_DEVICES",

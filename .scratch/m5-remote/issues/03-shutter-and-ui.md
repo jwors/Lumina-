@@ -13,7 +13,7 @@
 ## 验收
 
 - [x] 单测：快门操作码/参数编码、失败码人话
-- [ ] 真机：按快门 → 相机实际拍一张 → UI 出现"已拍摄"反馈（含时间/张数）
+- [x] 真机：按快门 → 相机实际拍一张 → UI 出现"已拍摄"反馈（含时间/张数）
 - [ ] 真机：拔相机电源/关热点 → UI 显示断线原因 + 重连可用
 - [x] 权限拒绝路径：提示去设置，不崩（Compose 权限 launcher + Toast）
 
@@ -21,3 +21,6 @@
 
 `:app:testDebugUnitTest` 绿（快门参数在 `DevicePropsTest`，失败码在 `CameraParamsTest`）；
 `:app:assembleDebug` 成功，APK 见 01 号单。
+
+**真机（Z30）**：日志 `op=0x9207 rc=0x2001` + “快门已触发” ×2，相机实际出片。
+真机修正：标准 `InitiateCapture(0x100C)` 在 Z30 上无响应（Read timed out）；改用尼康 `Capture(0x9207)` 后成功。

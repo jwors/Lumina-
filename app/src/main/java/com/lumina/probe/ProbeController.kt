@@ -236,9 +236,19 @@ class ProbeController(
         }
     }
 
+    /** 相机 Wi-Fi 已手动打开：跳过 BLE，用已保存凭据直连。 */
+    fun remoteConnectSavedWifi() {
+        remoteState = remoteState.copy(stage = RemoteStage.CONNECTING, status = "用已保存的热点直连…")
+        emitRemote()
+        remoteIo.execute {
+            val outcome = runCatching { remoteSessionOrCreate().connectSavedWifi() }
+                .getOrElse { com.lumina.remote.RemoteConnectOutcome(failure = it.message ?: "连接失败") }
+            applyRemoteOutcome(outcome)
+        }
+    }
+
     /** 高级降级：用户从相机菜单抄来 SSID/密码，绕过 BLE 直连 PTP。 */
-    fun remoteManualConnect(ssid: String, password: String) {
-        remoteState = remoteState.copy(stage = RemoteStage.CONNECTING, status = "连接热点 $ssid…")
+    fun remoteManualConnect(ssid: String, password: String) {        remoteState = remoteState.copy(stage = RemoteStage.CONNECTING, status = "连接热点 $ssid…")
         emitRemote()
         remoteIo.execute {
             val outcome = runCatching { remoteSessionOrCreate().connectManual(ssid, password) }

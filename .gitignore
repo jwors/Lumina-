@@ -10,6 +10,7 @@ gradle-home/
 gradle-project-cache/
 debug.keystore
 *.apk
+lumina_*.png
 captures/
 .externalNativeBuild/
 .cxx/

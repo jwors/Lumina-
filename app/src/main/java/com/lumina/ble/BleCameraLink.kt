@@ -64,8 +64,8 @@ class BleCameraLink(
     private var gatt: BluetoothGatt? = null
     private val characteristics = HashMap<String, BluetoothGattCharacteristic>()
 
-    private val connectedLatch = CountDownLatch(1)
-    private val servicesLatch = CountDownLatch(1)
+    private val connectedLatch = java.util.concurrent.atomic.AtomicReference(CountDownLatch(1))
+    private val servicesLatch = java.util.concurrent.atomic.AtomicReference(CountDownLatch(1))
     private val opLatch = AtomicReference(CountDownLatch(0))
     private val opValue = AtomicReference<ByteArray?>(null)
     private val opStatus = AtomicReference(0)
@@ -73,6 +73,8 @@ class BleCameraLink(
     private val notifyData = AtomicReference<ByteArray?>(null)
 
     @Volatile private var lastError: String? = null
+    @Volatile private var ready = false
+    private var heartbeat: Thread? = null
 
     fun hasPermissions(): Boolean {
         val needed = if (Build.VERSION.SDK_INT >= 31) {
@@ -129,18 +131,23 @@ class BleCameraLink(
     fun pair(hit: BleCameraHit, saved: PairingIdentity? = null): BlePairResult {
         val adapter = adapter ?: throw BleLinkException("此设备没有蓝牙")
         if (!adapter.isEnabled) throw BleLinkException("蓝牙未开启")
+        // 重试/重连前清掉上一次的 GATT 与一次性 latch
+        close()
+        connectedLatch.set(CountDownLatch(1))
+        servicesLatch.set(CountDownLatch(1))
         lastError = null
+        ready = false
         onStatus("连接相机…")
         val device = adapter.getRemoteDevice(hit.address)
         val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
             ?: throw BleLinkException("无法建立 GATT 连接")
         gatt = g
         try {
-            await(connectedLatch, 20_000, "连接超时：相机可能已休眠，按一下快门再试")
+            await(connectedLatch.get(), 20_000, "连接超时：相机可能已休眠，按一下快门再试")
             onStatus("发现服务…")
             g.requestMtu(517)
             g.discoverServices()
-            await(servicesLatch, 20_000, "服务发现超时")
+            await(servicesLatch.get(), 20_000, "服务发现超时")
             buildCharTable(g)
             val pairChar = characteristic(NikonBleUuids.PAIR)
                 ?: throw BleLinkException("不是尼康相机：缺少配对特征")
@@ -165,6 +172,11 @@ class BleCameraLink(
             val serial = engine.extractSerial(stage4)
             onStatus("写入客户端名…")
             write(characteristic(NikonBleUuids.NAME) ?: throw BleLinkException("缺少名称特征"), namePayload())
+            ready = true
+            // 配对收口校时（也是 BLE 心跳；相机长时间无流量会收回热点）
+            runCatching {
+                characteristic(NikonBleUuids.TIME)?.let { write(it, NikonTimePayload.build()) }
+            }
             Thread.sleep(300)
 
             onStatus("读取 Wi-Fi 凭据…")
@@ -190,6 +202,7 @@ class BleCameraLink(
                 true
             }.getOrDefault(false)
             if (!woken) warning = listOfNotNull(warning, "唤醒 Wi-Fi 失败，请在相机菜单手动开启").joinToString("；")
+            startHeartbeat()
 
             return BlePairResult(
                 credentials = credentials,
@@ -204,41 +217,85 @@ class BleCameraLink(
                 warning = warning,
             )
         } catch (e: BleLinkException) {
+            close()
             throw e
         } catch (e: Exception) {
+            close()
             throw BleLinkException(e.message ?: "蓝牙操作失败")
-        } finally {
-            // 凭据已拿到、Wi-Fi 也已唤醒：BLE 链路可以断开，省电且让相机专注 Wi-Fi。
-            runCatching { g.disconnect() }
-            runCatching { g.close() }
-            gatt = null
         }
+        // 成功时**保持 BLE 连接**：Z30 在 BLE 断开后会收回热点，入网/遥控期间需要它在线。
     }
 
+    /** 重新写 0x2005=0x01 唤起热点（BLE 仍在线时可用）；入网重试前调用。 */
+    fun wakeWifi(): Boolean {
+        if (gatt == null || !ready) return false
+        // 先补一拍 TIME：既是校时也是心跳，避免相机判客户端空闲。
+        runCatching {
+            characteristic(NikonBleUuids.TIME)?.let { write(it, NikonTimePayload.build()) }
+        }
+        val ch = characteristic(NikonBleUuids.WIFI) ?: return false
+        return runCatching {
+            write(ch, byteArrayOf(0x01))
+            true
+        }.getOrDefault(false)
+    }
+
+    val isConnected: Boolean get() = gatt != null
+
     fun close() {
+        ready = false
+        heartbeat?.interrupt()
+        heartbeat = null
         runCatching { gatt?.disconnect() }
         runCatching { gatt?.close() }
         gatt = null
+    }
+
+    /**
+     * BLE 心跳：每 20 秒写一拍 TIME（0x2006）。
+     * 真机实测：配对后约 50 秒无 BLE 流量，相机会收热点/断链；遥控期间必须保活。
+     */
+    private fun startHeartbeat() {
+        heartbeat?.interrupt()
+        heartbeat = Thread {
+            while (ready && gatt != null) {
+                try {
+                    Thread.sleep(20_000)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                if (!ready || gatt == null) return@Thread
+                runCatching {
+                    characteristic(NikonBleUuids.TIME)?.let { write(it, NikonTimePayload.build()) }
+                }
+            }
+        }.apply {
+            isDaemon = true
+            name = "ble-heartbeat"
+            start()
+        }
     }
 
     // ---------- GATT 细节 ----------
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (g !== gatt) return // 旧代 GATT 的迟到回调（重试场景）
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                connectedLatch.countDown()
+                connectedLatch.get().countDown()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 lastError = "连接已断开（status=$status）"
-                connectedLatch.countDown()
-                servicesLatch.countDown()
+                connectedLatch.get().countDown()
+                servicesLatch.get().countDown()
                 opLatch.get().countDown()
                 notifyLatch.get().countDown()
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (g !== gatt) return
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                servicesLatch.countDown()
+                servicesLatch.get().countDown()
             } else {
                 lastError = "服务发现失败（status=$status）"
             }
@@ -277,12 +334,32 @@ class BleCameraLink(
 
         /**
          * 只把 0x2000(PAIR) 的通知当作握手帧。NOT1/NOT2 也会发通知
-         * （相机请求时间/位置），若混进握手 latch，stage2 会被误读成 17B 之外的帧。
+         * （相机请求时间/位置/连接），若混进握手 latch，stage2 会被误读成 17B 之外的帧。
+         * NOT1 的位请求要清位应答，否则相机可能不进入可连热点状态。
          */
         private fun onPairingNotify(ch: BluetoothGattCharacteristic, value: ByteArray?) {
-            if (ch.uuid.toString().lowercase() != NikonBleUuids.PAIR.lowercase()) return
-            notifyData.set(value)
-            notifyLatch.get().countDown()
+            val uuid = ch.uuid.toString().lowercase()
+            if (uuid == NikonBleUuids.PAIR.lowercase()) {
+                notifyData.set(value)
+                notifyLatch.get().countDown()
+                return
+            }
+            if (uuid == NikonBleUuids.NOT1.lowercase() && ready && value != null && value.size == 2) {
+                val raw = (value[0].toInt() and 0xFF) or ((value[1].toInt() and 0xFF) shl 8)
+                var answer = raw
+                if ((raw and 0x000F) != 0) answer = answer and 0x000F.inv() // Time
+                if ((raw and 0x00F0) != 0) answer = answer and 0x00F0.inv() // Location
+                if ((raw and 0x0100) != 0) answer = answer and 0x0100.inv() // Connection
+                if (answer != raw) {
+                    Thread {
+                        runCatching {
+                            characteristic(NikonBleUuids.NOT1)?.let {
+                                write(it, byteArrayOf((answer and 0xFF).toByte(), ((answer ushr 8) and 0xFF).toByte()))
+                            }
+                        }
+                    }.start()
+                }
+            }
         }
     }
 
@@ -316,6 +393,7 @@ class BleCameraLink(
         awaitOp(5_000, "开启通知失败")
     }
 
+    @Synchronized
     @SuppressLint("MissingPermission")
     private fun write(ch: BluetoothGattCharacteristic, payload: ByteArray) {
         beginOp()

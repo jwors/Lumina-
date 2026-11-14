@@ -21,6 +21,7 @@
 3. **权限白名单**（AndroidManifest）：
    - `BLUETOOTH_SCAN`（`neverForLocation`）、`BLUETOOTH_CONNECT`：API 31+ 的 BLE 扫描/连接。
    - `NEARBY_WIFI_DEVICES`（`neverForLocation`）：API 33+ 的 `WifiNetworkSpecifier` 自动加入相机热点。
+   - `CHANGE_NETWORK_STATE`、`ACCESS_WIFI_STATE`、`CHANGE_WIFI_STATE`：`requestNetwork`/`bindProcessToNetwork` 的普通级权限（无运行时弹窗；Z30 真机实测缺 `CHANGE_NETWORK_STATE` 会直接拒绝入网）。
    - **不新增** `ACCESS_FINE_LOCATION`、存储、相机等任何其他危险权限。遥控功能要求 Android 12+（API 31）；31/32 上 Wi-Fi 加入降级为"打开系统 Wi-Fi 面板 + 展示 SSID/密码"的人工一步。
 4. **隐私测试反转**：`ManifestPrivacyTest` 白名单扩为上述三项 + INTERNET/ACCESS_NETWORK_STATE，并继续断言**不存在定位/存储/相机权限**。日志、UI、异常文案不得输出 Wi-Fi 密码与凭据 blob 密文。
 5. **凭据持久化**：SSID/密码只存应用私有 `SharedPreferences`，供下次直连；配对身份（deviceId/nonce/serial）同存，重连复用。

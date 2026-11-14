@@ -179,6 +179,14 @@ private fun ConnectSection(state: RemoteUi, controller: ProbeController) {
 
     Spacer(Modifier.height(18.dp))
     ManualWifiSection(controller)
+    Spacer(Modifier.height(10.dp))
+    PillButton("相机 Wi-Fi 已手动开？直连", filled = false) {
+        controller.remoteConnectSavedWifi()
+    }
+    Spacer(Modifier.height(8.dp))
+    PillButton("已在系统 Wi-Fi 连好？继续", filled = false) {
+        controller.remoteContinueWifi()
+    }
 }
 
 @Composable

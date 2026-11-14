@@ -22,4 +22,7 @@
 - 单测：`gradle -p . :app:testDebugUnitTest --no-daemon` → BUILD SUCCESSFUL
   - `BlowfishTest` 4（标准向量）、`PairingTest` 6（17B 帧/salt 命中/序列号）、`WifiCredentialsTest` 6（97B 回环/定键/LSS 候选）
 - APK：`build-out/outputs/apk/debug/app-debug.apk`（约 10.1 MB，2026-11-14）
-- 真机：待 04 号单（无设备连接时不得标 resolved）
+- **真机（Z30 + Xiaomi 24122RKC7C）已过 BLE 段**：扫描到 `Z_30_8182949` → 四步握手 → `0x2004` 解密命中（`lss-kdf ctx=na1-3,x0-3 k1=stage4 lay=l98`）→ 唤醒 Wi-Fi。
+- **真机修正 1**：解密出的 SSID 是 `NIKON_Z_30_82949_SnapBridge`，相机实际广播 `NIKON_Z_30_82949`；已剥后缀（扫描实测）。
+- **真机修正 2**：配对后约 50s 无 BLE 流量相机收热点/断链；已保持 GATT + 20s TIME 心跳 + NOT1 连接位应答 + 入网前重发 0x2005。
+- **未闭环**：`0x2005` 写入被相机接受，但相机热点仍未自行广播；当前用手动 Wi-Fi 入网。疑似需要经典蓝牙 bonding / 相机侧确认，留作后续。

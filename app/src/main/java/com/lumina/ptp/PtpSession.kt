@@ -89,6 +89,8 @@ class PtpSession(
     /**
      * GetDevicePropDesc (0x1015)：相机自报属性类型 + 当前值。
      * 返回的数据集自带数据类型，调用方无需按属性号猜类型。
+     * 注意：Z30 真机对 0x1015 只回值（4/2/1 字节），完整描述符解析会失败；
+     * 需要当前值时优先用 [getDevicePropValue]。
      */
     fun getDevicePropDesc(code: Int): DevicePropDesc {
         check(state == State.Open || state == State.Ready) { "getDevicePropDesc requires session, state=$state" }
@@ -97,13 +99,37 @@ class PtpSession(
     }
 
     /**
-     * InitiateCapture (0x100C)：触发一次快门。
+     * 兼容读取当前属性值：Z30 对 0x1015(GetDevicePropDesc) 只回值（4/2/1 字节），
+     * 对 0x1016(GetDevicePropValue) 直接回 0x201F 取消。
+     * 所以仍发 0x1015：长包按完整描述符解，短包按调用方给的 PTP 类型当值解。
+     */
+    fun getDevicePropValueCompat(code: Int, type: Int): PtpValue {
+        check(state == State.Open || state == State.Ready) { "getDevicePropValueCompat requires session, state=$state" }
+        val data = sendWithPayload(OpCode.GET_DEVICE_PROP_DESC, longArrayOf(code.toLong()))
+        if (data.size < 5) return parsePtpValue(data, type)
+        return runCatching { parseDevicePropDesc(data).current }
+            .getOrElse { parsePtpValue(data, type) }
+    }
+
+    /**
+     * GetDevicePropValue (0x1016)：只回当前值，按调用方给的 PTP 类型解析。
+     * 注意：Z30 真机对该操作回 0x201F（取消），遥控页改用 [getDevicePropValueCompat]。
+     */
+    fun getDevicePropValue(code: Int, type: Int): PtpValue {
+        check(state == State.Open || state == State.Ready) { "getDevicePropValue requires session, state=$state" }
+        val data = sendWithPayload(OpCode.GET_DEVICE_PROP_VALUE, longArrayOf(code.toLong()))
+        return parsePtpValue(data, type)
+    }
+
+    /**
+     * 触发一次快门（尼康 Capture 0x9207）。
      * storageId=0xFFFFFFFF 表示默认存储；format=0 表示相机默认格式。
-     * 相机忙（0x2019）由调用方决定重试节奏。
+     * 注意：Z30 对标准 InitiateCapture(0x100C) 不回包（Read timed out），
+     * 厂商操作码 0x9207 才是 SnapBridge 用的快门。
      */
     fun initiateCapture(storageId: Long = DEFAULT_STORAGE, format: Int = 0) {
         check(state == State.Ready) { "initiateCapture requires Ready, state=$state" }
-        send(OpCode.INITIATE_CAPTURE, longArrayOf(storageId, format.toLong()))
+        send(NikonOpCode.CAPTURE, longArrayOf(storageId, format.toLong()))
     }
 
     /**
@@ -298,6 +324,7 @@ object OpName {
         OpCode.GET_OBJECT_HANDLES -> "GetObjectHandles"
         OpCode.GET_OBJECT_INFO -> "GetObjectInfo"
         OpCode.INITIATE_CAPTURE -> "InitiateCapture"
+        NikonOpCode.CAPTURE -> "NikonCapture(0x9207)"
         OpCode.GET_DEVICE_PROP_DESC -> "GetDevicePropDesc"
         OpCode.GET_DEVICE_PROP_VALUE -> "GetDevicePropValue"
         OpCode.SET_DEVICE_PROP_VALUE -> "SetDevicePropValue"
