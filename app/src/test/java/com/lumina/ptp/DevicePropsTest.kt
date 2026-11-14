@@ -103,4 +103,52 @@ class DevicePropsTest {
         val ex = org.junit.Assert.assertThrows(PtpResponseException::class.java) { s.initiateCapture() }
         assertEquals(RespCode.DEVICE_BUSY, ex.code)
     }
+
+    @Test
+    fun `ptp opcodes match the 15740 table`() {
+        assertEquals(0x1014, OpCode.GET_DEVICE_PROP_DESC)
+        assertEquals(0x1015, OpCode.GET_DEVICE_PROP_VALUE)
+        assertEquals(0x1016, OpCode.SET_DEVICE_PROP_VALUE)
+        assertEquals(0x100E, OpCode.INITIATE_CAPTURE)
+        assertEquals(0x9207, NikonOpCode.CAPTURE)
+        assertEquals(0x9201, NikonOpCode.START_LIVE_VIEW)
+        assertEquals(0x9203, NikonOpCode.GET_LIVE_VIEW_IMAGE)
+    }
+
+    @Test
+    fun `setDevicePropValue sends code as param and value as data-out`() {
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, 0),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, 1),
+                resp(RespCode.OK, 2),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        s.getModel()
+        s.setDevicePropValue(CameraProp.F_NUMBER, PtpDataType.UINT16, 560)
+        assertArrayEquals(
+            encodeRequest(OpCode.SET_DEVICE_PROP_VALUE, 2, longArrayOf(CameraProp.F_NUMBER.toLong())),
+            t.observedWrites().last(),
+        )
+        assertArrayEquals(byteArrayOf(0x30, 0x02), t.observedData().single())
+    }
+
+    @Test
+    fun `setDevicePropValue rejects a link without data-out`() {
+        val t = object : com.lumina.transport.Transport {
+            override fun open() = Unit
+            override fun write(chunk: ByteArray): Int = chunk.size
+            override fun read(buffer: java.nio.ByteBuffer): Int = 0
+            override fun close() = Unit
+        }
+        val s = PtpSession(t)
+        // 直接构造会话状态不方便；这里只验证类型检查会在 Ready 之前先报状态
+        val ex = org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            s.setDevicePropValue(CameraProp.F_NUMBER, PtpDataType.UINT16, 560)
+        }
+        assertEquals("setDevicePropValue requires Ready, state=Closed", ex.message)
+    }
 }

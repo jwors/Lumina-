@@ -57,8 +57,8 @@ object PtpIp {
         0x1004, // GetStorageIDs
         0x1007, // GetObjectHandles
         0x1008, // GetObjectInfo
-        0x1015, // GetDevicePropDesc
-        0x1016, // GetDevicePropValue
+        0x1014, // GetDevicePropDesc
+        0x1015, // GetDevicePropValue
     )
 
     fun dataPhaseFor(opcode: Int): Int = if (opcode in dataInOps) PHASE_IN else PHASE_NONE

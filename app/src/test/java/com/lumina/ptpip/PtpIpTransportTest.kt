@@ -11,6 +11,7 @@ import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -39,12 +40,16 @@ class PtpIpTransportTest {
             assertEquals(0x5008, desc.code)
             assertEquals(5000L, (desc.current as PtpValue.Num).value)
 
+            session.setDevicePropValue(0x5007, PtpDataType.UINT16, 560)
+            assertArrayEquals(byteArrayOf(0x30, 0x02), cam.lastDataSet)
+
             session.initiateCapture()
             assertEquals(
                 listOf(
                     OpCode.OPEN_SESSION,
                     OpCode.GET_DEVICE_INFO,
                     OpCode.GET_DEVICE_PROP_DESC,
+                    OpCode.SET_DEVICE_PROP_VALUE,
                     com.lumina.ptp.NikonOpCode.CAPTURE,
                 ),
                 cam.seenOps.toList(),
@@ -61,6 +66,8 @@ private class FakePtpIpCamera {
     private val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
     private var loopThread: Thread? = null
     val seenOps = mutableListOf<Int>()
+    var lastDataSet: ByteArray = ByteArray(0)
+        private set
     val port: Int get() = server.localPort
 
     fun start() {
@@ -92,7 +99,7 @@ private class FakePtpIpCamera {
                     while (true) {
                         val frame = readFrame(input)
                         if (frame.type != PtpIp.OPERATION_REQUEST) continue
-                        handle(output, frame.body)
+                        handle(input, output, frame.body)
                     }
                 }
             }
@@ -103,7 +110,7 @@ private class FakePtpIpCamera {
         }
     }
 
-    private fun handle(output: OutputStream, body: ByteArray) {
+    private fun handle(input: InputStream, output: OutputStream, body: ByteArray) {
         val opcode = PtpIp.u16(body, 4)
         val tid = PtpIp.u32(body, 6)
         seenOps.add(opcode)
@@ -120,10 +127,30 @@ private class FakePtpIpCamera {
                 )
                 response(output, 0x2001, tid)
             }
+            OpCode.SET_DEVICE_PROP_VALUE -> {
+                lastDataSet = readDataOut(input)
+                response(output, 0x2001, tid)
+            }
             OpCode.INITIATE_CAPTURE -> response(output, 0x2001, tid)
             com.lumina.ptp.NikonOpCode.CAPTURE -> response(output, 0x2001, tid)
             OpCode.CLOSE_SESSION -> response(output, 0x2001, tid)
             else -> response(output, 0x2005, tid) // OperationNotSupported
+        }
+    }
+
+    private fun readDataOut(input: InputStream): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        while (true) {
+            val frame = readFrame(input)
+            when (frame.type) {
+                PtpIp.START_DATA -> Unit
+                PtpIp.DATA -> out.write(frame.body, 4, frame.body.size - 4)
+                PtpIp.END_DATA -> {
+                    out.write(frame.body, 4, frame.body.size - 4)
+                    return out.toByteArray()
+                }
+                else -> throw IllegalStateException("数据出阶段收到未知包 type=${frame.type}")
+            }
         }
     }
 

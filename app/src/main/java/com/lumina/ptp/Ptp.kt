@@ -16,19 +16,34 @@ object OpCode {
     const val GET_OBJECT_HANDLES = 0x1007
     const val GET_OBJECT_INFO = 0x1008
 
-    /** 遥控快门（15740 表 3）：参数 storageID + objectFormat，storage 用 0xFFFFFFFF 表示默认卡。 */
-    const val INITIATE_CAPTURE = 0x100C
+    /** 标准快门（15740）：参数 storageID + objectFormat。Z 系用 Nikon 0x9207。 */
+    const val INITIATE_CAPTURE = 0x100E
 
-    /** 设备属性描述/取值（15740 表 3）：M5 遥控页读镜头参数。 */
-    const val GET_DEVICE_PROP_DESC = 0x1015
-    const val GET_DEVICE_PROP_VALUE = 0x1016
-    const val SET_DEVICE_PROP_VALUE = 0x1017
+    /** 设备属性描述/取值/写入（15740 表 3，2026-11-14 对 gphoto2 ptp.h 校正）。 */
+    const val GET_DEVICE_PROP_DESC = 0x1014
+    const val GET_DEVICE_PROP_VALUE = 0x1015
+    const val SET_DEVICE_PROP_VALUE = 0x1016
 }
 
-/** 尼康厂商扩展操作码（gphoto2/SnapBridge 口径） */
+/** 尼康厂商扩展操作码（gphoto2 ptp.h 口径） */
 object NikonOpCode {
-    /** 尼康快门（Capture）：参数 storageID + format，与 0x100C 同语义但 Z 系认这个。 */
+    /** 尼康快门（InitiateCaptureRecInMedia）：1 个参数 storageID；Z 系实测可用。 */
     const val CAPTURE = 0x9207
+
+    /** 实时取景：Start / End / GetImage（legacy 0x9203）。 */
+    const val START_LIVE_VIEW = 0x9201
+    const val END_LIVE_VIEW = 0x9202
+    const val GET_LIVE_VIEW_IMAGE = 0x9203
+    const val GET_LIVE_VIEW_IMAGE_EX = 0x9428
+
+    /** 对焦：AfDrive（无参）/ ChangeAfArea（2 参）/ Cancel。 */
+    const val AF_DRIVE = 0x90C1
+    const val CHANGE_AF_AREA = 0x9205
+    const val AF_CANCEL = 0x9206
+
+    /** 相机模式与就绪。 */
+    const val CHANGE_CAMERA_MODE = 0x90C2
+    const val DEVICE_READY = 0x90C8
 }
 
 /** 响应码：OK 之外的都是错误 */

@@ -87,10 +87,8 @@ class PtpSession(
     }
 
     /**
-     * GetDevicePropDesc (0x1015)：相机自报属性类型 + 当前值。
-     * 返回的数据集自带数据类型，调用方无需按属性号猜类型。
-     * 注意：Z30 真机对 0x1015 只回值（4/2/1 字节），完整描述符解析会失败；
-     * 需要当前值时优先用 [getDevicePropValue]。
+     * GetDevicePropDesc (0x1014)：相机自报属性类型 + 当前值 + 可选值形态（范围/枚举）。
+     * 需要写参数时用它拿允许范围。
      */
     fun getDevicePropDesc(code: Int): DevicePropDesc {
         check(state == State.Open || state == State.Ready) { "getDevicePropDesc requires session, state=$state" }
@@ -99,26 +97,32 @@ class PtpSession(
     }
 
     /**
-     * 兼容读取当前属性值：Z30 对 0x1015(GetDevicePropDesc) 只回值（4/2/1 字节），
-     * 对 0x1016(GetDevicePropValue) 直接回 0x201F 取消。
-     * 所以仍发 0x1015：长包按完整描述符解，短包按调用方给的 PTP 类型当值解。
-     */
-    fun getDevicePropValueCompat(code: Int, type: Int): PtpValue {
-        check(state == State.Open || state == State.Ready) { "getDevicePropValueCompat requires session, state=$state" }
-        val data = sendWithPayload(OpCode.GET_DEVICE_PROP_DESC, longArrayOf(code.toLong()))
-        if (data.size < 5) return parsePtpValue(data, type)
-        return runCatching { parseDevicePropDesc(data).current }
-            .getOrElse { parsePtpValue(data, type) }
-    }
-
-    /**
-     * GetDevicePropValue (0x1016)：只回当前值，按调用方给的 PTP 类型解析。
-     * 注意：Z30 真机对该操作回 0x201F（取消），遥控页改用 [getDevicePropValueCompat]。
+     * GetDevicePropValue (0x1015)：只回当前值，按调用方给的 PTP 类型解析。
+     * 遥控页读焦距/光圈/快门/ISO/电量走这条（Z30 真机实测返回 4/2/1 字节）。
      */
     fun getDevicePropValue(code: Int, type: Int): PtpValue {
         check(state == State.Open || state == State.Ready) { "getDevicePropValue requires session, state=$state" }
         val data = sendWithPayload(OpCode.GET_DEVICE_PROP_VALUE, longArrayOf(code.toLong()))
         return parsePtpValue(data, type)
+    }
+
+    /**
+     * SetDevicePropValue (0x1016)：参数=属性码，数据出=新值。
+     * 相机可能夹取/拒绝；调用方必须回读校验。
+     */
+    fun setDevicePropValue(code: Int, type: Int, value: Long) {
+        check(state == State.Ready) { "setDevicePropValue requires Ready, state=$state" }
+        val out = transport as? com.lumina.transport.DataOutTransport
+            ?: throw IllegalStateException("当前链路不支持写参数（需要数据出阶段）")
+        val myTid = tid++
+        val op = OpCode.SET_DEVICE_PROP_VALUE
+        val params = longArrayOf(code.toLong())
+        logRequest(op, myTid, params)
+        out.writeRequestNoResponse(encodeRequest(op, myTid, params))
+        out.writeData(encodePtpValue(value, type))
+        val resp = readResponse(op, myTid)
+        logResponse(op, resp)
+        requireOk(resp, op, myTid)
     }
 
     /**

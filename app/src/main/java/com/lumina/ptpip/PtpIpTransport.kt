@@ -1,5 +1,6 @@
 package com.lumina.ptpip
 
+import com.lumina.transport.DataOutTransport
 import com.lumina.transport.Transport
 import java.io.ByteArrayOutputStream
 import java.io.EOFException
@@ -27,7 +28,7 @@ class PtpIpTransport(
     private val ioTimeoutMs: Int = 15_000,
     private val hostname: String = "Lumina",
     private val diag: (String) -> Unit = {},
-) : Transport {
+) : DataOutTransport {
 
     private var command: Socket? = null
     private var event: Socket? = null
@@ -41,6 +42,12 @@ class PtpIpTransport(
     private val outQueue = ArrayDeque<ByteArray>()
     private var partial: ByteArray? = null
     private var partialOffset = 0
+
+    /** 数据出阶段在途请求（SetDevicePropValue）：请求先发，等主机发完数据再收响应。 */
+    private data class PendingDataOut(val opcode: Int, val ptpTid: Long, val ipTid: Long)
+    private var pendingDataOut: PendingDataOut? = null
+
+    private val dataOutOps = setOf(0x1016) // SetDevicePropValue
 
     val cameraName: String get() = cameraNameField
     private var cameraNameField = ""
@@ -182,6 +189,37 @@ class PtpIpTransport(
         return chunk.size
     }
 
+    /** 数据出请求：只发 OperationRequest，不读响应（相机在等数据）。 */
+    override fun writeRequestNoResponse(chunk: ByteArray): Int {
+        val socket = command ?: throw IOException("transport not open")
+        poisoned?.let { throw IOException(it) }
+        val request = PtpIp.parseRequestContainer(chunk)
+        val ipTid = nextTid++
+        pendingDataOut = PendingDataOut(request.opcode, request.tid, ipTid)
+        val phase = if (request.opcode in dataOutOps) PtpIp.PHASE_OUT else PtpIp.PHASE_NONE
+        sendFrame(socket, PtpIp.operationRequest(phase, request.opcode, ipTid, request.params))
+        diag("PTP-IP → op=0x%04X 数据出请求".format(request.opcode))
+        return chunk.size
+    }
+
+    /** 数据出：StartData + EndData，然后收这一笔的 OperationResponse。 */
+    override fun writeData(payload: ByteArray) {
+        val socket = command ?: throw IOException("transport not open")
+        val pending = pendingDataOut ?: throw IOException("没有待发数据的数据出请求")
+        sendFrame(socket, PtpIp.startData(pending.ipTid, payload.size.toLong()))
+        sendFrame(socket, PtpIp.endData(pending.ipTid, payload))
+        val input = socket.getInputStream()
+        var frame = readFrame(input)
+        while (frame.type != PtpIp.OPERATION_RESPONSE) {
+            if (frame.type != PtpIp.EVENT) diag("数据出后期待响应，忽略 type=${frame.type}")
+            frame = readFrame(input)
+        }
+        val resp = PtpIp.operationResponse(frame.body)
+        outQueue.addLast(PtpIp.responseContainer(resp.code, pending.ptpTid, resp.params))
+        diag("PTP-IP op=0x%04X rc=0x%04X 数据出=%d".format(pending.opcode, resp.code, payload.size))
+        pendingDataOut = null
+    }
+
     override fun read(buffer: ByteBuffer): Int {
         var current = partial
         if (current == null) {
@@ -210,6 +248,7 @@ class PtpIpTransport(
         eventThread = null
         outQueue.clear()
         partial = null
+        pendingDataOut = null
     }
 
     // ---------- socket 与帧 ----------

@@ -84,6 +84,21 @@ fun parseDevicePropDesc(bytes: ByteArray): DevicePropDesc {
 fun parsePtpValue(bytes: ByteArray, type: Int): PtpValue =
     readTypedValue(MtpReader(bytes), type)
 
+/** SetDevicePropValue 的数据出载荷：按 PTP 类型编码。 */
+fun encodePtpValue(value: Long, type: Int): ByteArray = when (type) {
+    PtpDataType.INT8, PtpDataType.UINT8 -> byteArrayOf(value.toByte())
+    PtpDataType.INT16, PtpDataType.UINT16 ->
+        java.nio.ByteBuffer.allocate(2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putShort(value.toShort()).array()
+    PtpDataType.INT32, PtpDataType.UINT32 ->
+        java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putInt(value.toInt()).array()
+    PtpDataType.INT64, PtpDataType.UINT64 ->
+        java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putLong(value).array()
+    else -> throw IllegalArgumentException("unsupported PTP data type 0x%04X".format(type))
+}
+
 internal fun readTypedValue(r: MtpReader, type: Int): PtpValue = when (type) {
     PtpDataType.INT8 -> PtpValue.Num(r.u8().toByte().toLong())
     PtpDataType.UINT8 -> PtpValue.Num(r.u8().toLong())

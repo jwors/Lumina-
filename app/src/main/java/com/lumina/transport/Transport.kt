@@ -24,3 +24,15 @@ interface Transport : AutoCloseable {
     /** 终结操作；之后本实例不可再 open。 */
     override fun close()
 }
+
+/**
+ * 支持「数据出」阶段的传输（SetDevicePropValue 等）：请求 → 主机发数据 → 响应。
+ * 只有实现了本接口的链路（PTP-IP）能写相机属性；USB 链路暂不支持。
+ */
+interface DataOutTransport : Transport {
+    /** 发送请求容器但不等待响应（相机在等数据）。 */
+    fun writeRequestNoResponse(chunk: ByteArray): Int
+
+    /** 发送数据相，并等到相机对上一笔请求的响应。 */
+    fun writeData(payload: ByteArray)
+}

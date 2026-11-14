@@ -47,7 +47,7 @@ object CameraParamsReader {
     fun read(session: PtpSession): CameraParams {
         val values = LinkedHashMap<Int, Long>()
         for ((code, type) in PROP_TYPES) {
-            val value = runCatching { session.getDevicePropValueCompat(code, type) }.getOrNull() ?: continue
+            val value = runCatching { session.getDevicePropValue(code, type) }.getOrNull() ?: continue
             val num = (value as? PtpValue.Num)?.value ?: continue
             values[code] = num
         }
@@ -60,6 +60,25 @@ object CameraParamsReader {
             raw = values,
         )
     }
+
+    /** 属性对应的 PTP 类型（写参数时用）；只读属性返回 null。 */
+    fun typeOf(code: Int): Int? = PROP_TYPES.firstOrNull { it.first == code }?.second
+}
+
+/** 可点调节的常用档位（原始值，单位见 CameraProp 注释）。 */
+object CameraPresets {
+    val aperture: LongArray = longArrayOf(
+        280, 320, 350, 400, 450, 500, 560, 630, 710, 800, 900, 1000,
+        1100, 1300, 1400, 1600, 1800, 2000, 2200,
+    )
+    val shutter: LongArray = longArrayOf(
+        5, 10, 20, 40, 80, 167, 333, 667, 1250, 2500, 5000, 10000, 20000, 40000,
+    )
+    val iso: LongArray = longArrayOf(100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600)
+
+    /** 取下一个档位；到顶回到最小档。 */
+    fun next(values: LongArray, current: Long): Long =
+        values.firstOrNull { it > current } ?: values.first()
 }
 
 /** 焦距：规范口径 1/100mm（5000 → 50mm）；小于 100 的值按已是 mm 兼容处理。 */

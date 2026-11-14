@@ -26,7 +26,10 @@ import com.lumina.ptp.ObjectCatalog
 import com.lumina.ptp.ObjectFormat
 import com.lumina.ptp.PtpResponseException
 import com.lumina.ptp.PtpSession
+import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
+import com.lumina.remote.CameraParamsReader
+import com.lumina.remote.CameraPresets
 import com.lumina.remote.RemoteSession
 import com.lumina.usb.UsbCameraMonitor
 import com.lumina.usb.UsbCameraStateMachine
@@ -311,6 +314,37 @@ class ProbeController(
                     error = e.message,
                 )
             }
+            emitRemote()
+        }
+    }
+
+    /** 点参数卡调档：光圈/快门/ISO 循环到下一个常用档位，写完回读。 */
+    fun remoteCycleParam(code: Int) {
+        if (remoteState.stage != RemoteStage.READY) return
+        val current = remoteState.params?.raw?.get(code) ?: return
+        val type = CameraParamsReader.typeOf(code) ?: return
+        val preset = when (code) {
+            CameraProp.F_NUMBER -> CameraPresets.aperture
+            CameraProp.EXPOSURE_TIME -> CameraPresets.shutter
+            CameraProp.EXPOSURE_INDEX -> CameraPresets.iso
+            else -> return
+        }
+        val next = CameraPresets.next(preset, current)
+        remoteState = remoteState.copy(status = "设置${CameraProp.name(code)}…")
+        emitRemote()
+        remoteIo.execute {
+            val result = runCatching { remoteSessionOrCreate().setParam(code, type, next) }
+            val params = runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
+            remoteState = remoteState.copy(
+                status = result.fold(
+                    { applied ->
+                        if (applied == null || applied == next) "已设置${CameraProp.name(code)}"
+                        else "相机回读 ${CameraProp.name(code)}=$applied（已夹取）"
+                    },
+                    { "设置失败：${it.message}" },
+                ),
+                params = params ?: remoteState.params,
+            )
             emitRemote()
         }
     }

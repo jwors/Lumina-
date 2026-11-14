@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
 
 /**
@@ -143,8 +144,14 @@ internal fun WirelessCameraCard(
 @Composable
 private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
     Spacer(Modifier.height(10.dp))
-    ParamsRow(state.params)
-    Spacer(Modifier.height(10.dp))
+    ParamsRow(state.params) { code -> controller.remoteCycleParam(code) }
+    Text(
+        "点光圈 / 快门 / ISO 调档",
+        fontSize = 9.sp,
+        color = CreamFaint,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+    Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -165,18 +172,33 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
 }
 
 @Composable
-private fun ParamsRow(params: CameraParams?) {
+private fun ParamsRow(params: CameraParams?, onCycle: (Int) -> Unit) {
     val rows = (params ?: CameraParams()).rows()
+    val codes = listOf(
+        CameraProp.FOCAL_LENGTH,
+        CameraProp.F_NUMBER,
+        CameraProp.EXPOSURE_TIME,
+        CameraProp.EXPOSURE_INDEX,
+        CameraProp.BATTERY_LEVEL,
+    )
+    val adjustable = setOf(CameraProp.F_NUMBER, CameraProp.EXPOSURE_TIME, CameraProp.EXPOSURE_INDEX)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        rows.forEach { (label, value) ->
+        rows.forEachIndexed { index, (label, value) ->
+            val code = codes.getOrNull(index)
+            val isAdjustable = code != null && code in adjustable
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .background(Lightbox, RoundedCornerShape(8.dp))
+                    .clickable(enabled = isAdjustable) { code?.let(onCycle) }
                     .padding(vertical = 6.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(label, fontSize = 9.sp, color = CreamFaint)
+                Text(
+                    label,
+                    fontSize = 9.sp,
+                    color = if (isAdjustable) AccentDeep else CreamFaint,
+                )
                 Text(
                     value,
                     fontFamily = FontFamily.Serif,

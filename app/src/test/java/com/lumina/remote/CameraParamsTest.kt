@@ -65,27 +65,27 @@ class CameraParamsTest {
             listOf(
                 FakeCamera.resp(RespCode.OK, 0),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 1,
+                    OpCode.GET_DEVICE_PROP_VALUE, 1,
                     FakeCamera.typedValue(PtpDataType.UINT32, 5000),
                 ),
                 FakeCamera.resp(RespCode.OK, 1),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 2,
+                    OpCode.GET_DEVICE_PROP_VALUE, 2,
                     FakeCamera.typedValue(PtpDataType.UINT16, 560),
                 ),
                 FakeCamera.resp(RespCode.OK, 2),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 3,
+                    OpCode.GET_DEVICE_PROP_VALUE, 3,
                     FakeCamera.typedValue(PtpDataType.UINT32, 40),
                 ),
                 FakeCamera.resp(RespCode.OK, 3),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 4,
+                    OpCode.GET_DEVICE_PROP_VALUE, 4,
                     FakeCamera.typedValue(PtpDataType.UINT16, 400),
                 ),
                 FakeCamera.resp(RespCode.OK, 4),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 5,
+                    OpCode.GET_DEVICE_PROP_VALUE, 5,
                     FakeCamera.typedValue(PtpDataType.UINT8, 82),
                 ),
                 FakeCamera.resp(RespCode.OK, 5),
@@ -109,7 +109,7 @@ class CameraParamsTest {
                 FakeCamera.resp(RespCode.OK, 0),
                 FakeCamera.resp(RespCode.DEVICE_PROP_NOT_SUPPORTED, 1),
                 FakeCamera.dataPack(
-                    OpCode.GET_DEVICE_PROP_DESC, 2,
+                    OpCode.GET_DEVICE_PROP_VALUE, 2,
                     FakeCamera.typedValue(PtpDataType.UINT16, 560),
                 ),
                 FakeCamera.resp(RespCode.OK, 2),

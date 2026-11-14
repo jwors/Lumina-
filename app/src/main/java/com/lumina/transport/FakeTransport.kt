@@ -10,7 +10,7 @@ import java.nio.ByteBuffer
 class FakeTransport(
     /** 每块对应相机的一次完整响应，按序回放；短 buffer 不丢数据，余量留在下一次 read。 */
     private val scriptedResponses: List<ByteArray>,
-) : Transport {
+) : DataOutTransport {
 
     private sealed interface Phase {
         data object Dormant : Phase
@@ -20,6 +20,7 @@ class FakeTransport(
 
     private var phase: Phase = Phase.Dormant
     private val written: MutableList<ByteArray> = mutableListOf()
+    private val dataWritten: MutableList<ByteArray> = mutableListOf()
     private var readIndex = 0
     private var current: ByteArray? = null
     private var currentPos = 0
@@ -37,6 +38,14 @@ class FakeTransport(
         requireOpen()
         written.add(chunk.copyOf())
         return chunk.size
+    }
+
+    /** 数据出请求：只记录，不消耗脚本响应（响应留给随后的 readResponse）。 */
+    override fun writeRequestNoResponse(chunk: ByteArray): Int = write(chunk)
+
+    override fun writeData(payload: ByteArray) {
+        requireOpen()
+        dataWritten.add(payload.copyOf())
     }
 
     override fun read(buffer: ByteBuffer): Int {
@@ -60,6 +69,9 @@ class FakeTransport(
 
     /** 写入留存对照（02 号单测断言"发出的请求字节"用）。 */
     fun observedWrites(): List<ByteArray> = written.toList()
+
+    /** 数据出载荷留存（SetDevicePropValue 单测用）。 */
+    fun observedData(): List<ByteArray> = dataWritten.toList()
 
     override fun close() {
         phase = Phase.Closed

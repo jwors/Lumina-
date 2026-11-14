@@ -195,6 +195,17 @@ class RemoteSession(
         }
     }
 
+    /** 写一个属性并回读；返回相机实际生效的原始值（可能被夹取）。 */
+    fun setParam(code: Int, type: Int, raw: Long): Long? {
+        val s = session ?: throw IllegalStateException("相机未连接")
+        s.setDevicePropValue(code, type, raw)
+        val applied = runCatching {
+            (s.getDevicePropValue(code, type) as? com.lumina.ptp.PtpValue.Num)?.value
+        }.getOrNull()
+        log("写参数 ${com.lumina.ptp.CameraProp.name(code)} raw=$raw 回读=$applied")
+        return applied
+    }
+
     fun capture(): Long {
         val s = session ?: throw IllegalStateException("相机未连接")
         try {
