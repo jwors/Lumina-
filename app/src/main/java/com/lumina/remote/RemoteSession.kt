@@ -226,8 +226,8 @@ class RemoteSession(
 
     /**
      * 枚举 Z30 的目录层级（存储 → DCIM → 100NZ30 → 文件），取最大 JPEG handle。
-     * 不能只发 parent=0xFFFFFFFF：Z30 只回根目录（实测 1 个 handle），新照片在子目录里。
-     * 只对候选 handle 的头部做 GetObjectInfo，避免为整张卡每张照片发一次事务。
+     * 先用 parent=0xFFFFFFFF 拿根（Z30 只回 1 个），只对文件夹发 GetObjectHandles，
+     * 避免对每个文件发子项查询——相机会回 0x201A InvalidParentObject，实测能拖到 40 秒。
      */
     private fun newestJpegHandle(): Long? {
         val s = session ?: return null
@@ -235,26 +235,35 @@ class RemoteSession(
             val storages = runCatching { s.listStorage().map { it.id } }
                 .getOrDefault(emptyList())
                 .ifEmpty { listOf(PtpSession.DEFAULT_STORAGE) }
-            val candidates = LinkedHashSet<Long>()
+            val files = LinkedHashSet<Long>()
             for (storage in storages) {
-                var roots = runCatching { s.getObjectHandles(storage, 0, 0) }.getOrDefault(emptyList())
+                var roots = runCatching {
+                    s.getObjectHandles(storage, 0, PtpSession.PARENT_ALL)
+                }.getOrDefault(emptyList())
                 if (roots.isEmpty()) {
-                    roots = runCatching {
-                        s.getObjectHandles(storage, 0, PtpSession.PARENT_ALL)
-                    }.getOrDefault(emptyList())
+                    roots = runCatching { s.getObjectHandles(storage, 0, 0) }.getOrDefault(emptyList())
                 }
-                candidates.addAll(roots)
                 for (root in roots) {
+                    val rootInfo = runCatching { s.getObjectInfo(root) }.getOrNull() ?: continue
+                    if (!rootInfo.isFolder) {
+                        files.add(root)
+                        continue
+                    }
                     val level1 = runCatching { s.getObjectHandles(storage, 0, root) }.getOrDefault(emptyList())
-                    candidates.addAll(level1)
-                    for (folder in level1) {
-                        candidates.addAll(
-                            runCatching { s.getObjectHandles(storage, 0, folder) }.getOrDefault(emptyList()),
-                        )
+                    for (child in level1) {
+                        val childInfo = runCatching { s.getObjectInfo(child) }.getOrNull()
+                        if (childInfo?.isFolder == true) {
+                            files.addAll(
+                                runCatching { s.getObjectHandles(storage, 0, child) }
+                                    .getOrDefault(emptyList()),
+                            )
+                        } else if (childInfo != null) {
+                            files.add(child)
+                        }
                     }
                 }
             }
-            candidates.sortedDescending().take(32).firstOrNull { handle ->
+            files.sortedDescending().take(4).firstOrNull { handle ->
                 val info = runCatching { s.getObjectInfo(handle) }.getOrNull()
                 info != null && !info.isFolder &&
                     info.format == com.lumina.ptp.ObjectFormat.EXIF_JPEG
