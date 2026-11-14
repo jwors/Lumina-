@@ -9,12 +9,12 @@
 
 **Blocked by:** 01（图库工作台/查看器）、04（Master 盘点）
 
-**Status:** resolved（2026-11-14 开工，2026-11-15 收尾）
+**Status:** resolved（2026-11-14 开工，2026-11-15 收尾 + 真机复验通过）
 
 - [x] 删除链路：文件在即为准——文件删不掉就不删盘点行（否则下次 `loadGallery` 收养复活）——`MasterStore.deleteMaster` 三态 + 测例
 - [x] JVM 单测：`MasterStore.deleteMaster` 三态（删成功/文件删不掉保行/失效行清理）+ `WorkFiles` 命名契约（含 onDeleted 缓存回调）+ `GalleryDeletePlan` 同名/同 base 保护
 - [x] 全量单测回归：`tests=215 failures=0 errors=0`（40 suites）
-- [ ] 真机复验：多选删除 / 查看器删除 / 弹窗取消 / 删空图库回到空态（需 Z30 真机，未执行）
+- [x] 真机复验：多选删除 / 查看器删除 / 弹窗取消 / 删空图库回到空态——2026-11-15 装 `b6963b53` 后用户确认「功能没问题」
 
 **证据（2026-11-15）：**
 ```
