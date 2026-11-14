@@ -11,7 +11,7 @@ package com.lumina.probe
  * 语义：
  * - 集合/可空引用类字段：新包"未携带"（空集/null）→ 保留 base 值；非空 → 新值生效
  * - 布尔 engineReady：只进不退（历史语义）
- * - 明确清空语义（清勾选/关弹层）走专用发射器（emitSelection/emitCardRun），不经此合并
+ * - 明确清空语义（清勾选/关弹层/删空图库）走专用发射器（emitSelection/emitCardRun/emitGallerySnapshot），不经此合并
  */
 internal object StateMerge {
 

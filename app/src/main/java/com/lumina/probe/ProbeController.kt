@@ -41,6 +41,7 @@ import com.lumina.usb.UsbCameraStateMachine
 import com.lumina.usb.UsbDeviceClassifier
 import com.lumina.usb.UsbTransport
 import com.lumina.usb.UsbTransportException
+import com.lumina.work.WorkFiles
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
@@ -1629,6 +1630,88 @@ class ProbeController(
         }
     }
 
+    /**
+     * 图库删除（M3-06）：按 relPath 定位（同名不同日期不互相误删），级联清
+     * Master 文件 + 盘点行 + Work 成片 + 智能结果 + 待处理队列 + 缩略图缓存。
+     * 名称键控的派生数据只在无同名 Master 残留时删；Work 文件名按"原名去扩展"共享，
+     * 仍有同 base 的 Master（如 NEF + JPG 同 base）就保留成片。
+     */
+    fun deleteGalleryItems(
+        relPaths: Collection<String>,
+        onDone: ((removed: Int) -> Unit)? = null,
+    ) {
+        io.execute {
+            val wanted = relPaths.toSet()
+            val rows = masterStore.snapshot()
+            val targets = rows.filter { it.relPath in wanted }
+            if (targets.isEmpty()) {
+                // 图库页不渲染 connectionText：这里必须用 toast，否则点了没反应
+                toastify("图库删除：没有可删的对象")
+                return@execute
+            }
+            val removedRows = mutableListOf<com.lumina.master.MasterInventoryEntity>()
+            var failed = 0
+            var freedBytes = 0L
+            for (row in targets) {
+                when (val result = masterStore.deleteMaster(row.relPath)) {
+                    is MasterStore.MasterDeleteResult.FileDeleteFailed -> {
+                        failed++
+                        logEvents(listOf("gallery delete: ${row.relPath} file delete failed (row kept)"))
+                    }
+                    is MasterStore.MasterDeleteResult.Deleted -> {
+                        removedRows += row
+                        freedBytes += row.sizeBytes
+                    }
+                    is MasterStore.MasterDeleteResult.AlreadyGone -> removedRows += row // 没有字节可释放
+                }
+            }
+            // 失败条目仍留在盘上 → 它们也算"残留"；盘点里的幽灵行（文件已不在）不算
+            val removedSet = removedRows.map { it.relPath }.toSet()
+            val remaining = rows.filter {
+                it.relPath !in removedSet && masterStore.fileOf(it.relPath).exists()
+            }
+            val plan = com.lumina.master.GalleryDeletePlan.plan(removedRows, remaining)
+            // 缩略图缓存：网格键 = Work 优先 / 回退 Master；查看器共用同一本账
+            for (row in removedRows) {
+                val item = lastGalleryItems.firstOrNull { it.relPath == row.relPath }
+                ThumbCache.remove(row.relPath)
+                item?.fallbackRelPath?.let { ThumbCache.remove(it) }
+                item?.workRelPath?.let { ThumbCache.remove(it) }
+            }
+            // Work 成片：真删掉的每个成片都同步清缓存（_g 与 _w 两份都可能被缓存过）
+            val work = WorkFiles.deleteDerived(appContext.filesDir, plan.workNames) { file ->
+                ThumbCache.remove(file.relativeTo(appContext.filesDir).invariantSeparatorsPath)
+            }
+            // 名称键控派生数据：仅在无同名 Master 残留时删
+            for (name in plan.purgeNames) {
+                resultsDao.deleteByName(name)
+                passQueueDao.deleteByName(name)
+            }
+            // 勾选通道：删掉的名字必须退出，否则底栏计数指着不存在的片
+            if (passSelection.removeAll(plan.purgeNames)) emitSelection()
+            val summary = buildString {
+                append("已删除 ${removedRows.size} 张 · 释放 ${humanBytes(freedBytes)}")
+                if (work.removed > 0) append(" · 清 Work ${work.removed} 个")
+                if (failed > 0) append(" · 失败 $failed 张（文件无法删除）")
+                if (work.failed > 0) append(" · Work 有 ${work.failed} 个删不掉")
+            }
+            logEvents(listOf(
+                "gallery delete: ${removedRows.size}/${targets.size} removed · failed=$failed · " +
+                    "work=${work.removed}/fail=${work.failed}",
+            ))
+            // 先落新快照再重算补跑横幅（否则相机页还挂着"N 个待处理"的旧口号）
+            lastGalleryItems = buildGalleryItems()
+            lastGalleryStatus = summary
+            if (plan.purgeNames.isNotEmpty()) updateCatchupBanner()
+            emitGallerySnapshot(
+                status = summary,
+                build = { lastGalleryItems },
+                after = { onDone?.invoke(removedRows.size) },
+            )
+            toastify(summary)
+        }
+    }
+
     /** 图库根目录（= filesDir；布局约束见 ADR-0004）——已并入 loadGallery 的 walkTopDown */
 
     // ---------- Ingest 进度（工单 05） ----------
@@ -2323,6 +2406,28 @@ class ProbeController(
         mainThread.post { onState(next) }
     }
 
+    /**
+     * 图库快照专用发射（与 emitSelection/emitCardRun 同族）：删除/清出后图库可能变空，
+     * "空列表"是明确结果，不能走 emit 的保留式合并（会被当成"没带值"）。
+     * [build] 允许复用刚扫过的快照；[extra] 追加同帧字段（如 passStatus）；
+     * [after] 在状态落地后回调（查看器据此"真删掉才关"）。
+     */
+    private fun emitGallerySnapshot(
+        status: String,
+        build: () -> List<GalleryItem> = { buildGalleryItems() },
+        extra: (ProbeUiState) -> ProbeUiState = { it },
+        after: (() -> Unit)? = null,
+    ) {
+        lastGalleryItems = build()
+        lastGalleryStatus = status
+        val next = extra(lastEmitted.get()).copy(galleryItems = lastGalleryItems, galleryStatus = status)
+        lastEmitted.set(next)
+        mainThread.post {
+            onState(next)
+            after?.invoke()
+        }
+    }
+
     /** WebDAV 备份专用发射（语义同 emitCardRun/emitSelection：清空/翻转合并吞不得）。 */
     private fun emitBackup(run: BackupUi?) {
         val next = lastEmitted.get().copy(backup = run)
@@ -2521,7 +2626,7 @@ class ProbeController(
                         val poster = com.lumina.work.HybridZineRenderer.render(
                             bg, photoBmp, pageTitle, row.dateKey, page = page,
                         )
-                        val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
+                        val rel = WorkFiles.generativeRelPath(row.dateKey, name)
                         val f = java.io.File(appContext.filesDir, rel)
                         f.parentFile?.mkdirs()
                         f.outputStream().use { poster.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
@@ -2585,7 +2690,7 @@ class ProbeController(
             // 命名契约与 buildGalleryItems 扫描严格一致：<base>_g.jpg
             // （事故记录：曾用 replaceAfterLast('.', "g.jpg") 把 CHY_3671_w.jpg 变成
             //   CHY_3671_w.g.jpg，扫描找 CHY_3671_g.jpg 永远落空 → "生成的还是原图"）
-            val rel = "Work/${row.dateKey}/${name.substringBeforeLast('.')}_g.jpg"
+            val rel = WorkFiles.generativeRelPath(row.dateKey, name)
             File(appContext.filesDir, rel).parentFile?.mkdirs()
             File(appContext.filesDir, rel).writeBytes(bytes)
             resultsDao.insert(com.lumina.pass.SmartResultEntity(
@@ -2618,19 +2723,11 @@ class ProbeController(
                 }
             }
             logEvents(listOf("dav: cleanup removed $removed / ${run.deletableNames.size}"))
-            lastGalleryItems = buildGalleryItems()
             masterStore.pruneAbsent()
             emitBackup(null)
             val summary = "已清出手机 × $removed（Remainder 见备份 log）"
             lastIngestStatus = summary
-            lastGalleryStatus = summary
-            val next = lastEmitted.get().copy(
-                galleryItems = lastGalleryItems,
-                galleryStatus = summary,
-                passStatus = summary,
-            )
-            lastEmitted.set(next)
-            mainThread.post { onState(next) }
+            emitGallerySnapshot(status = summary, extra = { it.copy(passStatus = summary) })
         }
     }
 

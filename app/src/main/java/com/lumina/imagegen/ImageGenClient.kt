@@ -147,10 +147,10 @@ class ImageGenClient(
     }
 
     companion object {
-        /** 字节 → Work 层文件（_g.jpg 由图库扫描契约收录）。 */
+        /** 字节 → Work 层文件（_g.jpg 由图库扫描契约收录；命名真相在 WorkFiles）。 */
         fun saveToWork(bytes: ByteArray, workDir: File, baseName: String): File? = runCatching {
             workDir.mkdirs()
-            val out = File(workDir, "${baseName}_g.jpg")
+            val out = File(workDir, com.lumina.work.WorkFiles.generativeName(baseName))
             out.writeBytes(bytes)
             out
         }.getOrNull()

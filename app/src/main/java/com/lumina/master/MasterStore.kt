@@ -106,6 +106,30 @@ class MasterStore(
     /** 清出手机（M3-04）：删盘点行（文件删除在调用方做，先删文件再删行）。 */
     fun deleteRow(relPath: String): Int = inventory.deleteByRelPath(relPath)
 
+    /**
+     * 图库删除（M3-06）：文件 + 盘点行一并对账。
+     * 顺序即纪律——**文件删不掉就不删行**（否则下次 loadGallery 的磁盘收养会把条目复活，
+     * 用户看到"删了又回来"）；文件本就不在时照删行（清失效记录）。
+     */
+    fun deleteMaster(relPath: String): MasterDeleteResult {
+        val file = fileOf(relPath)
+        // 先试删再看盘：exists→delete 之间的消失不算失败（文件在即为准）
+        if (file.exists()) {
+            file.delete()
+            if (file.exists()) return MasterDeleteResult.FileDeleteFailed(relPath)
+        }
+        val removed = inventory.deleteByRelPath(relPath)
+        return if (removed > 0) MasterDeleteResult.Deleted(relPath) else MasterDeleteResult.AlreadyGone(relPath)
+    }
+
+    sealed interface MasterDeleteResult {
+        data class Deleted(val relPath: String) : MasterDeleteResult
+        /** 文件仍在（占用/只读）：盘点行保留，避免对账复活。 */
+        data class FileDeleteFailed(val relPath: String) : MasterDeleteResult
+        /** 文件与盘点行本来都不在：没有可删的东西（按"已清干净"记账）。 */
+        data class AlreadyGone(val relPath: String) : MasterDeleteResult
+    }
+
     /** 同名/同路径是否已登记（去重判断用）。 */
     fun findByRelPath(relPath: String): MasterInventoryEntity? = inventory.findByRelPath(relPath)
 

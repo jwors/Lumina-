@@ -39,6 +39,10 @@ interface SmartResultsDao {
 
     @Query("SELECT * FROM smart_results WHERE name = :name ORDER BY createdAtMs DESC")
     fun byName(name: String): List<SmartResultEntity>
+
+    /** 图库删除 Master 时级联清该片全部智能结果（名称键控；无同名 Master 才调用）。 */
+    @Query("DELETE FROM smart_results WHERE name = :name")
+    fun deleteByName(name: String): Int
 }
 
 @Dao

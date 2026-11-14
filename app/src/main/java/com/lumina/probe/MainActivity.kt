@@ -616,6 +616,8 @@ private fun GalleryPage(
     // 查看/多选状态放函数体层：查看器覆盖层在 Column 收口后仍要能给整页上盖
     var viewerStart by remember { mutableStateOf<Int?>(null) }
     var viewFeed by remember { mutableStateOf(false) }
+    // M3-06：多选删除待确认清单（查看器有自己的同款弹窗）
+    var deleteTargets by remember { mutableStateOf<List<GalleryItem>>(emptyList()) }
     val albumLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
     ) { uri: android.net.Uri? -> uri?.let { controller.importFromAlbum(it) } }
@@ -742,9 +744,22 @@ private fun GalleryPage(
                 state = state,
                 controller = controller,
                 onGo = onGoRecipe,
+                onDelete = {
+                    deleteTargets = state.galleryItems.filter { it.name in state.passSelectedNames }
+                },
             )
         }
     } // Column
+    deleteTargets.takeIf { it.isNotEmpty() }?.let { targets ->
+        ConfirmDeleteMastersDialog(
+            items = targets,
+            onDismiss = { deleteTargets = emptyList() },
+            onConfirm = {
+                controller.deleteGalleryItems(targets.map { it.relPath })
+                deleteTargets = emptyList()
+            },
+        )
+    }
     viewerStart?.let { start ->
         Dialog(
             onDismissRequest = { viewerStart = null },
@@ -904,51 +919,134 @@ private fun GalleryCell(
     }
 }
 
-/** 多选底部固定操作栏（相册类 App 习惯：选中即起；CTA 去滤镜页承接确认弹层）。 */
+/** 多选底部固定操作栏（相册类 App 习惯：选中即起；CTA 去滤镜页承接确认弹层，删除走二次确认）。 */
 @Composable
 private fun GallerySelectBar(
     state: ProbeUiState,
     controller: ProbeController,
     onGo: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val totalJpeg = state.galleryItems.count { isJpegName(it.name) }
-    Row(
+    val selectedNames = state.passSelectedNames
+    // 勾选通道键是文件名（同名跨日期会同时打勾）：展示/删除按可见条目计数，滤镜队列按 JPEG 名计数
+    val selectedCount = state.galleryItems.count { it.name in selectedNames }
+    val selectedJpegCount = selectedNames.count { isJpegName(it) }
+    val allSelected = totalJpeg > 0 &&
+        state.galleryItems.filter { isJpegName(it.name) }.all { it.name in selectedNames }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(CardBg)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Text(
-            "取消",
-            fontSize = 13.sp, color = SageText, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clickable { controller.clearPassSelection() }
-                .padding(horizontal = 10.dp, vertical = 10.dp),
-        )
-        Text(
-            if (state.passSelectedNames.size >= totalJpeg) "清空全选" else "全选 JPEG",
-            fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clickable {
-                    if (state.passSelectedNames.size >= totalJpeg) {
-                        controller.clearPassSelection()
-                    } else {
-                        state.galleryItems.filter { isJpegName(it.name) }.forEach { gi ->
-                            if (!state.passSelectedNames.contains(gi.name)) {
-                                controller.togglePassSelection(gi.name)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "已选 $selectedCount 张",
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = InkTeal,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "取消",
+                fontSize = 13.sp, color = SageText, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable { controller.clearPassSelection() }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+            Text(
+                if (allSelected) "清空全选" else "全选 JPEG",
+                fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable {
+                        if (allSelected) {
+                            controller.clearPassSelection()
+                        } else {
+                            state.galleryItems.filter { isJpegName(it.name) }.forEach { gi ->
+                                if (!selectedNames.contains(gi.name)) {
+                                    controller.togglePassSelection(gi.name)
+                                }
                             }
                         }
                     }
-                }
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-        )
-        Spacer(Modifier.weight(1f))
-        PillButton(
-            label = "用配方处理 ${state.passSelectedNames.size} 张 →",
-            filled = true,
-        ) { onGo() }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // 危险动作给足 48dp 触控区（与 PillButton 同高，拇指点得中但视觉上仍是次级键）
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .border(1.dp, WarnBrown.copy(alpha = 0.45f), RoundedCornerShape(999.dp))
+                    .clickable { onDelete() }
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "删除 $selectedCount 张",
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = WarnBrown,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            PillButton(
+                label = "用配方处理 $selectedJpegCount 张 →",
+                filled = true,
+            ) { onGo() }
+        }
     }
+}
+
+/** M3-06 删除确认：显示张数 + 合计体积 + 不可恢复警示（Master 是锚点，默认不手滑）。 */
+@Composable
+private fun ConfirmDeleteMastersDialog(
+    items: List<GalleryItem>,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val totalBytes = items.sumOf { it.sizeBytes }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardBg,
+        title = {
+            Text(
+                "删除 ${items.size} 张 Master？",
+                fontSize = 17.sp, fontWeight = FontWeight.Bold, color = InkTeal,
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    "会永久删除原片，并一并清理其 Work 成片、智能结果与待处理队列。",
+                    fontSize = 13.sp, color = SageText,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "合计 ${humanBytes(totalBytes)} · 此操作不可恢复",
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = WarnBrown,
+                )
+            }
+        },
+        confirmButton = {
+            Text(
+                "删除",
+                fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WarnBrown,
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clickable { onConfirm() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        },
+        dismissButton = {
+            Text(
+                "取消",
+                fontSize = 14.sp, color = SageText,
+                modifier = Modifier
+                    .defaultMinSize(minHeight = 48.dp)
+                    .clickable { onDismiss() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        },
+    )
 }
 
 /** 全屏查看器：大图横滑 + 底部工具栏（M3-01；承接原详情弹窗的智能三步）。 */
@@ -962,6 +1060,8 @@ private fun GalleryViewerOverlay(
 ) {
     val items = state.galleryItems
     var shareItem by remember { mutableStateOf<GalleryItem?>(null) }
+    // M3-06：查看器内的单张删除（与多选底栏同款确认弹窗）
+    var deleteTarget by remember { mutableStateOf<GalleryItem?>(null) }
     val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
     Box(modifier = Modifier.fillMaxSize().background(Lightbox)) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -1004,6 +1104,13 @@ private fun GalleryViewerOverlay(
                             },
                         )
                         androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("删除这张", color = WarnBrown) },
+                            onClick = {
+                                menuOpen = false
+                                deleteTarget = items.getOrNull(pagerState.currentPage)
+                            },
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
                             text = { Text("关闭") },
                             onClick = { menuOpen = false; onClose() },
                         )
@@ -1030,6 +1137,19 @@ private fun GalleryViewerOverlay(
         ) {
             ShareSheetBody(gi = gi, controller = controller)
         }
+    }
+    deleteTarget?.let { gi ->
+        ConfirmDeleteMastersDialog(
+            items = listOf(gi),
+            onDismiss = { deleteTarget = null },
+            onConfirm = {
+                deleteTarget = null
+                // 真正删掉后再关查看器：文件删不掉时留在大图，toast 说原因
+                controller.deleteGalleryItems(listOf(gi.relPath)) { removed ->
+                    if (removed > 0) onClose()
+                }
+            },
+        )
     }
 }
 

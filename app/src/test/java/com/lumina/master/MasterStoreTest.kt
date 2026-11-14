@@ -103,4 +103,54 @@ class MasterStoreTest {
         assertEquals("2026-10-31", MasterPaths.dateKeyOf(capture, 123L)) // 拍摄日期优先
         assertEquals("1970-01-01", MasterPaths.dateKeyOf(null, null))    // 双缺省占位
     }
+
+    // ---------- M3-06 图库删除：文件 + 盘点行一并对账 ----------
+
+    @Test
+    fun `deleteMaster removes file and inventory row`() {
+        val s = store()
+        val f = touch("Master/2026-10-31/DSC_N0379.JPG")
+        s.register(capture, null, "DSC_N0379.JPG", sizeBytes = 3)
+
+        val result = s.deleteMaster("Master/2026-10-31/DSC_N0379.JPG")
+
+        assertTrue(result is MasterStore.MasterDeleteResult.Deleted)
+        assertEquals(false, f.exists())
+        assertEquals(0, s.snapshot().size)
+    }
+
+    @Test
+    fun `deleteMaster keeps row when file cannot be deleted`() {
+        val s = store()
+        // 目录非空 → File.delete() 失败（真机上对应"文件被占用"路径）
+        val dir = File(tmp.root, "Master/2026-10-31/LOCKED.JPG")
+        dir.mkdirs()
+        Files.write(File(dir, "child.bin").toPath(), byteArrayOf(1))
+        s.register(capture, null, "LOCKED.JPG", sizeBytes = 1)
+
+        val result = s.deleteMaster("Master/2026-10-31/LOCKED.JPG")
+
+        assertTrue(result is MasterStore.MasterDeleteResult.FileDeleteFailed)
+        assertEquals(1, s.snapshot().size) // 行保留：否则 loadGallery 的磁盘收养会复活
+    }
+
+    @Test
+    fun `deleteMaster clears stale row whose file is already gone`() {
+        val s = store()
+        val f = touch("Master/2026-10-31/GONE.JPG")
+        s.register(capture, null, "GONE.JPG", sizeBytes = 3)
+        f.delete()
+
+        val result = s.deleteMaster("Master/2026-10-31/GONE.JPG")
+
+        assertTrue(result is MasterStore.MasterDeleteResult.Deleted)
+        assertEquals(0, s.snapshot().size)
+    }
+
+    @Test
+    fun `deleteMaster on unknown path reports already gone`() {
+        val s = store()
+        val result = s.deleteMaster("Master/2026-10-31/NOPE.JPG")
+        assertTrue(result is MasterStore.MasterDeleteResult.AlreadyGone)
+    }
 }

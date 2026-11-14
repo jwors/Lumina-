@@ -42,11 +42,9 @@ class WorkRenderer(
     }
 
     companion object {
-        /** 目标文件布局：Work/<dateKey>/<原名去扩展>_w.jpg */
-        fun workRelPath(dateKey: String, origName: String): String {
-            val base = origName.substringBeforeLast('.')
-            return "Work/$dateKey/${base}_w.jpg"
-        }
+        /** 目标文件布局：Work/<dateKey>/<原名去扩展>_w.jpg（命名真相在 WorkFiles）。 */
+        fun workRelPath(dateKey: String, origName: String): String =
+            WorkFiles.lutRelPath(dateKey, origName)
 
         /** 滤镜矩阵选择（null = 不套色矩阵只做锐化塑形） */
         internal fun matrixFor(suggestText: String): ColorMatrix? {
