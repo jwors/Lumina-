@@ -991,43 +991,61 @@ class ProbeController(
 
     private val runningSingle = mutableSetOf<String>()
 
-    /** 编辑界面单步执行：对一张 Master 即时跑某类步骤（标注/文案/滤镜建议） */
-    fun runSingleStep(name: String, kind: com.lumina.cards.StepKind) {
+    /**
+     * 查看器单步：滤镜建议（2026-11-15 起只保留这一项；标注/文案步骤全产品停用）。
+     * prompt 取卡库第一张卡的滤镜建议步骤，缺省用内置模板。
+     */
+    fun runFilterSuggestion(name: String) {
         io.execute {
             val cfg = llmConfigDao.active()
-            if (cfg == null) { emit(lastEmitted.get().copy(passStatus = "先配置 LLM")); return@execute }
-            val jpeg = jpegBytesFor(name)
-            if (jpeg == null) { emit(lastEmitted.get().copy(passStatus = "$name 无 JPEG 源")); return@execute }
-            runningSingle.add(name)
-            emit(lastEmitted.get().copy(passStatus = "$name ${kind.name.lowercase()} 执行中…"))
-            // prompt：启用卡里同名步骤的 prompt，否则默认模板
-            val prompt = firstCard()?.steps?.firstOrNull { it.kind == kind }?.prompt
-                ?: com.lumina.pass.PassExecutor.Prompts.annotate.takeIf { kind == com.lumina.cards.StepKind.ANNOTATE }
-                    ?: com.lumina.pass.PassExecutor.Prompts.caption.takeIf { kind == com.lumina.cards.StepKind.CAPTION }
-                    ?: com.lumina.pass.PassExecutor.Prompts.filter
-            val outcome = com.lumina.llm.OkHttpLlmClient().complete(cfg, prompt, jpeg)
-            when (val o = outcome) {
-                is com.lumina.llm.LlmOutcome.Text -> {
-                    resultsDao.insert(com.lumina.pass.SmartResultEntity(
-                        0, name, "_direct", kind.name.lowercase(), o.text, cfg.model, System.currentTimeMillis(),
-                    ))
-                    ledgerDaoX.insert(com.lumina.llm.LedgerEntity(
-                        0, name, cfg.model, prompt.length, jpeg != null,
-                        "OK", o.promptTokens, o.completionTokens, System.currentTimeMillis(),
-                    ))
-                }
-                is com.lumina.llm.LlmOutcome.RateLimited -> ledgDaoSafe("RateLimited", cfg, prompt, jpeg != null)
-                is com.lumina.llm.LlmOutcome.Http -> ledgDaoSafe("Http_${o.code}", cfg, prompt, jpeg != null)
-                is com.lumina.llm.LlmOutcome.NetworkTimeout -> ledgDaoSafe("NetworkTimeout", cfg, prompt, jpeg != null)
+            if (cfg == null) {
+                emit(lastEmitted.get().copy(passStatus = "滤镜建议：先配置 LLM"))
+                return@execute
             }
-            runningSingle.remove(name)
-            lastGalleryItems = buildGalleryItems()
-            emit(lastEmitted.get().copy(
-                galleryItems = lastGalleryItems,
-                passStatus = if (outcome is com.lumina.llm.LlmOutcome.Text) "" else "执行失败",
-                passSelectedNames = passSelection.toSet(),
-                smartFeed = loadSmartFeedLines(),
-            ))
+            // 单步走云端：云处理总开关关着就不真调（与配方执行同一道闸）
+            if (!cfg.cloudEnabled) {
+                emit(lastEmitted.get().copy(passStatus = "滤镜建议：云处理总开关是关的（先到设置打开）"))
+                return@execute
+            }
+            val jpeg = jpegBytesFor(name)
+            if (jpeg == null) {
+                emit(lastEmitted.get().copy(passStatus = "滤镜建议：$name 无 JPEG 源"))
+                return@execute
+            }
+            if (!runningSingle.add(name)) {
+                emit(lastEmitted.get().copy(passStatus = "滤镜建议：$name 已有一步在跑，等它完成"))
+                return@execute
+            }
+            try {
+                emit(lastEmitted.get().copy(passStatus = "滤镜建议：$name 执行中…"))
+                val prompt = firstCard()?.steps?.firstOrNull { it.kind == com.lumina.cards.StepKind.FILTER_SUGGEST }?.prompt
+                    ?: com.lumina.pass.PassExecutor.Prompts.filter
+                val outcome = com.lumina.llm.OkHttpLlmClient().complete(cfg, prompt, jpeg)
+                when (val o = outcome) {
+                    is com.lumina.llm.LlmOutcome.Text -> {
+                        resultsDao.insert(com.lumina.pass.SmartResultEntity(
+                            0, name, "_direct", com.lumina.cards.StepKind.FILTER_SUGGEST.name.lowercase(),
+                            o.text, cfg.model, System.currentTimeMillis(),
+                        ))
+                        ledgerDaoX.insert(com.lumina.llm.LedgerEntity(
+                            0, name, cfg.model, prompt.length, true,
+                            "OK", o.promptTokens, o.completionTokens, System.currentTimeMillis(),
+                        ))
+                    }
+                    is com.lumina.llm.LlmOutcome.RateLimited -> ledgDaoSafe("RateLimited", cfg, prompt, true)
+                    is com.lumina.llm.LlmOutcome.Http -> ledgDaoSafe("Http_${o.code}", cfg, prompt, true)
+                    is com.lumina.llm.LlmOutcome.NetworkTimeout -> ledgDaoSafe("NetworkTimeout", cfg, prompt, true)
+                }
+                lastGalleryItems = buildGalleryItems()
+                emit(lastEmitted.get().copy(
+                    galleryItems = lastGalleryItems,
+                    passStatus = if (outcome is com.lumina.llm.LlmOutcome.Text) "" else "滤镜建议：执行失败",
+                    passSelectedNames = passSelection.toSet(),
+                    smartFeed = loadSmartFeedLines(),
+                ))
+            } finally {
+                runningSingle.remove(name)
+            }
         }
     }
 
@@ -1820,14 +1838,18 @@ class ProbeController(
             cardsLoading = true
             emit(ProbeUiState("配方库盘点中…", cardsLoading = true))
             cardDao().let { dao ->
-                // M3 起点：内置卡播种升级为"缺哪补哪"——按名字对账，新版本内置卡也能补进旧设备库
-                // M2-07：用户删掉的内置卡有墓碑，不再补回
-                val existingNames = dao.all().map { it.name }.toSet()
-                val missing = CardEngine.builtInsToSeed(
-                    existingNames,
+                // M3 起点：内置卡"缺哪补哪"；2026-11-15 起再同步定义（标注/文案步骤停用，
+                // 只保留滤镜建议/生成式），纯标注/文案的内置卡随之下架。
+                val rows = dao.all()
+                val plan = CardEngine.syncPlan(
+                    rows,
                     com.lumina.cards.CardPrefs.deletedBuiltIns(appContext),
                 )
-                missing.forEach { card ->
+                plan.retireCardIds.forEach { cardId ->
+                    dao.deleteById(cardId)
+                    passQueueDao.deleteByCardId(cardId) // 下架卡的待处理行一起退场
+                }
+                plan.seed.forEach { card ->
                     dao.upsert(
                         CardEntity(
                             cardId = card.cardId, name = card.name, version = card.version,
@@ -1836,9 +1858,22 @@ class ProbeController(
                         ),
                     )
                 }
-                if (missing.isNotEmpty()) {
-                    logEvents(listOf("cards: seeded ${missing.size} missing built-ins (${missing.joinToString { it.name }})"))
+                plan.refresh.forEach { refresh ->
+                    val row = rows.firstOrNull { it.cardId == refresh.cardId } ?: return@forEach
+                    dao.upsert(
+                        row.copy(
+                            name = refresh.card.name, version = refresh.card.version,
+                            stepsJson = CardEngine.toJson(refresh.card), imported = false,
+                        ),
+                    )
                 }
+                if (plan.retireCardIds.isNotEmpty() || plan.seed.isNotEmpty() || plan.refresh.isNotEmpty()) {
+                    logEvents(listOf(
+                        "cards: sync retired=${plan.retireCardIds.size} " +
+                            "seeded=${plan.seed.size} refreshed=${plan.refresh.size}",
+                    ))
+                }
+                if (plan.retireCardIds.isNotEmpty()) updateCatchupBanner()
             }
             lastCards = loadCardRows()
             cardsLoading = false
@@ -1940,7 +1975,14 @@ class ProbeController(
 
     private fun loadCardRows(): List<CardUi> = cardDao().all().map {
         val steps = CardEngine.parse(it.stepsJson) { CardEngine.newId() }.steps
-        CardUi(it.cardId, it.name, it.version, steps.size, it.imported, steps.map { s -> stepLabelZh(s.kind) })
+        val skipped = steps.count { s ->
+            s.kind == com.lumina.cards.StepKind.ANNOTATE || s.kind == com.lumina.cards.StepKind.CAPTION
+        }
+        CardUi(
+            it.cardId, it.name, it.version, steps.size, it.imported,
+            steps.map { s -> stepLabelZh(s.kind) },
+            skippedSteps = skipped,
+        )
     }
 
     /** 步骤类型 → 中文链路名（确认弹层的执行顺序展示）。 */
@@ -3067,6 +3109,8 @@ data class CardUi(
     val imported: Boolean,
     /** 步骤链显示名（确认弹层用；顺序即执行顺序） */
     val steps: List<String> = emptyList(),
+    /** 卡里含已停用的标注/文案步骤数（执行时跳过；确认弹层提示用） */
+    val skippedSteps: Int = 0,
 )
 
 /** 保存方式（M3 收尾）：另存 Work 副本 / 覆盖 Master（仅 JPEG Master 允许覆盖） */

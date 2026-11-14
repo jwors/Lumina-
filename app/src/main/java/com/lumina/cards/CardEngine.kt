@@ -2,9 +2,9 @@ package com.lumina.cards
 
 /**
  * Skill Card v1（规格 §3.4）：可导入导出的 JSON 处理配方。
- * 步骤类型四类（v1）：
- *  - ANNOTATE     : LLM 看图标注（描述/标签）
- *  - CAPTION      : 社媒文案生成
+ * 步骤类型四类（v1；2026-11-15 起 ANNOTATE/CAPTION 停用，仅保留解析兼容，执行器跳过）：
+ *  - ANNOTATE     : LLM 看图标注（描述/标签）——已停用
+ *  - CAPTION      : 社媒文案生成——已停用
  *  - FILTER_SUGGEST : 让模型在候选滤镜里给建议
  *  - GENERATIVE   : 生成式风格（M4 执行；v1 队列中标记"待生成"占位）
  * schema：
@@ -84,31 +84,17 @@ object CardEngine {
             .toString(2)
     }
 
-    /** 内置示例卡（规格 §3.4；2026-11-09 按用户点名追加三张风格卡，生成式步均标注 M4 占位。） */
+    /**
+     * 内置示例卡。
+     * 2026-11-15 用户拍板：标注/文案步骤全产品停用，只保留滤镜建议 + 生成式；
+     * 纯标注/文案的两张内置卡（徒步日记·文案 / 锐利风光·标注）随之下架。
+     * StepKind 仍保留 ANNOTATE/CAPTION 以便解析旧导入卡（执行时跳过）。
+     */
     fun builtIns(): List<SkillCard> = listOf(
         parse(
             """{
-                "name": "徒步日记 · 文案",
-                "version": 1,
-                "steps": [
-                    {"type": "annotate", "prompt": "用中文为这张徒步照片写下 2-3 句中文现场观察：光线、地形、装备状态。"},
-                    {"type": "caption", "prompt": "基于观察写成一条instagram/小红书体文案：一句话钩子 + 一句场景 + 结尾话题标签。"}
-                ]
-            }""",
-        ) { CardEngine.newId() },
-        parse(
-            """{
-                "name": "锐利风光 · 标注",
-                "version": 1,
-                "steps": [
-                    {"type": "annotate", "prompt": "按【主体/构图/光比/建议镜头】四项中文短行标注。"}
-                ]
-            }""",
-        ) { CardEngine.newId() },
-        parse(
-            """{
                 "name": "极简海报 · 前夜",
-                "version": 1,
+                "version": 2,
                 "steps": [
                     {"type": "filter_suggest", "prompt": "在候选滤镜清单里给这张照片一个建议并说明理由（一句话）。"},
                     {"type": "generative", "prompt": "极简 zine 海报风：粗颗粒、低饱和、留白构图（M4 执行占位）。"}
@@ -118,22 +104,18 @@ object CardEngine {
         parse(
             """{
                 "name": "gc-minimal-zine-poster",
-                "version": 3,
+                "version": 4,
                 "steps": [
-                    {"type": "annotate", "prompt": "用中文为这张照片写 2-3 句现场观察：光线与雾气层次、地形、装备状态；最后给一个主标题选题方向。"},
-                    {"type": "caption", "prompt": "zine 海报文案：一句主标题钩子（≤14字，排版用大字）+ 一行小注（地名+日期，≤18字）。"},
                     {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
-                    {"type": "generative", "prompt": "极简 zine 海报 v0.3：粗颗粒、双压色（去中间调）、大字压角、右下刻意留白；排版 = 主标题占上 2/3，小注贴底；日期角标右下（M4 执行占位）。"}
+                    {"type": "generative", "prompt": "极简 zine 海报 v0.4：粗颗粒、双压色（去中间调）、大字压角、右下刻意留白；排版 = 主标题占上 2/3，小注贴底；日期角标右下（M4 执行占位）。"}
                 ]
             }""",
         ) { CardEngine.newId() },
         parse(
             """{
                 "name": "pixel-style-poster-skill",
-                "version": 1,
+                "version": 2,
                 "steps": [
-                    {"type": "annotate", "prompt": "按【主体/构图/色板倾向（适合 16-bit 色阶化的区域）】三段中文短行标注。"},
-                    {"type": "caption", "prompt": "像素游戏开场白：一句 12-20 字的 SFC 游戏 loading 提示风格文案 + 两个话题标签。"},
                     {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
                     {"type": "generative", "prompt": "像素风海报：16-bit 色板色阶化、单色块面 doodle、轻微 RGB 分离高光、扫描线点缀（M4 执行占位）。"}
                 ]
@@ -142,10 +124,8 @@ object CardEngine {
         parse(
             """{
                 "name": "scenes-gathered-zine",
-                "version": 3,
+                "version": 4,
                 "steps": [
-                    {"type": "annotate", "prompt": "场景聚束标注：指出这张照片属于当日行程的哪一段（出发/路线/登顶/下撤/营地），并用中文 2 句点出该场景的山野或地表特征。"},
-                    {"type": "caption", "prompt": "场景聚束图注：场景名（≤6字）+ 一句衔接语（用于多章 zine 串联，≤16字）。"},
                     {"type": "filter_suggest", "prompt": "从候选滤镜清单【锐利风光 / 胶片暖调 / 黑白胶片 / 极简 zine / 波塔柔彩 / 浓彩风光 / 经典褪色 / 银盐硬黑 / 柯达金黄 / 青橙电影 / 拍立得 / 秋雨暮色 / 冷调山雾】中给这张照片一个建议并一句话说明理由。"},
                     {"type": "generative", "prompt": "场景聚束 zine 分镜：网点/扎染纹理、场景名标注 + 拼贴序号（第 N 幕）；成片为多张拼贴的 zine 页（M4 执行占位）。"}
                 ]
@@ -155,10 +135,41 @@ object CardEngine {
 
     fun newId(): String = java.util.UUID.randomUUID().toString()
 
+    /** 卡库与内置定义的同步计划（M2-07 + 2026-11-15 步骤停用）。 */
+    data class CardSyncPlan(
+        /** 已下架的内置卡行（只删 imported=false，名字已不在 builtIns）：按 cardId 退场 */
+        val retireCardIds: List<String>,
+        /** 需要新建的内置卡（已排除墓碑名与同名卡） */
+        val seed: List<SkillCard>,
+        /** 定义/版本变了的在册内置卡：保留原 cardId 更新步骤，避免队列引用断掉 */
+        val refresh: List<Refresh>,
+    )
+
+    data class Refresh(val cardId: String, val card: SkillCard)
+
     /**
-     * 播种计划（M2-07）：缺的内置卡减去用户删掉的墓碑。
-     * 按名字对账——同名已在库（含导入卡）就不补；内置卡版本升级仍按名字补新版。
+     * 同步计划（纯函数）：内置卡定义是唯一真相，用户导入卡不碰。
+     * - 下架：库里 `imported=false` 且名字已不在 [builtIns] → 删行
+     * - 播种：库里完全没有这个名字（含导入卡占名）→ 不补；墓碑名 → 不补
+     * - 刷新：同名内置卡行步骤/版本变了 → 保留 cardId 覆盖定义
      */
-    fun builtInsToSeed(existingNames: Set<String>, deletedNames: Set<String>): List<SkillCard> =
-        builtIns().filter { it.name !in existingNames && it.name !in deletedNames }
+    fun syncPlan(rows: List<CardEntity>, deletedBuiltInNames: Set<String>): CardSyncPlan {
+        val builtIns = builtIns()
+        val activeNames = builtIns.map { it.name }.toSet()
+        val allNames = rows.map { it.name }.toSet()
+        val builtInRowByName = rows.filter { !it.imported }.associateBy { it.name }
+        val retire = rows
+            .filter { !it.imported && it.name !in activeNames }
+            .map { it.cardId }
+        val seed = builtIns.filter { it.name !in allNames && it.name !in deletedBuiltInNames }
+        val refresh = builtIns.mapNotNull { card ->
+            val row = builtInRowByName[card.name] ?: return@mapNotNull null
+            if (row.stepsJson == toJson(card) && row.version == card.version) {
+                null
+            } else {
+                Refresh(row.cardId, card)
+            }
+        }
+        return CardSyncPlan(retire, seed, refresh)
+    }
 }

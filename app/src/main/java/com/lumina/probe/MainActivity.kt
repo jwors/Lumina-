@@ -1126,6 +1126,7 @@ private fun GalleryViewerOverlay(
             ViewerToolbar(
                 gi = items.getOrNull(pagerState.currentPage),
                 controller = controller,
+                passStatus = state.passStatus,
                 onShare = { shareItem = items.getOrNull(pagerState.currentPage) },
             )
         }
@@ -1312,12 +1313,17 @@ private fun ViewerImage(gi: GalleryItem) {
     }
 }
 
-/** 查看器底栏：文件信息 + 三步工具（标注/文案/滤镜同 M2 runSingleStep 链）+ 智能结果收合条。 */
+/** 查看器底栏：文件信息 + 滤镜建议 / 分享（2026-11-15 起标注、文案、智能结果收合条停用）。 */
 @Composable
-private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare: () -> Unit = {}) {
+private fun ViewerToolbar(
+    gi: GalleryItem?,
+    controller: ProbeController,
+    passStatus: String = "",
+    onShare: () -> Unit = {},
+) {
     if (gi == null) return
-    var busyStep by remember { mutableStateOf("") }
-    var smartOpen by remember(gi.relPath) { mutableStateOf(false) }
+    // 只显示单步滤镜建议的状态；别的页面写进 passStatus 的文案（补跑横幅等）不在这里冒头
+    val filterStatus = passStatus.takeIf { it.startsWith("滤镜建议") }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1340,53 +1346,14 @@ private fun ViewerToolbar(gi: GalleryItem?, controller: ProbeController, onShare
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            ViewerAction("标注", "tag") {
-                busyStep = "标注 执行中…"
-                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.ANNOTATE)
-            }
-            ViewerAction("文案", "text") {
-                busyStep = "文案 执行中…"
-                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.CAPTION)
-            }
-            ViewerAction("滤镜", "filter") {
-                busyStep = "滤镜 执行中…"
-                controller.runSingleStep(gi.name, com.lumina.cards.StepKind.FILTER_SUGGEST)
-            }
+            ViewerAction("滤镜", "filter") { controller.runFilterSuggestion(gi.name) }
             ViewerAction("分享", "share") { onShare() }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "智能结果 · ${gi.smartTexts.size}" + if (smartOpen) " ▴" else " ▾",
-            fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .background(PillActive, RoundedCornerShape(999.dp))
-                .clickable { smartOpen = !smartOpen }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-        if (busyStep.isNotBlank()) {
-            Text("⏳ $busyStep", fontSize = 11.sp, color = SageText, modifier = Modifier.padding(top = 6.dp))
-        }
-        if (smartOpen) {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 170.dp)
-                    .verticalScroll(rememberScrollState())
-                    .fillMaxWidth(),
-            ) {
-                if (gi.smartTexts.isEmpty()) {
-                    Text(
-                        "还没有结果：点上方工具栏跑一步",
-                        fontSize = 11.sp, color = CreamFaint,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-                gi.smartTexts.forEach { line ->
-                    Text(
-                        line, fontSize = 12.sp, color = InkTeal,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-            }
+        if (filterStatus != null) {
+            Text(
+                "⏳ $filterStatus",
+                fontSize = 11.sp, color = SageText, modifier = Modifier.padding(top = 6.dp),
+            )
         }
     }
 }
@@ -1981,6 +1948,13 @@ private fun CardConfirmSheet(
         Text("v${card.version} · ${card.stepsCount} 步 · ${card.steps.joinToString(" → ")}", fontSize = 13.sp, color = SageText)
         Spacer(Modifier.height(4.dp))
         Text("对所选 Master 逐张串行执行；可中途返回，后台继续。", fontSize = 12.sp, color = CreamFaint)
+        if (card.skippedSteps > 0) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "⚠ 卡内 ${card.skippedSteps} 个标注/文案步骤已停用，执行时跳过。",
+                fontSize = 11.sp, color = WarnBrown, fontWeight = FontWeight.SemiBold,
+            )
+        }
         Spacer(Modifier.height(16.dp))
         if (!cloudEnabled) {
             // 闸门前置：云开关关 = 两个 CTA 一并禁用（老实告诉用户为什么，别让点击无声吞掉）

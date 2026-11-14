@@ -42,13 +42,23 @@ class PassExecutor(
             return
         }
         callback.onStart(items.size)
+        // 2026-11-15 用户拍板：标注/文案步骤全产品停用，只执行滤镜建议/生成式。
+        // 旧卡/旧导入 JSON 仍可解析（StepKind 保留），执行时静默跳过这两类步骤。
+        val steps = card.steps.filter {
+            it.kind == StepKind.FILTER_SUGGEST || it.kind == StepKind.GENERATIVE
+        }
         var ok = 0
         var fail = 0
         for (name in items) {
             if (abortCheck()) break
+            if (steps.isEmpty()) {
+                fail++
+                callback.onItemDone(name, false, "卡内只有已停用的标注/文案步骤")
+                continue
+            }
             var anySuccess = false
             var lastNote = ""
-            for (step in card.steps) {
+            for (step in steps) {
                 if (step.kind == StepKind.GENERATIVE) {
                     // v1 占位：不调 LLM，写占位结果（M4 接管）
                     sink.saveResult(name, card.cardId, "generative",
@@ -83,7 +93,7 @@ class PassExecutor(
                     }
                 }
             }
-            if (card.steps.none { it.kind != StepKind.GENERATIVE } ) {
+            if (steps.all { it.kind == StepKind.GENERATIVE }) {
                 // 全占位卡也算成功完成（无 LLM 调用）
                 anySuccess = true
             }
