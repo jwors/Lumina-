@@ -60,6 +60,8 @@ object PtpIp {
         0x1009, // GetObject
         0x1014, // GetDevicePropDesc
         0x1015, // GetDevicePropValue
+        0x90CC, // Nikon GetPictCtrlData
+        0x90CF, // Nikon GetPicCtrlCapability
         0x9203, // Nikon GetLiveViewImage
     )
 

@@ -118,14 +118,47 @@ class PtpSession(
      */
     fun setDevicePropValue(code: Int, type: Int, value: Long) {
         check(state == State.Ready) { "setDevicePropValue requires Ready, state=$state" }
+        sendDataOut(
+            OpCode.SET_DEVICE_PROP_VALUE,
+            longArrayOf(code.toLong()),
+            encodePtpValue(value, type),
+        )
+    }
+
+    /** 读自定义 Picture Control 原始载荷（Nikon 0x90CC，参数 (slot, 0)）。 */
+    fun getPicCtrlData(slot: Int): ByteArray {
+        check(state == State.Open || state == State.Ready) { "getPicCtrlData requires session, state=$state" }
+        return sendWithPayload(
+            NikonOpCode.GET_PIC_CTRL_DATA,
+            longArrayOf(slot.toLong(), 0L),
+        )
+    }
+
+    /** 写自定义 Picture Control 原始载荷（Nikon 0x90CD，参数 (slot, 0)，数据出）。 */
+    fun setPicCtrlData(slot: Int, payload: ByteArray) {
+        check(state == State.Ready) { "setPicCtrlData requires Ready, state=$state" }
+        sendDataOut(
+            NikonOpCode.SET_PIC_CTRL_DATA,
+            longArrayOf(slot.toLong(), 0L),
+            payload,
+        )
+    }
+
+    /** 查槽位能力（Nikon 0x90CF，1 个参数 slot）。 */
+    fun getPicCtrlCapability(slot: Int): ByteArray {
+        check(state == State.Open || state == State.Ready) { "getPicCtrlCapability requires session, state=$state" }
+        return sendWithPayload(NikonOpCode.GET_PIC_CTRL_CAPABILITY, longArrayOf(slot.toLong()))
+    }
+
+    /** 数据出事务：请求（不读响应）→ 数据 → 响应校验。 */
+    private fun sendDataOut(op: Int, params: LongArray, payload: ByteArray) {
+        check(state == State.Ready) { "op=0x%04X requires Ready, state=$state".format(op) }
         val out = transport as? com.lumina.transport.DataOutTransport
-            ?: throw IllegalStateException("当前链路不支持写参数（需要数据出阶段）")
+            ?: throw IllegalStateException("当前链路不支持数据出（op=0x%04X）".format(op))
         val myTid = tid++
-        val op = OpCode.SET_DEVICE_PROP_VALUE
-        val params = longArrayOf(code.toLong())
         logRequest(op, myTid, params)
         out.writeRequestNoResponse(encodeRequest(op, myTid, params))
-        out.writeData(encodePtpValue(value, type))
+        out.writeData(payload)
         val resp = readResponse(op, myTid)
         logResponse(op, resp)
         requireOk(resp, op, myTid)

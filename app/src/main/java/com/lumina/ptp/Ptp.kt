@@ -46,6 +46,12 @@ object NikonOpCode {
     /** 相机模式与就绪。 */
     const val CHANGE_CAMERA_MODE = 0x90C2
     const val DEVICE_READY = 0x90C8
+
+    /** 自定义 Picture Control：读/写/删/能力（slot = 0x00C9..0x00D1）。 */
+    const val GET_PIC_CTRL_DATA = 0x90CC
+    const val SET_PIC_CTRL_DATA = 0x90CD
+    const val DEL_CST_PIC_CTRL = 0x90CE
+    const val GET_PIC_CTRL_CAPABILITY = 0x90CF
 }
 
 /** 响应码：OK 之外的都是错误 */

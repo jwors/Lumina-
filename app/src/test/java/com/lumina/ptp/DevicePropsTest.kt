@@ -170,4 +170,33 @@ class DevicePropsTest {
             t.observedWrites().last(),
         )
     }
+
+    @Test
+    fun `picture control payload goes out with slot params`() {
+        val payload = ByteArray(614) { 0x5A }
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, 0),
+                dataPack(OpCode.GET_DEVICE_INFO, 1, deviceInfo("NIKON Z 30")),
+                resp(RespCode.OK, 1),
+                resp(RespCode.OK, 2),
+                dataPack(NikonOpCode.GET_PIC_CTRL_DATA, 3, payload),
+                resp(RespCode.OK, 3),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        s.getModel()
+        s.setPicCtrlData(0xC9, payload)
+        assertArrayEquals(
+            encodeRequest(NikonOpCode.SET_PIC_CTRL_DATA, 2, longArrayOf(0xC9, 0)),
+            t.observedWrites()[t.observedWrites().size - 1],
+        )
+        assertArrayEquals(payload, t.observedData().single())
+        assertArrayEquals(payload, s.getPicCtrlData(0xC9))
+        assertArrayEquals(
+            encodeRequest(NikonOpCode.GET_PIC_CTRL_DATA, 3, longArrayOf(0xC9, 0)),
+            t.observedWrites().last(),
+        )
+    }
 }

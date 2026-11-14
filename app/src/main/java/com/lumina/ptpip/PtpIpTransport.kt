@@ -47,7 +47,10 @@ class PtpIpTransport(
     private data class PendingDataOut(val opcode: Int, val ptpTid: Long, val ipTid: Long)
     private var pendingDataOut: PendingDataOut? = null
 
-    private val dataOutOps = setOf(0x1016) // SetDevicePropValue
+    private val dataOutOps = setOf(
+        0x1016, // SetDevicePropValue
+        0x90CD, // Nikon SetPictCtrlData
+    )
 
     val cameraName: String get() = cameraNameField
     private var cameraNameField = ""
