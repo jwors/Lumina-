@@ -53,6 +53,10 @@ class RemoteSession(
         // Android 的 BLE 地址是轮换 RPA：按广播名认旧身份，不能按地址。
         val saved = savedIdentity()?.takeIf { it.cameraName.isNotBlank() && it.cameraName == hit.name }
         val link = ble ?: BleCameraLink(context) { line -> log(line) }.also { ble = it }
+        // SnapBridge 首次配对会做经典蓝牙 bonding；Z30 很可能要它才肯自动开热点。
+        val serial = saved?.serial ?: ""
+        val bonded = runCatching { link.bondClassic(hit.name, serial) }.getOrDefault(false)
+        log(if (bonded) "经典蓝牙已配对" else "经典蓝牙未配对（继续 BLE 尝试）")
         log("BLE 配对开始：${hit.name} ${hit.address}")
         var pair: BlePairResult? = null
         for (attempt in 0 until 3) {
@@ -85,18 +89,19 @@ class RemoteSession(
         // 0x2005 之后相机起热点要 2~4 秒：先等一拍，避免系统 Wi-Fi 直接搜空。
         Thread.sleep(2_000)
 
-        // 热点刚被唤醒：Z30 实测约 40 秒才广播 SSID，入网窗口必须覆盖它（60s）；
-        // 每次重试前重发 0x2005，因为相机会在 BLE 空闲后收回热点。
+        // 热点刚被唤醒：Z30 固件实测不会因 0x2005 自行广播热点，所以只做短轮询
+        // （相机 Wi-Fi 若已手动打开则自动入网；没开就尽快失败并引导手动开）。
         var lastFailure = "加入相机热点失败"
-        repeat(3) { attempt ->
+        repeat(4) { attempt ->
             if (attempt > 0) {
                 val woke = link.wakeWifi()
-                log("重发唤醒 Wi-Fi：${if (woke) "已写" else "BLE 已断，无法唤醒"}")
+                log("重发唤醒 Wi-Fi：${if (woke) "已写" else "BLE 已断，无法唤醒"}（第 ${attempt + 1}/4 次）")
             }
             val startedAt = System.currentTimeMillis()
-            when (val joined = (wifi ?: WifiLink(context).also { wifi = it }).join(credentials.ssid, credentials.password)) {
+            when (val joined = (wifi ?: WifiLink(context).also { wifi = it })
+                .join(credentials.ssid, credentials.password, timeoutMs = 8_000)) {
                 is WifiJoinResult.Joined -> {
-                    log("已入网，网关=${joined.gatewayIp}（用时 ${System.currentTimeMillis() - startedAt}ms）")
+                    log("已入网，网关=${joined.gatewayIp}（第 ${attempt + 1} 次，用时 ${System.currentTimeMillis() - startedAt}ms）")
                     return openPtp(joined.gatewayIp, pair?.warning)
                 }
                 is WifiJoinResult.NeedsManual -> {
@@ -108,12 +113,15 @@ class RemoteSession(
                 }
                 is WifiJoinResult.Failed -> {
                     lastFailure = joined.message
-                    log("入网第 ${attempt + 1} 次失败（${System.currentTimeMillis() - startedAt}ms）：${joined.message}")
-                    Thread.sleep(1_000)
+                    log("等待相机热点（${attempt + 1}/4）：${joined.message}")
+                    Thread.sleep(2_000)
                 }
             }
         }
-        return RemoteConnectOutcome(failure = lastFailure, warning = pair?.warning)
+        return RemoteConnectOutcome(
+            failure = "相机没有自动开热点（Z30 固件限制）。请在相机上打开 Wi-Fi，再点「已在系统 Wi-Fi 连好？继续」。",
+            warning = pair?.warning,
+        )
     }
 
     /** Android 12 手动入网后继续：取当前 Wi-Fi 网关并连 PTP。 */
@@ -133,6 +141,9 @@ class RemoteSession(
             is WifiJoinResult.Failed -> return RemoteConnectOutcome(failure = joined.message)
         }
     }
+
+    /** 已保存的相机热点名（去掉 0x2004 的 _SnapBridge 后缀）；没配对过返回 null。 */
+    fun savedSsid(): String? = prefs.getString("ssid", null)?.removeSuffix("_SnapBridge")
 
     fun connectManual(ssid: String, password: String): RemoteConnectOutcome {
         val credentials = WifiCredentials(ssid, password, if (password.isEmpty()) 0 else 1, "manual")

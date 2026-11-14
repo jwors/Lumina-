@@ -1,6 +1,6 @@
 # 02 · PTP-IP 链路与镜头参数
 
-> Status: claimed（代码完成，单测绿；真机验收见 04）
+> Status: resolved（Z30 真机参数已验证）
 > 上游：`.scratch/m5-remote/spec.md`、`docs/adr/0006`
 
 ## 范围

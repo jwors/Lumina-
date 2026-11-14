@@ -1,6 +1,6 @@
 # 03 · 遥控快门与遥控页 UI
 
-> Status: claimed（代码完成；真机验收见 04）
+> Status: resolved（Z30 真机快门已验证）
 > 上游：`.scratch/m5-remote/spec.md`、`docs/adr/0006`
 
 ## 范围

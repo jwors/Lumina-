@@ -153,9 +153,17 @@ class ProbeController(
             .also { remoteSession = it }
 
     fun openRemote() {
-        remoteState = RemoteUi(stage = RemoteStage.IDLE, status = "点「扫描相机」开始")
+        remoteState = RemoteUi(
+            stage = RemoteStage.IDLE,
+            status = "先连相机 Wi-Fi，再回这里点「已在系统 Wi-Fi 连好？继续」",
+            savedSsid = savedRemoteSsid(),
+        )
         emitRemote()
     }
+
+    private fun savedRemoteSsid(): String? =
+        appContext.getSharedPreferences("lumina_remote", Context.MODE_PRIVATE)
+            .getString("ssid", null)?.removeSuffix("_SnapBridge")
 
     fun closeRemote() {
         mainThread.removeCallbacks(remoteTicker)
@@ -305,6 +313,7 @@ class ProbeController(
                     error = null,
                     manualSsid = null,
                     params = params,
+                    savedSsid = savedRemoteSsid() ?: remoteState.savedSsid,
                 )
             }
             else -> remoteState.copy(
@@ -2312,6 +2321,8 @@ data class RemoteUi(
     val error: String? = null,
     /** Android 12：需要在系统 Wi-Fi 面板手动加入的热点名 */
     val manualSsid: String? = null,
+    /** 已保存的相机热点名（遥控页引导用） */
+    val savedSsid: String? = null,
     val shotCount: Int = 0,
     val lastShotMs: Long? = null,
     /** 最近几行协议日志（真机排障用） */

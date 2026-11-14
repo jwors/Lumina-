@@ -17,6 +17,7 @@
 ## Decision（决策）
 
 1. **BLE 仅作配对/唤醒通道**（包 `com.lumina.ble`）：扫描尼康 LSS 服务、四步配对握手、读 `0x2004` Wi-Fi 凭据（Blowfish 解密，LSS 会话密钥派生 + 定键兜底）、写 `0x2005=0x01` 唤起热点。**任何照片字节不得走 BLE。**
+   > 2026-11-14 Z30 真机收口：第三方客户端写 `0x2005` 会被相机接受（GATT 成功），但相机不广播热点、也不回任何 BLE 通知；经典蓝牙 bonding、TIME 心跳、`0x2008` 清位、`0x2021` 配置帧、55 秒轮询均无效。故最终形态为：**App 引导用户在相机菜单手动打开 Wi-Fi，再一键加入并走 PTP**；BLE 仍负责配对与读取 SSID/密码（用户不必手抄）。
 2. **镜头参数与快门走 PTP**：无线用 PTP-IP（`com.lumina.ptpip`，Nikon MTP/IP 方言：长度在前包头、双 TCP 通道、固定 Android GUID）；USB PTP 原路径保留。二者复用同一 `PtpSession`，靠 `Transport` 接缝切换链路（M0 的预留在此兑现）。
 3. **权限白名单**（AndroidManifest）：
    - `BLUETOOTH_SCAN`（`neverForLocation`）、`BLUETOOTH_CONNECT`：API 31+ 的 BLE 扫描/连接。
@@ -29,7 +30,7 @@
 ## Consequences（后果）
 
 - 正面：三个功能可用且链路分工清晰；照片仍只走 USB/PTP，ADR-0003 的"蓝牙不搬 RAW"结论不变；权限叙事可审计（仅蓝牙配对 + 连相机热点，明确 `neverForLocation`）。
-- 负面：首次使用多两次系统授权（附近设备/蓝牙）；BLE 方言是逆向所得（参考 MIT 项目 ZPill），Z30 固件若漂移需按日志修；API 31/32 的 Wi-Fi 加入不是全自动。
+- 负面：首次使用多两次系统授权（附近设备/蓝牙）；BLE 方言是逆向所得（参考 MIT 项目 ZPill），Z30 固件若漂移需按日志修；API 31/32 的 Wi-Fi 加入不是全自动；**Z30 不会因第三方 BLE 命令自动开热点，需用户在相机菜单手动打开一次**（自动唤醒已按真机证据降级为引导文案）。
 - 测试：BLE 字节层（配对帧/Blowfish/凭据布局）与 PTP-IP 编解码跑 JVM 单测；GATT 与真机链路由 `docs/DEVICE-TESTING.md` 的遥控验收单承担。
 
 ## 参考

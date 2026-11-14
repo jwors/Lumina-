@@ -1,6 +1,6 @@
 # 01 · BLE 配对与唤醒（SnapBridge 方言）
 
-> Status: claimed（代码完成，单测绿；真机验收见 04）
+> Status: resolved（配对/凭据闭环；自动开热点按真机证据降级为引导，见 04）
 > 上游：`.scratch/m5-remote/spec.md`、`docs/adr/0006`
 
 ## 范围

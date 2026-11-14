@@ -13,12 +13,16 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** 扫描命中的相机（地址 + 广播名 + RSSI）。 */
@@ -127,6 +131,100 @@ class BleCameraLink(
      * 连接并完成配对/唤醒。每一步都写进 onStatus，便于 UI 分步显示与排障。
      * 失败抛 [BleLinkException]（消息可直接上屏）。
      */
+    /**
+     * 经典蓝牙 bonding（SnapBridge 首次配对的系统级绑定）。
+     *
+     * 相机的 BLE 地址是随机静态地址，不能当 BR/EDR MAC 用；必须走经典发现，
+     * 按广播名/序列号认出相机，再 createBond。手机届时会弹配对确认框。
+     * 返回 true = 已配对（或本来就已配对）；false = 未完成（调用方可继续走 BLE）。
+     */
+    @SuppressLint("MissingPermission")
+    fun bondClassic(cameraName: String, serial: String = "", timeoutMs: Long = 30_000): Boolean {
+        val adapter = adapter ?: return false
+        if (!adapter.isEnabled) return false
+        val target = normalize(cameraName)
+        val targetSerial = normalize(serial)
+        if (target.isEmpty() && targetSerial.isEmpty()) return false
+        val alreadyBonded = runCatching {
+            adapter.bondedDevices?.any { matches(it.name ?: "", target, targetSerial) } == true
+        }.getOrDefault(false)
+        if (alreadyBonded) return true
+
+        onStatus("经典蓝牙配对中（手机可能弹配对确认）…")
+        val latch = CountDownLatch(1)
+        val success = AtomicBoolean(false)
+        val matchedAddress = AtomicReference<String?>(null)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                when (intent.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        @Suppress("DEPRECATION")
+                        val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                        val name = runCatching { dev.name }.getOrNull() ?: return
+                        if (!matches(name, target, targetSerial)) return
+                        matchedAddress.set(dev.address)
+                        runCatching { adapter.cancelDiscovery() }
+                        if (dev.bondState == BluetoothDevice.BOND_BONDED) {
+                            success.set(true)
+                            latch.countDown()
+                            return
+                        }
+                        val created = runCatching { dev.createBond() }.getOrDefault(false)
+                        if (!created) latch.countDown()
+                    }
+                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                        @Suppress("DEPRECATION")
+                        val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                        if (dev.address != matchedAddress.get()) return
+                        when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
+                            BluetoothDevice.BOND_BONDED -> {
+                                success.set(true)
+                                latch.countDown()
+                            }
+                            BluetoothDevice.BOND_NONE -> latch.countDown()
+                        }
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        }
+        return try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(receiver, filter)
+            }
+            if (!runCatching { adapter.startDiscovery() }.getOrDefault(false)) {
+                return false
+            }
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS) && success.get()
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { adapter.cancelDiscovery() }
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
+
+    private fun normalize(s: String): String =
+        s.filter { it.isLetterOrDigit() }.lowercase()
+
+    private fun shortUuid(uuid: String): String =
+        if (uuid.length >= 8) uuid.substring(4, 8) else uuid
+
+    private fun hex(bytes: ByteArray): String =
+        bytes.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }
+
+    private fun matches(deviceName: String, target: String, serial: String): Boolean {
+        val n = normalize(deviceName)
+        if (n.length < 3) return false
+        if (target.isNotEmpty() && (n.contains(target) || target.contains(n))) return true
+        return serial.isNotEmpty() && n.contains(serial)
+    }
+
     @SuppressLint("MissingPermission")
     fun pair(hit: BleCameraHit, saved: PairingIdentity? = null): BlePairResult {
         val adapter = adapter ?: throw BleLinkException("此设备没有蓝牙")
@@ -153,7 +251,11 @@ class BleCameraLink(
                 ?: throw BleLinkException("不是尼康相机：缺少配对特征")
             enableIndicate(NikonBleUuids.PAIR)
             runCatching { enableIndicate(NikonBleUuids.NOT1) }
+                .onSuccess { onStatus("0x2008 通知已开") }
+                .onFailure { onStatus("0x2008 通知开启失败：${it.message}") }
             runCatching { enableIndicate(NikonBleUuids.NOT2) }
+                .onSuccess { onStatus("0x200A 通知已开") }
+                .onFailure { onStatus("0x200A 通知开启失败：${it.message}") }
 
             onStatus("配对握手中…")
             val engine = NikonPairingEngine()
@@ -201,6 +303,7 @@ class BleCameraLink(
                 write(characteristic(NikonBleUuids.WIFI)!!, byteArrayOf(0x01))
                 true
             }.getOrDefault(false)
+            if (woken) configureConnection()
             if (!woken) warning = listOfNotNull(warning, "唤醒 Wi-Fi 失败，请在相机菜单手动开启").joinToString("；")
             startHeartbeat()
 
@@ -234,10 +337,26 @@ class BleCameraLink(
             characteristic(NikonBleUuids.TIME)?.let { write(it, NikonTimePayload.build()) }
         }
         val ch = characteristic(NikonBleUuids.WIFI) ?: return false
-        return runCatching {
+        val ok = runCatching {
             write(ch, byteArrayOf(0x01))
             true
         }.getOrDefault(false)
+        if (ok) configureConnection()
+        return ok
+    }
+
+    /**
+     * 0x2021 CONTROL_POINT 的 Configuration 帧（`04 00 10 00`）。
+     * SnapBridge 方言里这是连接配置面；ZPill 只观察到未启用，这里作为 0x2005
+     * 之后的补充尝试，失败不影响主流程。
+     */
+    private fun configureConnection() {
+        runCatching {
+            characteristic(NikonBleUuids.CONTROL_POINT)?.let {
+                write(it, byteArrayOf(0x04, 0x00, 0x10, 0x00))
+                onStatus("0x2021 配置帧已写")
+            }
+        }.onFailure { onStatus("0x2021 写入失败：${it.message}") }
     }
 
     val isConnected: Boolean get() = gatt != null
@@ -343,6 +462,10 @@ class BleCameraLink(
                 notifyData.set(value)
                 notifyLatch.get().countDown()
                 return
+            }
+            // NOT1/NOT2/状态面：记录原始帧，排查"相机是否回应了唤醒"。
+            if (value != null) {
+                onStatus("BLE 通知 ${shortUuid(uuid)}: ${hex(value)}")
             }
             if (uuid == NikonBleUuids.NOT1.lowercase() && ready && value != null && value.size == 2) {
                 val raw = (value[0].toInt() and 0xFF) or ((value[1].toInt() and 0xFF) shl 8)

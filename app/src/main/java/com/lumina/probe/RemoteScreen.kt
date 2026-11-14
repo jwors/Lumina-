@@ -147,9 +147,40 @@ private fun StatusCard(state: RemoteUi) {
 @Composable
 private fun ConnectSection(state: RemoteUi, controller: ProbeController) {
     val scanning = state.stage == RemoteStage.SCANNING
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardBg, RoundedCornerShape(16.dp))
+            .border(1.dp, DividerCream, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+    ) {
+        Text("连接相机（Wi-Fi）", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+        Spacer(Modifier.height(8.dp))
+        Text("1. 相机：网络 → 连接至智能设备 → 打开 Wi-Fi", fontSize = 12.sp, color = SageText, lineHeight = 18.sp)
+        Text(
+            "2. 手机 Wi-Fi 连接「${state.savedSsid ?: "NIKON_Z_30_…"}」",
+            fontSize = 12.sp,
+            color = SageText,
+            lineHeight = 18.sp,
+        )
+        Text("3. 回这里点「已在系统 Wi-Fi 连好？继续」", fontSize = 12.sp, color = SageText, lineHeight = 18.sp)
+        if (state.savedSsid == null) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "首次使用先点下面「扫描相机」配一次，App 会记住热点名和密码。",
+                fontSize = 11.sp,
+                color = CreamFaint,
+            )
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    PillButton("已在系统 Wi-Fi 连好？继续", filled = true) {
+        controller.remoteContinueWifi()
+    }
+    Spacer(Modifier.height(10.dp))
     PillButton(
-        label = if (scanning) "扫描中…" else "扫描相机",
-        filled = true,
+        label = if (scanning) "扫描中…" else if (state.savedSsid != null) "扫描相机（重新配对）" else "扫描相机（首次配对）",
+        filled = false,
         enabled = !scanning,
     ) { controller.remoteScan() }
 
@@ -179,13 +210,11 @@ private fun ConnectSection(state: RemoteUi, controller: ProbeController) {
 
     Spacer(Modifier.height(18.dp))
     ManualWifiSection(controller)
-    Spacer(Modifier.height(10.dp))
-    PillButton("相机 Wi-Fi 已手动开？直连", filled = false) {
-        controller.remoteConnectSavedWifi()
-    }
-    Spacer(Modifier.height(8.dp))
-    PillButton("已在系统 Wi-Fi 连好？继续", filled = false) {
-        controller.remoteContinueWifi()
+    if (state.savedSsid != null) {
+        Spacer(Modifier.height(8.dp))
+        PillButton("相机 Wi-Fi 已开？用已存密码自动连", filled = false) {
+            controller.remoteConnectSavedWifi()
+        }
     }
 }
 

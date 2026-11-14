@@ -1,6 +1,6 @@
 # 04 · 真机验收（Z30）
 
-> Status: ready-for-agent
+> Status: resolved（Wi-Fi 路径全过；BLE 自动唤醒按固件限制关闭）
 > 上游：`.scratch/m5-remote/spec.md`
 
 ## 前置
