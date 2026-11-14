@@ -172,6 +172,17 @@ class PtpSession(
         send(NikonOpCode.AF_DRIVE)
     }
 
+    /** 写曝光补偿（EV ×1000，PTP 0x5010 INT16）。 */
+    fun setExposureBias(milliEv: Int) {
+        setDevicePropValue(CameraProp.EXPOSURE_BIAS, PtpDataType.INT16, milliEv.toLong())
+    }
+
+    /** 手动对焦步进（Nikon MfDrive 0x9204，2 参：方向 + 步长）。 */
+    fun mfDrive(direction: Int, step: Int) {
+        check(state == State.Ready) { "mfDrive requires Ready, state=$state" }
+        send(NikonOpCode.MF_DRIVE, longArrayOf(direction.toLong(), step.toLong()))
+    }
+
     /**
      * MTP/PTP 约定：GetObjectHandles 的 parent 参数 0xFFFFFFFF = 枚举全部对象。
      * （PTP 规格语义；真机若只回根列表，改用逐父遍历，挂 05/06 号校验。）

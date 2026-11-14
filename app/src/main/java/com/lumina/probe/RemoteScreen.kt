@@ -197,6 +197,75 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
     }
     LiveViewSection(state, controller)
     IntervalSection(state, controller)
+    BracketSection(state, controller)
+}
+
+/** M6-05：曝光/对焦包围（v1 固定预设，结束自动回位）。 */
+@Composable
+private fun BracketSection(state: RemoteUi, controller: ProbeController) {
+    val bracket = state.bracket
+    if (bracket != null && (bracket.running || bracket.message != null)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${bracket.mode}包围 ${bracket.done}/${bracket.count}",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (bracket.running) AccentDeep else CreamFaint,
+                )
+                bracket.message?.let { Text(it, fontSize = 10.sp, color = CreamFaint) }
+            }
+            Text(
+                if (bracket.running) "停止" else "清除",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (bracket.running) WarnBrown else CreamFaint,
+                modifier = Modifier
+                    .clickable {
+                        if (bracket.running) controller.remoteStopBracket()
+                        else controller.remoteClearBracket()
+                    }
+                    .padding(6.dp),
+            )
+        }
+        return
+    }
+
+    var open by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp)
+            .clickable { open = !open },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("包围拍摄", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(if (open) "收起" else "设置", fontSize = 11.sp, color = CreamFaint)
+    }
+    if (!open) return
+    Text("曝光包围：-2 / -1 / 0 EV", fontSize = 10.sp, color = CreamFaint)
+    Spacer(Modifier.height(4.dp))
+    PillButton("开始曝光包围", filled = false) {
+        controller.remoteRunExposureBracket(-2.0, 1.0, 3)
+    }
+    Spacer(Modifier.height(6.dp))
+    Text("对焦包围：3 张 × 2 步（近→远）", fontSize = 10.sp, color = CreamFaint)
+    Spacer(Modifier.height(4.dp))
+    PillButton("开始对焦包围", filled = false) {
+        controller.remoteRunFocusBracket(2, 3, 1)
+    }
+    Text(
+        "结束自动回 EV 0 / 焦点回位",
+        fontSize = 9.sp,
+        color = CreamFaint,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }
 
 /** M6-03：实时取景开关 + 画面 + 点按对焦。 */

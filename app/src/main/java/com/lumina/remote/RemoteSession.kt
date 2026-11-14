@@ -289,6 +289,20 @@ class RemoteSession(
         log("AF ($x,$y)")
     }
 
+    // ---------- M6-05 包围 ----------
+
+    fun setExposureBias(milliEv: Int) {
+        val s = session ?: throw IllegalStateException("相机未连接")
+        s.setExposureBias(milliEv)
+        log("曝光补偿 ${milliEv / 1000.0}EV")
+    }
+
+    fun focusStep(direction: Int, step: Int) {
+        val s = session ?: throw IllegalStateException("相机未连接")
+        s.mfDrive(direction, step)
+        log("对焦步进 dir=$direction step=$step")
+    }
+
     fun capture(): Long {
         val s = session ?: throw IllegalStateException("相机未连接")
         try {

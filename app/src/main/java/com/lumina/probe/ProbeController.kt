@@ -32,6 +32,8 @@ import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
 import com.lumina.remote.CameraParamsReader
 import com.lumina.remote.CameraPresets
+import com.lumina.remote.ExposureBracketPlan
+import com.lumina.remote.FocusBracketPlan
 import com.lumina.remote.NikonLiveView
 import com.lumina.remote.RemoteSession
 import com.lumina.usb.UsbCameraMonitor
@@ -75,6 +77,9 @@ class ProbeController(
     // M6-03 实时取景：~6fps 拉帧；取景帧以 Bitmap 存进 RemoteUi
     private var liveViewOn = false
     private var liveViewInFlight = false
+
+    // M6-05 包围：一次性循环跑在 remoteIo 上，bracketAbort 供停止
+    @Volatile private var bracketAbort = false
 
     private val db = AppDatabase.get(appContext)
     private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
@@ -199,6 +204,7 @@ class ProbeController(
         intervalInFlight = false
         liveViewOn = false
         liveViewInFlight = false
+        bracketAbort = true
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -228,6 +234,7 @@ class ProbeController(
         intervalInFlight = false
         liveViewOn = false
         liveViewInFlight = false
+        bracketAbort = true
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -328,6 +335,7 @@ class ProbeController(
 
     fun remoteCapture() {
         if (remoteState.stage != RemoteStage.READY) return
+        if (remoteState.bracket?.running == true) return
         remoteState = remoteState.copy(status = "拍摄中…")
         emitRemote()
         remoteIo.execute {
@@ -398,9 +406,149 @@ class ProbeController(
         remoteIo.execute { runCatching { remoteSessionOrCreate().setAutoDownload(next) } }
     }
 
+    // ---------- M6-05 包围 ----------
+
+    fun remoteRunExposureBracket(startEv: Double, stepEv: Double, count: Int) {
+        if (remoteState.stage != RemoteStage.READY) return
+        if (remoteState.bracket?.running == true) return
+        val plan = runCatching {
+            ExposureBracketPlan(
+                startMilliEv = Math.round(startEv * 1000).toInt(),
+                stepMilliEv = Math.round(stepEv * 1000).toInt(),
+                count = count,
+            )
+        }.getOrNull() ?: return
+        if (liveViewOn) stopLiveViewInternal("包围开始")
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        bracketAbort = false
+        remoteState = remoteState.copy(
+            bracket = BracketUi(mode = "曝光", done = 0, count = plan.count),
+            status = "曝光包围开始",
+            error = null,
+        )
+        emitRemote()
+        remoteIo.execute {
+            var done = 0
+            var error: String? = null
+            try {
+                for (i in 0 until plan.count) {
+                    if (bracketAbort) break
+                    val ev = plan.evAt(i)
+                    remoteSessionOrCreate().setExposureBias(ev)
+                    remoteSessionOrCreate().capture()
+                    done++
+                    mainThread.post {
+                        remoteState = remoteState.copy(
+                            bracket = remoteState.bracket?.copy(done = done),
+                            status = "曝光包围 $done/${plan.count}（%.1f EV）".format(ev / 1000.0),
+                        )
+                        emitRemote()
+                    }
+                    Thread.sleep(300)
+                }
+            } catch (e: Exception) {
+                error = e.message
+            } finally {
+                runCatching { remoteSessionOrCreate().setExposureBias(0) }
+            }
+            val message = when {
+                error != null -> "曝光包围失败：$error"
+                bracketAbort -> "曝光包围已停止（$done/${plan.count}）"
+                else -> "曝光包围完成（$done 张）"
+            }
+            mainThread.post {
+                remoteState = remoteState.copy(
+                    bracket = remoteState.bracket?.copy(running = false, done = done, message = message),
+                    status = message,
+                )
+                emitRemote()
+            }
+        }
+    }
+
+    fun remoteRunFocusBracket(step: Int, count: Int, direction: Int) {
+        if (remoteState.stage != RemoteStage.READY) return
+        if (remoteState.bracket?.running == true) return
+        val plan = runCatching { FocusBracketPlan(step, count, direction) }.getOrNull() ?: return
+        if (liveViewOn) stopLiveViewInternal("包围开始")
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        bracketAbort = false
+        remoteState = remoteState.copy(
+            bracket = BracketUi(mode = "对焦", done = 0, count = plan.count),
+            status = "对焦包围开始",
+            error = null,
+        )
+        emitRemote()
+        remoteIo.execute {
+            var done = 0
+            var error: String? = null
+            try {
+                for (i in 0 until plan.count) {
+                    if (bracketAbort) break
+                    remoteSessionOrCreate().capture()
+                    done++
+                    mainThread.post {
+                        remoteState = remoteState.copy(
+                            bracket = remoteState.bracket?.copy(done = done),
+                            status = "对焦包围 $done/${plan.count}",
+                        )
+                        emitRemote()
+                    }
+                    if (i < plan.count - 1) {
+                        try {
+                            remoteSessionOrCreate().focusStep(direction, plan.step)
+                        } catch (e: com.lumina.ptp.PtpResponseException) {
+                            if (e.code == com.lumina.ptp.NikonRespCode.MF_DRIVE_STEP_END ||
+                                e.code == com.lumina.ptp.NikonRespCode.MF_DRIVE_STEP_INSUFFICIENCY
+                            ) {
+                                error = "对焦步进到头（已拍 $done 张）"
+                                break
+                            }
+                            throw e
+                        }
+                        Thread.sleep(350)
+                    }
+                }
+            } catch (e: Exception) {
+                error = e.message
+            } finally {
+                val back = plan.step * (done - 1).coerceAtLeast(0)
+                if (back > 0) {
+                    runCatching { remoteSessionOrCreate().focusStep(plan.oppositeDirection, back) }
+                }
+            }
+            val message = when {
+                error != null -> "对焦包围：$error"
+                bracketAbort -> "对焦包围已停止（$done/${plan.count}）"
+                else -> "对焦包围完成（$done 张）"
+            }
+            mainThread.post {
+                remoteState = remoteState.copy(
+                    bracket = remoteState.bracket?.copy(running = false, done = done, message = message),
+                    status = message,
+                )
+                emitRemote()
+            }
+        }
+    }
+
+    fun remoteStopBracket() {
+        bracketAbort = true
+        remoteState = remoteState.copy(status = "正在停止包围…")
+        emitRemote()
+    }
+
+    fun remoteClearBracket() {
+        remoteState = remoteState.copy(bracket = null)
+        emitRemote()
+    }
+
     /** 开始定时/间隔拍摄（delay 秒后首张，之后每 interval 秒一张，共 count 张）。 */
     fun remoteStartInterval(delaySeconds: Int, intervalSeconds: Int, count: Int) {
         if (remoteState.stage != RemoteStage.READY) return
+        if (remoteState.bracket?.running == true) return
         val delay = delaySeconds.coerceIn(0, 3600)
         val every = intervalSeconds.coerceIn(1, 3600)
         val total = count.coerceIn(1, 999)
@@ -438,6 +586,7 @@ class ProbeController(
 
     fun remoteToggleLiveView() {
         if (remoteState.stage != RemoteStage.READY) return
+        if (remoteState.bracket?.running == true) return
         if (liveViewOn) stopLiveViewInternal("实时取景已关") else startLiveViewInternal()
     }
 
@@ -613,6 +762,7 @@ class ProbeController(
         intervalInFlight = false
         liveViewOn = false
         liveViewInFlight = false
+        bracketAbort = true
         val params = if (outcome.ok) {
             runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
         } else {
@@ -2656,6 +2806,17 @@ data class RemoteUi(
     val liveView: Bitmap? = null,
     /** M6-04：拍后自动回传 JPEG */
     val autoDownload: Boolean = true,
+    /** M6-05：包围拍摄状态（null=未启用） */
+    val bracket: BracketUi? = null,
+)
+
+/** 包围拍摄的 UI 快照。 */
+data class BracketUi(
+    val mode: String,
+    val done: Int,
+    val count: Int,
+    val running: Boolean = true,
+    val message: String? = null,
 )
 
 /** 定时/间隔拍摄的 UI 快照。 */

@@ -37,9 +37,10 @@ object NikonOpCode {
     const val GET_LIVE_VIEW_IMAGE = 0x9203
     const val GET_LIVE_VIEW_IMAGE_EX = 0x9428
 
-    /** 对焦：AfDrive（无参）/ ChangeAfArea（2 参）/ Cancel。 */
+    /** 对焦：AfDrive（无参）/ ChangeAfArea（2 参）/ MfDrive（2 参：方向+步长）/ Cancel。 */
     const val AF_DRIVE = 0x90C1
     const val CHANGE_AF_AREA = 0x9205
+    const val MF_DRIVE = 0x9204
     const val AF_CANCEL = 0x9206
 
     /** 相机模式与就绪。 */
@@ -48,8 +49,7 @@ object NikonOpCode {
 }
 
 /** 响应码：OK 之外的都是错误 */
-object RespCode {
-    const val OK = 0x2001
+object RespCode {    const val OK = 0x2001
     const val SESSION_NOT_OPEN = 0x2003
     const val DEVICE_PROP_NOT_SUPPORTED = 0x200A
     const val ACCESS_DENIED = 0x200F
@@ -58,6 +58,12 @@ object RespCode {
 
     /** 相机残留会话未关（拔线粗暴常见）：OpenSession 时当成功处理，直接沿用 */
     const val SESSION_ALREADY_OPENED = 0x201E
+}
+
+/** 尼康厂商响应码（MfDrive 的步进边界） */
+object NikonRespCode {
+    const val MF_DRIVE_STEP_END = 0xA00C
+    const val MF_DRIVE_STEP_INSUFFICIENCY = 0xA00E
 }
 
 /** 相机应答了非 OK 响应码：单测与真机日志都按错误来源标注 */

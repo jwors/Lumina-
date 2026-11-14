@@ -54,6 +54,7 @@ object CameraProp {
     const val FOCAL_LENGTH = 0x5008
     const val EXPOSURE_TIME = 0x500D
     const val EXPOSURE_INDEX = 0x500F
+    const val EXPOSURE_BIAS = 0x5010
     const val STILL_CAPTURE_MODE = 0x5013
 
     val shootingParams = listOf(FOCAL_LENGTH, F_NUMBER, EXPOSURE_TIME, EXPOSURE_INDEX, BATTERY_LEVEL)
@@ -64,6 +65,7 @@ object CameraProp {
         FOCAL_LENGTH -> "焦距"
         EXPOSURE_TIME -> "快门"
         EXPOSURE_INDEX -> "ISO"
+        EXPOSURE_BIAS -> "曝光补偿"
         STILL_CAPTURE_MODE -> "拍摄模式"
         else -> "0x%04X".format(code)
     }
