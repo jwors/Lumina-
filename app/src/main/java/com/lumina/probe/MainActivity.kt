@@ -126,18 +126,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ── 清爽版 token（v2）：暖白画布 / 白卡 / 鼠尾草绿 ──
-val FilmBackground = Color(0xFFF7F8F3)
-val InkTeal = Color(0xFF1B231C)
-val SageText = Color(0xFF56625A)
-val CreamFaint = Color(0xFF66726A)
-val DividerCream = Color(0xFFE1E7DC)
-val PillActive = Color(0xFFDDEDE2)
-val WarnBrown = Color(0xFFB4552F)
-val Accent = Color(0xFF3F7B58)
-val AccentDeep = Color(0xFF33553F)
-val CardBg = Color(0xFFFFFFFF)
-val Lightbox = Color(0xFFEEF1EA)
+// ── 黑金 token（v3，2026-11-14）：近黑画布 / 炭黑卡 / 尼康金 ──
+val FilmBackground = Color(0xFF0D0E0C)
+val InkTeal = Color(0xFFF3E7C8)
+val SageText = Color(0xFFBDB39C)
+val CreamFaint = Color(0xFF8A8273)
+val DividerCream = Color(0xFF2C2820)
+val PillActive = Color(0xFF2A2315)
+val WarnBrown = Color(0xFFE08A5B)
+val Accent = Color(0xFFC9A24B)
+val AccentDeep = Color(0xFFE4C77E)
+val CardBg = Color(0xFF171814)
+val Lightbox = Color(0xFF201F19)
 
 /** JPEG 判定（Master 图库/Pass 入队/收尾覆盖三处口径统一；GLOSSARY 惯例：仅此一处判断）。 */
 internal fun isJpegName(name: String): Boolean {

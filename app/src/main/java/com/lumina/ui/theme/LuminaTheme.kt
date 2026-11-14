@@ -1,10 +1,10 @@
 package com.lumina.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -13,39 +13,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// 清爽版（v2）设计 token：暖白画布 / 白卡 / 鼠尾草绿
-private val Canvas = Color(0xFFF7F8F3)
-private val Card = Color(0xFFFFFFFF)
-private val Ink = Color(0xFF1B231C)
-private val InkSoft = Color(0xFF56625A)
-private val Line = Color(0xFFE1E7DC)
-private val Accent = Color(0xFF3F7B58)
-private val AccentSoft = Color(0xFFDDEDE2)
-private val Warn = Color(0xFFB4552F)
+// 黑金（v3，2026-11-14）：近黑画布 / 炭黑卡 / 尼康金
+private val Canvas = Color(0xFF0D0E0C)
+private val Card = Color(0xFF171814)
+private val Ink = Color(0xFFF3E7C8)
+private val InkSoft = Color(0xFFBDB39C)
+private val Line = Color(0xFF2C2820)
+private val Gold = Color(0xFFC9A24B)
+private val GoldSoft = Color(0xFF2A2315)
+private val GoldInk = Color(0xFFE4C77E)
+private val Warn = Color(0xFFE08A5B)
 
-private val LuminaColors = lightColorScheme(
-    primary = Accent,
-    onPrimary = Color.White,
-    primaryContainer = AccentSoft,
-    onPrimaryContainer = Accent,
-    secondary = Accent,
-    onSecondary = Color.White,
+private val LuminaColors = darkColorScheme(
+    primary = Gold,
+    onPrimary = Color(0xFF16130A),
+    primaryContainer = GoldSoft,
+    onPrimaryContainer = GoldInk,
+    secondary = Gold,
+    onSecondary = Color(0xFF16130A),
     background = Canvas,
     onBackground = Ink,
     surface = Card,
     onSurface = Ink,
-    surfaceVariant = AccentSoft,
+    surfaceVariant = GoldSoft,
     onSurfaceVariant = InkSoft,
-    surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFF4F6F0),
-    surfaceContainer = Color(0xFFEFF3EA),
-    surfaceContainerHigh = Color(0xFFE9EEE4),
-    surfaceContainerHighest = Color(0xFFE3E9DE),
-    surfaceTint = Accent,
+    surfaceContainerLowest = Color(0xFF0A0B09),
+    surfaceContainerLow = Color(0xFF121310),
+    surfaceContainer = Color(0xFF171814),
+    surfaceContainerHigh = Color(0xFF1E1F19),
+    surfaceContainerHighest = Color(0xFF262720),
+    surfaceTint = Gold,
     outline = Line,
     outlineVariant = Line,
     error = Warn,
-    onError = Color.White,
+    onError = Color(0xFF16130A),
 )
 
 private val LuminaType = Typography(

@@ -1,19 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Lumina launcher foreground：L 取景角单线 + 内角一粒光
-     108dp 视口，内容居中于自适应安全区（中央 66dp）内 -->
+<!-- Z·Lumina 标识：金色 Z + 右侧金点（108dp 自适应图标视口，内容在安全区内） -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:pathData="M35.9,27 L35.9,80.6 L76.8,80.6 L76.8,67.9"
-        android:strokeColor="#000000"
-        android:strokeWidth="5.6"
+        android:pathData="M34,33 L70,33 L34,75 L70,75"
+        android:strokeColor="#C9A24B"
+        android:strokeWidth="6.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="#00000000"/>
     <path
-        android:pathData="M69.98,75.94 m-3.6,0 a3.6,3.6 0 1,1 7.2,0 a3.6,3.6 0 1,1 -7.2,0"
-        android:fillColor="#D9A54A"/>
+        android:pathData="M78.5,54 m-3.2,0 a3.2,3.2 0 1,1 6.4,0 a3.2,3.2 0 1,1 -6.4,0"
+        android:fillColor="#E4C77E"/>
 </vector>
