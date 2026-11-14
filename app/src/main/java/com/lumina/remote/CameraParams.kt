@@ -68,7 +68,7 @@ object CameraParamsReader {
 /** 可点调节的常用档位（原始值，单位见 CameraProp 注释）。 */
 object CameraPresets {
     val aperture: LongArray = longArrayOf(
-        280, 320, 350, 400, 450, 500, 560, 630, 710, 800, 900, 1000,
+        350, 400, 450, 500, 560, 630, 710, 800, 900, 1000,
         1100, 1300, 1400, 1600, 1800, 2000, 2200,
     )
     val shutter: LongArray = longArrayOf(

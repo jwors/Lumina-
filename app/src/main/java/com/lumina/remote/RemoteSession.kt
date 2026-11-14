@@ -217,8 +217,7 @@ class RemoteSession(
     }
 
     /** 快门 + 可选回传：先枚举 handle，拍完只取新出现的 JPEG。 */
-    fun captureWithDownload(): CaptureDownload {
-        val auto = isAutoDownload()
+    fun captureWithDownload(auto: Boolean = isAutoDownload()): CaptureDownload {
         val before = if (auto) snapshotHandles() else emptySet()
         val at = capture()
         val downloaded = if (auto && before != null) downloadNewJpeg(before) else null
@@ -233,7 +232,8 @@ class RemoteSession(
 
     private fun downloadNewJpeg(before: Set<Long>): DownloadedJpeg? {
         val s = session ?: return null
-        val deadline = System.currentTimeMillis() + 8_000
+        val started = System.currentTimeMillis()
+        val deadline = started + 8_000
         while (System.currentTimeMillis() < deadline) {
             val handles = runCatching {
                 s.getObjectHandles(PtpSession.DEFAULT_STORAGE, 0, PtpSession.PARENT_ALL)
@@ -245,25 +245,45 @@ class RemoteSession(
             if (pick != null) {
                 val bytes = runCatching { s.getObject(pick.handle) }.getOrNull()
                 if (bytes != null && (pick.info.sizeBytes <= 0 || bytes.size.toLong() == pick.info.sizeBytes)) {
-                    log("回传 ${pick.info.fileName} ${bytes.size}B")
+                    log("回传 h=${pick.handle} ${pick.info.fileName} ${bytes.size}B ${System.currentTimeMillis() - started}ms")
                     return DownloadedJpeg(pick.info.fileName, bytes, pick.info.captureEpochMillis)
                 }
             }
             Thread.sleep(400)
         }
-        log("回传超时：未发现新 JPEG")
+        log("回传超时（已知 ${before.size} 个 handle）：未发现新 JPEG")
         return null
     }
 
     /** 写一个属性并回读；返回相机实际生效的原始值（可能被夹取）。 */
     fun setParam(code: Int, type: Int, raw: Long): Long? {
         val s = session ?: throw IllegalStateException("相机未连接")
-        s.setDevicePropValue(code, type, raw)
+        try {
+            s.setDevicePropValue(code, type, raw)
+        } catch (e: com.lumina.ptp.PtpResponseException) {
+            throw IllegalStateException(paramError(e))
+        }
         val applied = runCatching {
             (s.getDevicePropValue(code, type) as? com.lumina.ptp.PtpValue.Num)?.value
         }.getOrNull()
         log("写参数 ${com.lumina.ptp.CameraProp.name(code)} raw=$raw 回读=$applied")
         return applied
+    }
+
+    /** 读曝光补偿（1/1000 EV）；用于包围结束确认已回 0。 */
+    fun readExposureBias(): Int? = runCatching {
+        val s = session ?: return null
+        (s.getDevicePropValue(
+            com.lumina.ptp.CameraProp.EXPOSURE_BIAS,
+            com.lumina.ptp.PtpDataType.INT16,
+        ) as? com.lumina.ptp.PtpValue.Num)?.value?.toInt()
+    }.getOrNull()
+
+    private fun paramError(e: com.lumina.ptp.PtpResponseException): String = when (e.code) {
+        com.lumina.ptp.RespCode.ACCESS_DENIED -> "相机拒绝该值（可能超出镜头范围）"
+        com.lumina.ptp.RespCode.DEVICE_PROP_NOT_SUPPORTED -> "相机不支持该参数"
+        com.lumina.ptp.RespCode.DEVICE_BUSY -> "相机忙，稍后再试"
+        else -> "相机返回 0x%04X".format(e.code)
     }
 
     // ---------- M6-03 实时取景 / 触控 AF ----------

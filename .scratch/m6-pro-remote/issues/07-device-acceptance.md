@@ -1,16 +1,28 @@
 # 07 · 真机验收与回归
 
-> Status: ready-for-agent
+> Status: ready-for-agent（等 Z30 开 Wi-Fi；代码侧 01–06 已完成）
 > 上游：全部 M6 工单
 
 ## 步骤
 
 1. 相机 Wi-Fi 打开，手机连 `NIKON_Z_30_82949`，App 相机页连接
-2. 逐项验收 01–06 的勾选项，记录日志 `files/m6-remote.log`
+2. 逐项验收 01–06 的勾选项，记录日志 `files/m5-remote.log`
 3. 回归：M5 参数只读/快门仍可用；USB 导出不受影响
 4. 记录设备型号/Android 版本/每项结果
 
+## 验收矩阵
+
+| 项 | 操作 | 期望日志/结果 |
+|---|---|---|
+| 01 参数写 | 点光圈/快门/ISO | `SetDevicePropValue` 0x1016，回读值变化 |
+| 02 间隔 | 3 张 × 5s | 相机出 3 张；中途停止不再拍 |
+| 03 取景 | 开实时取景，点画面 | 0x9201/0x9203 有帧；0x9205/0x90C1 后对焦框移动 |
+| 04 回传 | 按一次快门 | 0x1007/0x1008/0x1009；Master 出现同名 JPEG |
+| 05 包围 | 曝光 -2/-1/0 | 3 张不同曝光；结束 EV 回 0 |
+| 05 对焦包围 | 3 张 × 2 步 | 焦点前后移动；结束回位 |
+| 06 云创 | — | 本轮只验协议层，不写槽 |
+
 ## 取证
 
-- `adb shell run-as com.lumina cat files/m6-remote.log`
+- `adb shell run-as com.lumina cat files/m5-remote.log`
 - 失败时 `adb logcat -d | findstr /i "lumina"`

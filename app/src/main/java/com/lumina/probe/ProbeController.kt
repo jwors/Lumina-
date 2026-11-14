@@ -73,10 +73,12 @@ class ProbeController(
     private var intervalPlan: com.lumina.remote.IntervalPlan? = null
     private var intervalDone = 0
     private var intervalInFlight = false
+    private var intervalLastShotAt = 0L
 
     // M6-03 实时取景：~6fps 拉帧；取景帧以 Bitmap 存进 RemoteUi
     private var liveViewOn = false
     private var liveViewInFlight = false
+    private var liveViewFailures = 0
 
     // M6-05 包围：一次性循环跑在 remoteIo 上，bracketAbort 供停止
     @Volatile private var bracketAbort = false
@@ -336,10 +338,13 @@ class ProbeController(
     fun remoteCapture() {
         if (remoteState.stage != RemoteStage.READY) return
         if (remoteState.bracket?.running == true) return
+        if (remoteState.interval?.running == true) return
         remoteState = remoteState.copy(status = "拍摄中…")
         emitRemote()
         remoteIo.execute {
-            val result = runCatching { remoteSessionOrCreate().captureWithDownload() }
+            val result = runCatching {
+                remoteSessionOrCreate().captureWithDownload(remoteState.autoDownload)
+            }
             result.onSuccess { shot ->
                 val savedName = shot.downloaded?.let { d ->
                     runCatching { saveDownloadedJpeg(d) }
@@ -371,8 +376,10 @@ class ProbeController(
 
     /** 回传的 JPEG 落到 Master（非破坏：同名冲突加序号，不覆盖已有 Master）。 */
     private fun saveDownloadedJpeg(d: com.lumina.remote.DownloadedJpeg): String {
+        // ADR-0004：拍摄日期缺失时回退入库时刻，不能落到 1970-01-01
+        val fallbackMs = System.currentTimeMillis()
         var name = d.fileName
-        var rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, null, name)
+        var rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, fallbackMs, name)
         var n = 1
         while (masterStore.findByRelPath(rel) != null || masterStore.fileOf(rel).exists()) {
             val dot = d.fileName.lastIndexOf('.')
@@ -381,13 +388,13 @@ class ProbeController(
             } else {
                 d.fileName + "_$n"
             }
-            rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, null, name)
+            rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, fallbackMs, name)
             n++
         }
         val file = masterStore.fileOf(rel)
         file.parentFile?.mkdirs()
         file.writeBytes(d.bytes)
-        return when (val r = masterStore.register(d.captureMs, null, name, d.bytes.size.toLong())) {
+        return when (val r = masterStore.register(d.captureMs, fallbackMs, name, d.bytes.size.toLong())) {
             is com.lumina.master.MasterStore.RegisterResult.Registered,
             is com.lumina.master.MasterStore.RegisterResult.AlreadyPresent,
             -> name
@@ -424,6 +431,7 @@ class ProbeController(
         bracketAbort = false
         remoteState = remoteState.copy(
             bracket = BracketUi(mode = "曝光", done = 0, count = plan.count),
+            interval = null,
             status = "曝光包围开始",
             error = null,
         )
@@ -431,6 +439,7 @@ class ProbeController(
         remoteIo.execute {
             var done = 0
             var error: String? = null
+            var restoreOk = true
             try {
                 for (i in 0 until plan.count) {
                     if (bracketAbort) break
@@ -450,13 +459,18 @@ class ProbeController(
             } catch (e: Exception) {
                 error = e.message
             } finally {
-                runCatching { remoteSessionOrCreate().setExposureBias(0) }
+                restoreOk = runCatching {
+                    remoteSessionOrCreate().setExposureBias(0)
+                    remoteSessionOrCreate().readExposureBias() == 0
+                }.getOrDefault(false)
             }
-            val message = when {
-                error != null -> "曝光包围失败：$error"
-                bracketAbort -> "曝光包围已停止（$done/${plan.count}）"
-                else -> "曝光包围完成（$done 张）"
-            }
+            val message = (
+                when {
+                    error != null -> "曝光包围失败：$error"
+                    bracketAbort -> "曝光包围已停止（$done/${plan.count}）"
+                    else -> "曝光包围完成（$done 张）"
+                }
+                ).let { if (restoreOk) it else "$it（EV 未确认回 0）" }
             mainThread.post {
                 remoteState = remoteState.copy(
                     bracket = remoteState.bracket?.copy(running = false, done = done, message = message),
@@ -477,6 +491,7 @@ class ProbeController(
         bracketAbort = false
         remoteState = remoteState.copy(
             bracket = BracketUi(mode = "对焦", done = 0, count = plan.count),
+            interval = null,
             status = "对焦包围开始",
             error = null,
         )
@@ -549,12 +564,15 @@ class ProbeController(
     fun remoteStartInterval(delaySeconds: Int, intervalSeconds: Int, count: Int) {
         if (remoteState.stage != RemoteStage.READY) return
         if (remoteState.bracket?.running == true) return
+        if (remoteState.interval?.running == true) return
+        if (liveViewOn) stopLiveViewInternal("间隔开始")
         val delay = delaySeconds.coerceIn(0, 3600)
         val every = intervalSeconds.coerceIn(1, 3600)
         val total = count.coerceIn(1, 999)
         mainThread.removeCallbacks(intervalTicker)
         intervalDone = 0
         intervalInFlight = false
+        intervalLastShotAt = 0L
         intervalPlan = com.lumina.remote.IntervalPlan(
             startAt = System.currentTimeMillis() + delay * 1000L,
             intervalMs = every * 1000L,
@@ -587,11 +605,13 @@ class ProbeController(
     fun remoteToggleLiveView() {
         if (remoteState.stage != RemoteStage.READY) return
         if (remoteState.bracket?.running == true) return
+        if (remoteState.interval?.running == true) return
         if (liveViewOn) stopLiveViewInternal("实时取景已关") else startLiveViewInternal()
     }
 
     private fun startLiveViewInternal() {
         liveViewOn = true
+        liveViewFailures = 0
         remoteState = remoteState.copy(liveViewOn = true, status = "实时取景启动…")
         emitRemote()
         remoteIo.execute {
@@ -610,9 +630,14 @@ class ProbeController(
         mainThread.postDelayed(liveViewTicker, 250)
     }
 
+    fun remoteStopLiveView() {
+        if (liveViewOn) stopLiveViewInternal("实时取景已关")
+    }
+
     private fun stopLiveViewInternal(message: String) {
         liveViewOn = false
         liveViewInFlight = false
+        liveViewFailures = 0
         mainThread.removeCallbacks(liveViewTicker)
         remoteState = remoteState.copy(liveViewOn = false, liveView = null, status = message)
         emitRemote()
@@ -657,8 +682,18 @@ class ProbeController(
                     mainThread.post {
                         liveViewInFlight = false
                         if (bmp != null) {
+                            liveViewFailures = 0
                             remoteState = remoteState.copy(liveView = bmp)
                             emitRemote()
+                        } else {
+                            liveViewFailures++
+                            if (liveViewFailures == 12) {
+                                val n = liveViewFailures
+                                remoteState = remoteState.copy(status = "取景中断：连续 $n 帧失败")
+                                emitRemote()
+                            } else if (liveViewFailures >= 40) {
+                                stopLiveViewInternal("取景中断，已停止")
+                            }
                         }
                     }
                 }
@@ -671,6 +706,7 @@ class ProbeController(
         mainThread.removeCallbacks(intervalTicker)
         intervalPlan = null
         intervalInFlight = false
+        intervalLastShotAt = 0L
         val current = remoteState.interval
         remoteState = remoteState.copy(
             status = message,
@@ -689,14 +725,23 @@ class ProbeController(
             }
             val now = System.currentTimeMillis()
             val due = plan.dueIndex(now)
-            if (intervalDone < due && !intervalInFlight) {
+            val spacingOk = intervalLastShotAt == 0L || now - intervalLastShotAt >= plan.intervalMs
+            if (intervalDone < due && !intervalInFlight && spacingOk) {
                 intervalInFlight = true
                 remoteIo.execute {
-                    val result = runCatching { remoteSessionOrCreate().capture() }
+                    var result = runCatching { remoteSessionOrCreate().capture() }
+                    if (result.isFailure &&
+                        (result.exceptionOrNull() as? com.lumina.ptp.PtpResponseException)?.code ==
+                        com.lumina.ptp.RespCode.DEVICE_BUSY
+                    ) {
+                        Thread.sleep(300)
+                        result = runCatching { remoteSessionOrCreate().capture() }
+                    }
                     mainThread.post {
                         intervalInFlight = false
                         result.onSuccess { at ->
                             intervalDone++
+                            intervalLastShotAt = System.currentTimeMillis()
                             remoteState = remoteState.copy(
                                 status = "间隔拍摄中 $intervalDone/${plan.count}",
                                 shotCount = remoteState.shotCount + 1,
@@ -744,8 +789,11 @@ class ProbeController(
             remoteState = remoteState.copy(
                 status = result.fold(
                     { applied ->
-                        if (applied == null || applied == next) "已设置${CameraProp.name(code)}"
-                        else "相机回读 ${CameraProp.name(code)}=$applied（已夹取）"
+                        when {
+                            applied == null -> "设置失败：未读回${CameraProp.name(code)}"
+                            applied == next -> "已设置${CameraProp.name(code)}"
+                            else -> "相机回读 ${CameraProp.name(code)}=$applied（已夹取）"
+                        }
                     },
                     { "设置失败：${it.message}" },
                 ),

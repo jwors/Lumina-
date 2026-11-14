@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -298,10 +299,10 @@ private fun LiveViewSection(state: RemoteUi, controller: ProbeController) {
     Image(
         bitmap = bmp.asImageBitmap(),
         contentDescription = "实时取景",
-        contentScale = ContentScale.FillBounds,
+        contentScale = ContentScale.Fit,
         modifier = Modifier
             .fillMaxWidth()
-            .height(190.dp)
+            .aspectRatio((bmp.width.toFloat() / bmp.height.toFloat()).coerceIn(0.5f, 3f))
             .clip(RoundedCornerShape(8.dp))
             .pointerInput(bmp) {
                 detectTapGestures { offset ->

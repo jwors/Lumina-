@@ -1,6 +1,6 @@
 # M6 · 遥控进阶（参数/间隔/取景/回传/包围）
 
-> Status: planning
+> Status: in-progress（01–06 代码+单测完成；07 真机验收待 Z30 开 Wi-Fi）
 > 上游：`docs/SPEC-Lumina.md` §3.1、`docs/adr/0006`、`.scratch/m5-remote/`
 > 参考：ZRelay 3.0.87 真机 APK 静态盘点（只取协议事实与功能清单，不搬代码）
 

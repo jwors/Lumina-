@@ -1,6 +1,8 @@
 package com.lumina.probe
 
+import android.app.Activity
 import android.os.Bundle
+import android.view.WindowManager
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -66,6 +68,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1326,6 +1329,26 @@ private fun CameraPage(
     controller: ProbeController,
     onWirelessConnect: () -> Unit = {},
 ) {
+    // 离开相机页（切 Tab）必须收掉 LiveView，别让相机一直停在取景
+    DisposableEffect(Unit) {
+        onDispose { controller.remoteStopLiveView() }
+    }
+    // 取景/间隔/包围运行时保持屏幕常亮（徒步拍摄手不碰屏）
+    val activity = LocalContext.current as? Activity
+    val remote = state.remote
+    val keepScreenOn = remote?.liveViewOn == true ||
+        remote?.interval?.running == true ||
+        remote?.bracket?.running == true
+    DisposableEffect(keepScreenOn) {
+        if (keepScreenOn) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (keepScreenOn) {
+                activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
     Column(modifier = modifier) {
         Spacer(Modifier.height(12.dp))
         if (state.busy) {

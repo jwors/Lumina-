@@ -137,7 +137,7 @@ class DevicePropsTest {
     }
 
     @Test
-    fun `setDevicePropValue rejects a link without data-out`() {
+    fun `setDevicePropValue requires an open session`() {
         val t = object : com.lumina.transport.Transport {
             override fun open() = Unit
             override fun write(chunk: ByteArray): Int = chunk.size

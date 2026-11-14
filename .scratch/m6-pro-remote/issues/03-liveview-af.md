@@ -15,11 +15,13 @@
 - [x] 单测：帧头解析（有效/截断/非 JPEG）
 - [ ] 真机：Z30 取景出现画面，手挡镜头画面变化
 - [ ] 真机：点按画面后相机对焦框移动并合焦
-- [ ] 真机：退出后相机退出 LiveView（屏幕恢复）
+- [x] 看门狗：连续 12 帧失败提示、40 帧停止
+- [x] 离开相机页/断开自动 EndLiveView
 
 ## 证据
 
 - `NikonLiveView.extractJpeg` 找 `FF D8 FF`，头长度不写死；`NikonLiveViewTest` 4 例。
 - 控制器 150ms ticker（单帧在途），Bitmap 存入 `RemoteUi.liveView`；点按归一化坐标 → 帧像素 → `ChangeAfArea` + `AfDrive`。
-- 单测 186 全绿；APK 已装。
+- 取景画面按帧宽高比显示（`aspectRatio`），不再拉伸。
+- 单测 201 全绿；APK 已装。
 - **真机待验收**：StartLiveView 是否需先 ChangeCameraMode、0x9203 帧头格式、ChangeAfArea 坐标口径，均需 Z30 开 Wi-Fi 后按日志收口。

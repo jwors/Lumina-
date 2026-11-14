@@ -1,5 +1,7 @@
 package com.lumina.ptpip
 
+import com.lumina.ptp.NikonOpCode
+import com.lumina.ptp.OpCode
 import com.lumina.transport.DataOutTransport
 import com.lumina.transport.Transport
 import java.io.ByteArrayOutputStream
@@ -48,8 +50,8 @@ class PtpIpTransport(
     private var pendingDataOut: PendingDataOut? = null
 
     private val dataOutOps = setOf(
-        0x1016, // SetDevicePropValue
-        0x90CD, // Nikon SetPictCtrlData
+        OpCode.SET_DEVICE_PROP_VALUE,
+        NikonOpCode.SET_PIC_CTRL_DATA,
     )
 
     val cameraName: String get() = cameraNameField
