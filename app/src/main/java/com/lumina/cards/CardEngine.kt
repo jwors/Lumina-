@@ -154,4 +154,11 @@ object CardEngine {
     )
 
     fun newId(): String = java.util.UUID.randomUUID().toString()
+
+    /**
+     * 播种计划（M2-07）：缺的内置卡减去用户删掉的墓碑。
+     * 按名字对账——同名已在库（含导入卡）就不补；内置卡版本升级仍按名字补新版。
+     */
+    fun builtInsToSeed(existingNames: Set<String>, deletedNames: Set<String>): List<SkillCard> =
+        builtIns().filter { it.name !in existingNames && it.name !in deletedNames }
 }

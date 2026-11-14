@@ -1821,8 +1821,12 @@ class ProbeController(
             emit(ProbeUiState("配方库盘点中…", cardsLoading = true))
             cardDao().let { dao ->
                 // M3 起点：内置卡播种升级为"缺哪补哪"——按名字对账，新版本内置卡也能补进旧设备库
+                // M2-07：用户删掉的内置卡有墓碑，不再补回
                 val existingNames = dao.all().map { it.name }.toSet()
-                val missing = CardEngine.builtIns().filter { it.name !in existingNames }
+                val missing = CardEngine.builtInsToSeed(
+                    existingNames,
+                    com.lumina.cards.CardPrefs.deletedBuiltIns(appContext),
+                )
                 missing.forEach { card ->
                     dao.upsert(
                         CardEntity(
@@ -1842,20 +1846,21 @@ class ProbeController(
         }
     }
 
-    /** 卡片 UI 数据发布（合并式，相机/图库数据不冲掉） */
+    /** 卡片 UI 数据发布（专用发射：配方库可被删空，空列表不得被合并语义吞掉） */
     private fun publishCards(cards: List<CardUi>, cardStatus: String) {
-        // 滤镜确认弹层需要当页知道云开关状态（每次 loadCards 都新鲜读取——M3-02 闸门前置）
+        // 滤镜确认弹层需要当页知道云开关状态（每次盘点都新鲜读取——M3-02 闸门前置）
         val cloudEnabled = llmConfigDao.active()?.cloudEnabled ?: false
         lastCards = cards
         lastCardStatus = cardStatus
-        emit(
-            ProbeUiState(
-                connectionText = "配方库 · ${cards.size} 张卡",
-                cards = cards,
-                cardStatus = cardStatus,
-                cloudEnabled = cloudEnabled,
-            ),
+        val next = lastEmitted.get().copy(
+            connectionText = "配方库 · ${cards.size} 张卡",
+            cards = cards,
+            cardStatus = cardStatus,
+            cloudEnabled = cloudEnabled,
+            cardsLoading = false,
         )
+        lastEmitted.set(next)
+        mainThread.post { onState(next) }
     }
 
     /** SAF 导入：uri JSON → 校验解析 → 入库（cardId 撞库=替换，导入语义为"更新配方"） */
@@ -1897,6 +1902,37 @@ class ProbeController(
             } catch (e: Exception) {
                 publishCards(loadCardRows(), cardStatus = "导出失败：${e.message}")
             }
+        }
+    }
+
+    /**
+     * 删除配方（M2-07）：清掉该卡在补跑队列里的待处理行；已产出的智能结果 / Work 保留。
+     * 内置卡写墓碑（按名字），否则 loadCards 的「缺哪补哪」下次盘点会把它补回来。
+     * 正在执行的卡拒绝删除（执行链还握着它的卡定义）。
+     */
+    fun deleteCard(cardId: String) {
+        io.execute {
+            val ent = cardDao().byId(cardId)
+            if (ent == null) {
+                publishCards(loadCardRows(), "配方不存在（可能已被删）")
+                return@execute
+            }
+            val running = activeCardRun
+            if (running != null && running.phase == CardRunPhase.RUNNING && running.cardId == cardId) {
+                publishCards(loadCardRows(), "「${ent.name}」正在执行：先停掉再删")
+                return@execute
+            }
+            val queued = passQueueDao.deleteByCardId(cardId)
+            cardDao().deleteById(cardId)
+            if (!ent.imported) com.lumina.cards.CardPrefs.markBuiltInDeleted(appContext, ent.name)
+            logEvents(listOf("cards: deleted \"${ent.name}\" (imported=${ent.imported}, queued=$queued)"))
+            if (queued > 0) updateCatchupBanner()
+            val note = if (queued > 0) {
+                "已删除配方：${ent.name}（清 $queued 条待处理）"
+            } else {
+                "已删除配方：${ent.name}"
+            }
+            publishCards(loadCardRows(), note)
         }
     }
 

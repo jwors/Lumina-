@@ -53,6 +53,10 @@ interface PassQueueDao {
     @Query("DELETE FROM processing_queue WHERE name = :name")
     fun deleteByName(name: String): Int
 
+    /** M2-07：删卡时级联清该卡的全部待处理行。 */
+    @Query("DELETE FROM processing_queue WHERE cardId = :cardId")
+    fun deleteByCardId(cardId: String): Int
+
     @Query("SELECT * FROM processing_queue ORDER BY queuedAtMs ASC")
     fun all(): List<PassQueueEntity>
 

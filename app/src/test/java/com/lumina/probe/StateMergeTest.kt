@@ -54,7 +54,7 @@ class StateMergeTest {
 
     @Test
     fun `merge itself never clears cardRun - clearing is a dedicated emitter job`() {
-        // 语义锁：透传"空集/null 不清值"——真正清空必须走 emitCardRun/emitSelection/emitGallerySnapshot 专用发射器。
+        // 语义锁：透传"空集/null 不清值"——真正清空必须走专用发射器（emitCardRun/emitSelection/emitGallerySnapshot/publishCards）。
         // 若有人把清理语义塞回合并清单，此测试即红。
         val merged = StateMerge.merge(base, ProbeUiState("x"))
         assertEquals(base.cardRun, merged.cardRun)

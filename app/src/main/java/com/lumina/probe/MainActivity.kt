@@ -1777,6 +1777,8 @@ private fun RecipePage(
 ) {
     // 确认弹层（点卡片 → 应用范围决策）
     var confirmCard: CardUi? by remember { mutableStateOf<CardUi?>(null) }
+    // M2-07：待确认删除的配方
+    var pendingDelete by remember { mutableStateOf<CardUi?>(null) }
     // 导出双段流程：先记下要导的卡，launcher 回调再把 JSON 写 uri
     var pendingExport: CardUi? by remember { mutableStateOf<CardUi?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
@@ -1874,6 +1876,7 @@ private fun RecipePage(
                         pendingExport = card
                         exportLauncher.launch("${card.name}.json")
                     },
+                    onDelete = { pendingDelete = card },
                 )
             }
         }
@@ -1903,6 +1906,61 @@ private fun RecipePage(
                 },
             )
         }
+    }
+    pendingDelete?.let { card ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            containerColor = CardBg,
+            title = {
+                Text(
+                    "删除配方「${card.name}」？",
+                    fontSize = 17.sp, fontWeight = FontWeight.Bold, color = InkTeal,
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        "待处理队列里这张卡的任务会一并移除；已产出的智能结果与 Work 保留。",
+                        fontSize = 13.sp, color = SageText,
+                    )
+                    if (!card.imported) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "内置示例卡删除后不会再自动补回（重装或清应用数据才恢复）。",
+                            fontSize = 12.sp, color = CreamFaint,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "此操作不可恢复",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = WarnBrown,
+                    )
+                }
+            },
+            confirmButton = {
+                Text(
+                    "删除",
+                    fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WarnBrown,
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable {
+                            controller.deleteCard(card.cardId)
+                            pendingDelete = null
+                        }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            },
+            dismissButton = {
+                Text(
+                    "取消",
+                    fontSize = 14.sp, color = SageText,
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable { pendingDelete = null }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            },
+        )
     }
 }
 
@@ -1972,6 +2030,7 @@ private fun CardTile(
     card: CardUi,
     onClick: () -> Unit,
     onExport: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val palettes = listOf(
         listOf(0xFF7A8A80, 0xFF2C352F),   // 山雾（冷灰绿）
@@ -2012,11 +2071,19 @@ private fun CardTile(
             )
             Text("${card.stepsCount} 步 · ${card.steps.joinToString(" → ")}",
                 fontSize = 11.sp, color = CreamFaint, modifier = Modifier.padding(top = 3.dp))
-            Text("导出",
-                fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .clickable { onExport() }
-                    .padding(top = 6.dp))
+            Row(modifier = Modifier.padding(top = 6.dp)) {
+                Text(
+                    "导出",
+                    fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onExport() },
+                )
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    "删除",
+                    fontSize = 11.sp, color = WarnBrown, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onDelete() },
+                )
+            }
         }
         Text("›", fontSize = 18.sp, color = CreamFaint)
     }

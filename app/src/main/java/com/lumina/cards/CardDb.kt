@@ -32,4 +32,8 @@ interface CardDao {
 
     @Query("SELECT * FROM skill_cards WHERE cardId = :cardId LIMIT 1")
     fun byId(cardId: String): CardEntity?
+
+    /** M2-07：删除配方（内置卡由调用方写墓碑，防下次播种复活）。 */
+    @Query("DELETE FROM skill_cards WHERE cardId = :cardId")
+    fun deleteById(cardId: String): Int
 }
