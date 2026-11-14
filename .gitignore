@@ -15,3 +15,9 @@ logo_*.png
 captures/
 .externalNativeBuild/
 .cxx/
+
+# 真机/UX 诊断产物（本地保留，不进仓库）
+m5-remote.log
+ui-bug.jpg
+.ux-review/
+.scratch/view_*.png
