@@ -59,6 +59,7 @@ object PtpIp {
         0x1008, // GetObjectInfo
         0x1014, // GetDevicePropDesc
         0x1015, // GetDevicePropValue
+        0x9203, // Nikon GetLiveViewImage
     )
 
     fun dataPhaseFor(opcode: Int): Int = if (opcode in dataInOps) PHASE_IN else PHASE_NONE

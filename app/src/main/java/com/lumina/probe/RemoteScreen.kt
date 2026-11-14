@@ -1,8 +1,10 @@
 package com.lumina.probe
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -171,7 +177,59 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
         Spacer(Modifier.width(12.dp))
         ShutterButton(busy = state.status == "拍摄中…") { controller.remoteCapture() }
     }
+    LiveViewSection(state, controller)
     IntervalSection(state, controller)
+}
+
+/** M6-03：实时取景开关 + 画面 + 点按对焦。 */
+@Composable
+private fun LiveViewSection(state: RemoteUi, controller: ProbeController) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("实时取景", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (state.liveViewOn) "关闭" else "开启",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (state.liveViewOn) WarnBrown else CreamFaint,
+            modifier = Modifier
+                .clickable { controller.remoteToggleLiveView() }
+                .padding(6.dp),
+        )
+    }
+    if (!state.liveViewOn) return
+    val bmp = state.liveView
+    if (bmp == null) {
+        Text("取景启动中…", fontSize = 10.sp, color = CreamFaint)
+        return
+    }
+    Image(
+        bitmap = bmp.asImageBitmap(),
+        contentDescription = "实时取景",
+        contentScale = ContentScale.FillBounds,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(190.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .pointerInput(bmp) {
+                detectTapGestures { offset ->
+                    if (size.width > 0 && size.height > 0) {
+                        controller.remoteFocusAt(offset.x / size.width, offset.y / size.height)
+                    }
+                }
+            },
+    )
+    Text(
+        "点画面移动对焦点",
+        fontSize = 9.sp,
+        color = CreamFaint,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }
 
 /** M6-02：定时/间隔拍摄的折叠面板 + 运行进度。 */

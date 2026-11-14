@@ -1,6 +1,8 @@
 package com.lumina.probe
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.mtp.MtpDevice
@@ -30,6 +32,7 @@ import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
 import com.lumina.remote.CameraParamsReader
 import com.lumina.remote.CameraPresets
+import com.lumina.remote.NikonLiveView
 import com.lumina.remote.RemoteSession
 import com.lumina.usb.UsbCameraMonitor
 import com.lumina.usb.UsbCameraStateMachine
@@ -68,6 +71,10 @@ class ProbeController(
     private var intervalPlan: com.lumina.remote.IntervalPlan? = null
     private var intervalDone = 0
     private var intervalInFlight = false
+
+    // M6-03 实时取景：~6fps 拉帧；取景帧以 Bitmap 存进 RemoteUi
+    private var liveViewOn = false
+    private var liveViewInFlight = false
 
     private val db = AppDatabase.get(appContext)
     private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
@@ -183,8 +190,11 @@ class ProbeController(
     fun remoteDisconnect() {
         mainThread.removeCallbacks(remoteTicker)
         mainThread.removeCallbacks(intervalTicker)
+        mainThread.removeCallbacks(liveViewTicker)
         intervalPlan = null
         intervalInFlight = false
+        liveViewOn = false
+        liveViewInFlight = false
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -204,8 +214,11 @@ class ProbeController(
     fun closeRemote() {
         mainThread.removeCallbacks(remoteTicker)
         mainThread.removeCallbacks(intervalTicker)
+        mainThread.removeCallbacks(liveViewTicker)
         intervalPlan = null
         intervalInFlight = false
+        liveViewOn = false
+        liveViewInFlight = false
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -365,6 +378,90 @@ class ProbeController(
         emitRemote()
     }
 
+    // ---------- M6-03 实时取景 / 触控 AF ----------
+
+    fun remoteToggleLiveView() {
+        if (remoteState.stage != RemoteStage.READY) return
+        if (liveViewOn) stopLiveViewInternal("实时取景已关") else startLiveViewInternal()
+    }
+
+    private fun startLiveViewInternal() {
+        liveViewOn = true
+        remoteState = remoteState.copy(liveViewOn = true, status = "实时取景启动…")
+        emitRemote()
+        remoteIo.execute {
+            val result = runCatching { remoteSessionOrCreate().startLiveView() }
+            if (result.isFailure) {
+                mainThread.post {
+                    liveViewOn = false
+                    remoteState = remoteState.copy(
+                        liveViewOn = false,
+                        status = "取景启动失败：${result.exceptionOrNull()?.message}",
+                    )
+                    emitRemote()
+                }
+            }
+        }
+        mainThread.postDelayed(liveViewTicker, 250)
+    }
+
+    private fun stopLiveViewInternal(message: String) {
+        liveViewOn = false
+        liveViewInFlight = false
+        mainThread.removeCallbacks(liveViewTicker)
+        remoteState = remoteState.copy(liveViewOn = false, liveView = null, status = message)
+        emitRemote()
+        remoteIo.execute { runCatching { remoteSessionOrCreate().stopLiveView() } }
+    }
+
+    /** 点取景画面：归一化坐标 → 取景帧像素 → ChangeAfArea + AfDrive。 */
+    fun remoteFocusAt(nx: Float, ny: Float) {
+        if (!liveViewOn) return
+        val bmp = remoteState.liveView ?: return
+        if (bmp.width <= 0 || bmp.height <= 0) return
+        val x = (nx.coerceIn(0f, 1f) * bmp.width).toInt()
+        val y = (ny.coerceIn(0f, 1f) * bmp.height).toInt()
+        remoteState = remoteState.copy(status = "对焦中…")
+        emitRemote()
+        remoteIo.execute {
+            val result = runCatching { remoteSessionOrCreate().focusAt(x, y) }
+            mainThread.post {
+                remoteState = remoteState.copy(
+                    status = if (result.isSuccess) "已对焦" else "对焦失败：${result.exceptionOrNull()?.message}",
+                )
+                emitRemote()
+            }
+        }
+    }
+
+    private val liveViewTicker = object : Runnable {
+        override fun run() {
+            if (!liveViewOn) return
+            if (remoteState.stage != RemoteStage.READY) {
+                stopLiveViewInternal("已断开")
+                return
+            }
+            if (!liveViewInFlight) {
+                liveViewInFlight = true
+                remoteIo.execute {
+                    val frame = runCatching { remoteSessionOrCreate().liveViewFrame() }.getOrNull()
+                    val jpeg = frame?.let { NikonLiveView.extractJpeg(it) }
+                    val bmp = jpeg?.let {
+                        runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull()
+                    }
+                    mainThread.post {
+                        liveViewInFlight = false
+                        if (bmp != null) {
+                            remoteState = remoteState.copy(liveView = bmp)
+                            emitRemote()
+                        }
+                    }
+                }
+            }
+            mainThread.postDelayed(this, 150)
+        }
+    }
+
     private fun stopInterval(message: String) {
         mainThread.removeCallbacks(intervalTicker)
         intervalPlan = null
@@ -455,8 +552,11 @@ class ProbeController(
 
     private fun applyRemoteOutcome(outcome: com.lumina.remote.RemoteConnectOutcome) {
         mainThread.removeCallbacks(intervalTicker)
+        mainThread.removeCallbacks(liveViewTicker)
         intervalPlan = null
         intervalInFlight = false
+        liveViewOn = false
+        liveViewInFlight = false
         val params = if (outcome.ok) {
             runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
         } else {
@@ -2495,6 +2595,9 @@ data class RemoteUi(
     val log: List<String> = emptyList(),
     /** M6-02：定时/间隔拍摄状态（null=未启用） */
     val interval: IntervalUi? = null,
+    /** M6-03：实时取景开/关与最新一帧 */
+    val liveViewOn: Boolean = false,
+    val liveView: Bitmap? = null,
 )
 
 /** 定时/间隔拍摄的 UI 快照。 */

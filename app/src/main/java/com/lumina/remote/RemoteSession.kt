@@ -206,6 +206,29 @@ class RemoteSession(
         return applied
     }
 
+    // ---------- M6-03 实时取景 / 触控 AF ----------
+
+    fun startLiveView() {
+        val s = session ?: throw IllegalStateException("相机未连接")
+        s.startLiveView()
+        log("实时取景开")
+    }
+
+    fun stopLiveView() {
+        runCatching { session?.endLiveView() }
+        log("实时取景关")
+    }
+
+    fun liveViewFrame(): ByteArray? = runCatching { session?.getLiveViewImage() }.getOrNull()
+
+    /** 按取景帧像素坐标移动 AF 区域并触发对焦。 */
+    fun focusAt(x: Int, y: Int) {
+        val s = session ?: throw IllegalStateException("相机未连接")
+        s.changeAfArea(x.toLong(), y.toLong())
+        s.afDrive()
+        log("AF ($x,$y)")
+    }
+
     fun capture(): Long {
         val s = session ?: throw IllegalStateException("相机未连接")
         try {
@@ -227,6 +250,7 @@ class RemoteSession(
     fun cameraModel(): String? = model
 
     fun close() {
+        runCatching { session?.endLiveView() }
         runCatching { session?.close() }
         runCatching { transport?.close() }
         session = null

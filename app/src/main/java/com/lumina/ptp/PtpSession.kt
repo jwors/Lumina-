@@ -136,6 +136,36 @@ class PtpSession(
         send(NikonOpCode.CAPTURE, longArrayOf(storageId, format.toLong()))
     }
 
+    /** 开启实时取景（Nikon 0x9201，无参数）。 */
+    fun startLiveView() {
+        check(state == State.Ready) { "startLiveView requires Ready, state=$state" }
+        send(NikonOpCode.START_LIVE_VIEW)
+    }
+
+    /** 关闭实时取景（Nikon 0x9202，无参数）。 */
+    fun endLiveView() {
+        check(state == State.Ready) { "endLiveView requires Ready, state=$state" }
+        send(NikonOpCode.END_LIVE_VIEW)
+    }
+
+    /** 取一帧实时取景（Nikon 0x9203，data-in；返回值可能带尼康头，JPEG SOI 之后才是图）。 */
+    fun getLiveViewImage(): ByteArray {
+        check(state == State.Ready) { "getLiveViewImage requires Ready, state=$state" }
+        return sendWithPayload(NikonOpCode.GET_LIVE_VIEW_IMAGE)
+    }
+
+    /** 移动 AF 区域（Nikon 0x9205，2 个参数：x/y，坐标口径按相机返回的取景尺寸）。 */
+    fun changeAfArea(x: Long, y: Long) {
+        check(state == State.Ready) { "changeAfArea requires Ready, state=$state" }
+        send(NikonOpCode.CHANGE_AF_AREA, longArrayOf(x, y))
+    }
+
+    /** 在当前 AF 区域触发一次对焦（Nikon 0x90C1）。 */
+    fun afDrive() {
+        check(state == State.Ready) { "afDrive requires Ready, state=$state" }
+        send(NikonOpCode.AF_DRIVE)
+    }
+
     /**
      * MTP/PTP 约定：GetObjectHandles 的 parent 参数 0xFFFFFFFF = 枚举全部对象。
      * （PTP 规格语义；真机若只回根列表，改用逐父遍历，挂 05/06 号校验。）
