@@ -153,9 +153,34 @@ class ProbeController(
             .also { remoteSession = it }
 
     fun openRemote() {
+        // 只在首次/清空后初始化；Activity 重建时不冲掉已连接状态
+        remoteState = if (remoteState.status.isBlank()) {
+            RemoteUi(
+                stage = RemoteStage.IDLE,
+                status = "先在相机上打开 Wi-Fi",
+                savedSsid = savedRemoteSsid(),
+            )
+        } else {
+            remoteState.copy(savedSsid = remoteState.savedSsid ?: savedRemoteSsid())
+        }
+        emitRemote()
+    }
+
+    /** 相机页无线卡片的主按钮：有已存凭据就去连，没有就去扫描配对。 */
+    fun remotePrimaryAction() {
+        if (savedRemoteSsid() != null) remoteConnectSavedWifi() else remoteScan()
+    }
+
+    /** 主动断开无线相机（保留已保存的 SSID/密码）。 */
+    fun remoteDisconnect() {
+        mainThread.removeCallbacks(remoteTicker)
+        remoteIo.execute {
+            runCatching { remoteSession?.close() }
+            remoteSession = null
+        }
         remoteState = RemoteUi(
             stage = RemoteStage.IDLE,
-            status = "先连相机 Wi-Fi，再回这里点「已在系统 Wi-Fi 连好？继续」",
+            status = "已断开",
             savedSsid = savedRemoteSsid(),
         )
         emitRemote()

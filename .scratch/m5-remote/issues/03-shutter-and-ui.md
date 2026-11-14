@@ -6,7 +6,7 @@
 ## 范围
 
 - `InitiateCapture(0x100C)`（storage=0xFFFFFFFF, format=0），失败码→人话
-- 遥控页（全屏覆盖层）：连接分步状态、相机列表、参数 2×3 网格、下半屏大快门、拍照反馈、重连
+- **相机页无线卡片**（2026-11-14 改版：并入相机 Tab，不再有全屏遥控页）：连接状态、镜头参数 5 格、快门、断开、连接设置
 - 控制器接线：`RemoteUi` 状态、`emitRemote()`、分步日志 `files/m5-remote.log`
 - Wi-Fi 加入：33+ `WifiNetworkSpecifier` 自动加入并 `bindProcessToNetwork`；31/32 打开系统 Wi-Fi 面板
 

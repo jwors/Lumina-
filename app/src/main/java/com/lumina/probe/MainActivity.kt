@@ -7,7 +7,6 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -67,6 +66,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -162,8 +162,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
     // 运行弹层（半屏）；浮标在弹层收起时可见
     var runSheetOpen by rememberSaveable { mutableStateOf(false) }
 
-    // M5 遥控：全屏覆盖层（不新增底部 Tab）。权限只在进入遥控页时申请。
-    var remoteOpen by rememberSaveable { mutableStateOf(false) }
+    // M5 无线相机：参数/快门直接做进相机页；权限在首次连接时申请。
     val ctx = LocalContext.current
     val remotePermissions = remember {
         buildList {
@@ -176,35 +175,30 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
         if (result.values.all { it }) {
-            controller.openRemote()
-            remoteOpen = true
+            controller.remotePrimaryAction()
         } else {
-            Toast.makeText(ctx, "遥控需要蓝牙/附近设备权限，否则无法配对相机", Toast.LENGTH_LONG).show()
+            Toast.makeText(ctx, "无线相机需要蓝牙/附近设备权限", Toast.LENGTH_LONG).show()
         }
     }
-    val startRemote: () -> Unit = {
+    val connectWireless: () -> Unit = {
         when {
             Build.VERSION.SDK_INT < 31 -> Toast.makeText(
-                ctx, "遥控需要 Android 12 及以上", Toast.LENGTH_LONG,
+                ctx, "无线相机需要 Android 12 及以上", Toast.LENGTH_LONG,
             ).show()
             else -> {
                 val missing = remotePermissions.filter {
                     ctx.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
                 }
                 if (missing.isEmpty()) {
-                    controller.openRemote()
-                    remoteOpen = true
+                    controller.remotePrimaryAction()
                 } else {
                     permissionLauncher.launch(missing.toTypedArray())
                 }
             }
         }
     }
-    if (remoteOpen) {
-        BackHandler { controller.closeRemote(); remoteOpen = false }
-        RemoteScreen(state.remote, controller, onClose = { remoteOpen = false })
-        return
-    }
+    // 相机页的无线卡片需要初始化状态（读已保存的 SSID）
+    LaunchedEffect(Unit) { controller.openRemote() }
 
     Column(Modifier.fillMaxSize().background(FilmBackground).statusBarsPadding()) {
         // 补跑横幅：占位在主列里，不压标题
@@ -236,7 +230,7 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
                 )
             }
             when (tab) {
-                TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller, onStartRemote = startRemote)
+                TAB_CAMERA -> CameraPage(Modifier.weight(1f), state, controller, onWirelessConnect = connectWireless)
                 TAB_GALLERY -> GalleryPage(Modifier.weight(1f), state, controller,
                     onGoRecipe = { tab = TAB_RECIPE; controller.loadCards() })
                 TAB_RECIPE -> RecipePage(Modifier.weight(1f), state, controller,
@@ -1330,7 +1324,7 @@ private fun CameraPage(
     modifier: Modifier = Modifier,
     state: ProbeUiState,
     controller: ProbeController,
-    onStartRemote: () -> Unit = {},
+    onWirelessConnect: () -> Unit = {},
 ) {
     Column(modifier = modifier) {
         Spacer(Modifier.height(12.dp))
@@ -1343,24 +1337,11 @@ private fun CameraPage(
             Spacer(Modifier.height(12.dp))
         }
         Text(state.connectionText, fontSize = 13.sp, color = CreamFaint)
-        // M5：无线遥控入口常驻（没插线时最需要它）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp)
-                .background(PillActive, RoundedCornerShape(14.dp))
-                .clickable { onStartRemote() }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("无线遥控", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AccentDeep)
-                Text("蓝牙配对相机 · 看镜头参数 · 手机按快门", fontSize = 10.sp, color = SageText)
-            }
-            Text("进入 ›", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AccentDeep)
-        }
+        Spacer(Modifier.height(10.dp))
+        // M5：无线相机（Wi-Fi 参数 + 快门）直接嵌在相机页
+        WirelessCameraCard(state.remote, controller, onWirelessConnect)
         if (state.cameraItems.isEmpty() && state.ingestProgress == null) {
-            EmptyCameraCard(state, controller, onStartRemote)
+            EmptyCameraCard(state, controller)
             return@Column
         }
         state.ingestProgress?.let { progress ->
@@ -1537,7 +1518,6 @@ private fun CameraPage(
 private fun EmptyCameraCard(
     state: ProbeUiState,
     controller: ProbeController,
-    onStartRemote: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -1583,8 +1563,6 @@ private fun EmptyCameraCard(
         ) {
             if (state.pendingPermission) controller.retryPermission() else controller.emitCameraUiRefresh()
         }
-        Spacer(Modifier.height(10.dp))
-        PillButton(label = "无线遥控（蓝牙配对）", filled = false) { onStartRemote() }
     }
 }
 
