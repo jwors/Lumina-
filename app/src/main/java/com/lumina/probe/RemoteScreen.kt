@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +45,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
+
+/**
+ * 文字动作（断开/开/关/设置）：至少 48dp 触控区 + 14sp，别再让用户点细字。
+ */
+@Composable
+private fun TextAction(
+    label: String,
+    color: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
+    }
+}
 
 /**
  * 相机页里的「无线相机」卡：Wi-Fi 连接状态 + 镜头参数 + 快门。
@@ -76,35 +98,21 @@ internal fun WirelessCameraCard(
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text("无线相机", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                Text("无线相机", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
                 Text(
                     state.status.ifBlank { "未连接" },
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = SageText,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             if (state.stage == RemoteStage.READY) {
-                Text(
-                    "断开",
-                    fontSize = 12.sp,
-                    color = WarnBrown,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clickable { controller.remoteDisconnect() }
-                        .padding(6.dp),
-                )
+                TextAction("断开", WarnBrown) { controller.remoteDisconnect() }
             } else {
-                Text(
-                    if (showSteps) "收起" else "连接设置",
-                    fontSize = 12.sp,
-                    color = AccentDeep,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clickable { showSteps = !showSteps }
-                        .padding(6.dp),
-                )
+                TextAction(if (showSteps) "收起" else "连接设置", AccentDeep) {
+                    showSteps = !showSteps
+                }
             }
         }
 
@@ -161,23 +169,23 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
     ParamsRow(state.params) { code -> controller.remoteCycleParam(code) }
     Text(
         "点光圈 / 快门 / ISO 调档",
-        fontSize = 9.sp,
+        fontSize = 10.sp,
         color = CreamFaint,
-        modifier = Modifier.padding(top = 4.dp),
+        modifier = Modifier.padding(top = 6.dp),
     )
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
                 if (state.shotCount > 0) "本次已拍 ${state.shotCount} 张" else "参数每 2 秒刷新",
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 color = CreamFaint,
             )
             state.warning?.let {
-                Text(it, fontSize = 10.sp, color = WarnBrown, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(it, fontSize = 11.sp, color = WarnBrown, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (state.params?.isEmpty != false) {
-                Text("相机未回报参数：确认在拍摄模式", fontSize = 10.sp, color = CreamFaint)
+                Text("相机未回报参数：确认在拍摄模式", fontSize = 11.sp, color = CreamFaint)
             }
         }
         Spacer(Modifier.width(12.dp))
@@ -186,20 +194,14 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp),
+            .padding(top = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("拍后回传 JPEG", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Text("拍后回传 JPEG", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        Text(
-            if (state.autoDownload) "开" else "关",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (state.autoDownload) Accent else CreamFaint,
-            modifier = Modifier
-                .clickable { controller.remoteToggleAutoDownload() }
-                .padding(6.dp),
-        )
+        TextAction(if (state.autoDownload) "开" else "关", if (state.autoDownload) Accent else CreamFaint) {
+            controller.remoteToggleAutoDownload()
+        }
     }
     LiveViewSection(state, controller)
     IntervalSection(state, controller)
@@ -220,24 +222,19 @@ private fun BracketSection(state: RemoteUi, controller: ProbeController) {
             Column(Modifier.weight(1f)) {
                 Text(
                     "${bracket.mode}包围 ${bracket.done}/${bracket.count}",
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (bracket.running) AccentDeep else CreamFaint,
                 )
-                bracket.message?.let { Text(it, fontSize = 10.sp, color = CreamFaint) }
+                bracket.message?.let { Text(it, fontSize = 11.sp, color = CreamFaint) }
             }
-            Text(
+            TextAction(
                 if (bracket.running) "停止" else "清除",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (bracket.running) WarnBrown else CreamFaint,
-                modifier = Modifier
-                    .clickable {
-                        if (bracket.running) controller.remoteStopBracket()
-                        else controller.remoteClearBracket()
-                    }
-                    .padding(6.dp),
-            )
+                if (bracket.running) WarnBrown else CreamFaint,
+            ) {
+                if (bracket.running) controller.remoteStopBracket()
+                else controller.remoteClearBracket()
+            }
         }
         return
     }
@@ -246,29 +243,29 @@ private fun BracketSection(state: RemoteUi, controller: ProbeController) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clickable { open = !open },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("包围拍摄", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Text("包围拍摄", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        Text(if (open) "收起" else "设置", fontSize = 11.sp, color = CreamFaint)
+        Text(if (open) "收起" else "设置", fontSize = 13.sp, color = CreamFaint)
     }
     if (!open) return
-    Text("曝光包围：-2 / -1 / 0 EV", fontSize = 10.sp, color = CreamFaint)
+    Text("曝光包围：-2 / -1 / 0 EV", fontSize = 11.sp, color = CreamFaint)
     Spacer(Modifier.height(4.dp))
     PillButton("开始曝光包围", filled = false) {
         controller.remoteRunExposureBracket(-2.0, 1.0, 3)
     }
     Spacer(Modifier.height(6.dp))
-    Text("对焦包围：3 张 × 2 步（近→远）", fontSize = 10.sp, color = CreamFaint)
+    Text("对焦包围：3 张 × 2 步（近→远）", fontSize = 11.sp, color = CreamFaint)
     Spacer(Modifier.height(4.dp))
     PillButton("开始对焦包围", filled = false) {
         controller.remoteRunFocusBracket(2, 3, 1)
     }
     Text(
         "结束自动回 EV 0 / 焦点回位",
-        fontSize = 9.sp,
+        fontSize = 10.sp,
         color = CreamFaint,
         modifier = Modifier.padding(top = 4.dp),
     )
@@ -283,17 +280,14 @@ private fun LiveViewSection(state: RemoteUi, controller: ProbeController) {
             .padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("实时取景", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Text("实时取景", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        Text(
+        TextAction(
             if (state.liveViewOn) "关闭" else "开启",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (state.liveViewOn) WarnBrown else CreamFaint,
-            modifier = Modifier
-                .clickable { controller.remoteToggleLiveView() }
-                .padding(6.dp),
-        )
+            if (state.liveViewOn) WarnBrown else CreamFaint,
+        ) {
+            controller.remoteToggleLiveView()
+        }
     }
     if (!state.liveViewOn) return
     val bmp = state.liveView
@@ -319,7 +313,7 @@ private fun LiveViewSection(state: RemoteUi, controller: ProbeController) {
     )
     Text(
         "点画面移动对焦点",
-        fontSize = 9.sp,
+        fontSize = 10.sp,
         color = CreamFaint,
         modifier = Modifier.padding(top = 4.dp),
     )
@@ -340,30 +334,25 @@ private fun IntervalSection(state: RemoteUi, controller: ProbeController) {
                 Text(
                     if (interval.running) "间隔拍摄 ${interval.done}/${interval.count}"
                     else interval.message ?: "间隔结束",
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (interval.running) AccentDeep else CreamFaint,
                 )
                 if (interval.running) {
                     Text(
                         "下一张 ${interval.nextInSeconds ?: 0}s",
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         color = CreamFaint,
                     )
                 }
             }
-            Text(
+            TextAction(
                 if (interval.running) "停止" else "清除",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (interval.running) WarnBrown else CreamFaint,
-                modifier = Modifier
-                    .clickable {
-                        if (interval.running) controller.remoteStopInterval()
-                        else controller.remoteClearInterval()
-                    }
-                    .padding(6.dp),
-            )
+                if (interval.running) WarnBrown else CreamFaint,
+            ) {
+                if (interval.running) controller.remoteStopInterval()
+                else controller.remoteClearInterval()
+            }
         }
         return
     }
@@ -375,13 +364,13 @@ private fun IntervalSection(state: RemoteUi, controller: ProbeController) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp)
+            .defaultMinSize(minHeight = 48.dp)
             .clickable { open = !open },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("定时 / 间隔拍摄", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Text("定时 / 间隔拍摄", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.weight(1f))
-        Text(if (open) "收起" else "设置", fontSize = 11.sp, color = CreamFaint)
+        Text(if (open) "收起" else "设置", fontSize = 13.sp, color = CreamFaint)
     }
     if (!open) return
     Row(
@@ -412,7 +401,7 @@ private fun NumberField(
     OutlinedTextField(
         value = value,
         onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) onChange(it) },
-        label = { Text(label, fontSize = 9.sp) },
+        label = { Text(label, fontSize = 11.sp) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier,
@@ -439,18 +428,18 @@ private fun ParamsRow(params: CameraParams?, onCycle: (Int) -> Unit) {
                     .weight(1f)
                     .background(Lightbox, RoundedCornerShape(8.dp))
                     .clickable(enabled = isAdjustable) { code?.let(onCycle) }
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     label,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
                     color = if (isAdjustable) AccentDeep else CreamFaint,
                 )
                 Text(
                     value,
                     fontFamily = FontFamily.Serif,
-                    fontSize = 13.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = InkTeal,
                     maxLines = 1,
@@ -507,7 +496,7 @@ private fun DeviceRows(state: RemoteUi, controller: ProbeController) {
                 Text(device.name, fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold)
                 Text("信号 ${device.rssi} dBm", fontSize = 10.sp, color = CreamFaint)
             }
-            Text("配对 ›", fontSize = 12.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+            Text("配对 ›", fontSize = 14.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -519,11 +508,12 @@ private fun ManualWifiSection(controller: ProbeController) {
     var password by remember { mutableStateOf("") }
     Text(
         if (open) "手动 Wi-Fi（收起）" else "手动 Wi-Fi（蓝牙拿不到密码时）",
-        fontSize = 11.sp,
+        fontSize = 13.sp,
         color = CreamFaint,
         modifier = Modifier
             .clickable { open = !open }
-            .padding(vertical = 6.dp),
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(vertical = 12.dp),
     )
     if (!open) return
     Text(

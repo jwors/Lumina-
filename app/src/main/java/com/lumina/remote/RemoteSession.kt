@@ -351,7 +351,14 @@ class RemoteSession(
 
     fun setExposureBias(milliEv: Int) {
         val s = session ?: throw IllegalStateException("相机未连接")
-        s.setExposureBias(milliEv)
+        try {
+            s.setExposureBias(milliEv)
+        } catch (e: com.lumina.ptp.PtpResponseException) {
+            if (e.code != com.lumina.ptp.RespCode.DEVICE_BUSY) {
+                throw IllegalStateException(paramError(e))
+            }
+            throw e
+        }
         log("曝光补偿 ${milliEv / 1000.0}EV")
     }
 

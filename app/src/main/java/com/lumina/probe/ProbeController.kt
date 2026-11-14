@@ -425,6 +425,26 @@ class ProbeController(
 
     // ---------- M6-05 包围 ----------
 
+    /** 拍完相机要写卡，EV 写入容易 0x2019；退避重试 4 次再放弃。 */
+    private fun writeBracketEv(milliEv: Int) {
+        var last: Exception? = null
+        for (attempt in 0 until 4) {
+            try {
+                remoteSessionOrCreate().setExposureBias(milliEv)
+                return
+            } catch (e: Exception) {
+                last = e
+                if ((e as? com.lumina.ptp.PtpResponseException)?.code !=
+                    com.lumina.ptp.RespCode.DEVICE_BUSY
+                ) {
+                    throw e
+                }
+                Thread.sleep(400L * (attempt + 1))
+            }
+        }
+        throw IllegalStateException("相机忙，EV 写入失败", last)
+    }
+
     fun remoteRunExposureBracket(startEv: Double, stepEv: Double, count: Int) {
         if (remoteState.stage != RemoteStage.READY) return
         if (remoteState.bracket?.running == true) return
@@ -454,7 +474,7 @@ class ProbeController(
                 for (i in 0 until plan.count) {
                     if (bracketAbort) break
                     val ev = plan.evAt(i)
-                    remoteSessionOrCreate().setExposureBias(ev)
+                    writeBracketEv(ev)
                     remoteSessionOrCreate().capture()
                     done++
                     mainThread.post {
@@ -464,13 +484,13 @@ class ProbeController(
                         )
                         emitRemote()
                     }
-                    Thread.sleep(300)
+                    Thread.sleep(900)
                 }
             } catch (e: Exception) {
                 error = e.message
             } finally {
                 restoreOk = runCatching {
-                    remoteSessionOrCreate().setExposureBias(0)
+                    writeBracketEv(0)
                     remoteSessionOrCreate().readExposureBias() == 0
                 }.getOrDefault(false)
             }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -578,11 +579,12 @@ internal fun PillButton(
     }
     Box(
         modifier = Modifier
+            .defaultMinSize(minHeight = 48.dp)
             .background(bg, RoundedCornerShape(22.dp))
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = fg)
+        Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = fg)
     }
 }
 
