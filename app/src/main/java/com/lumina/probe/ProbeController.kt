@@ -41,12 +41,21 @@ import com.lumina.usb.UsbCameraStateMachine
 import com.lumina.usb.UsbDeviceClassifier
 import com.lumina.usb.UsbTransport
 import com.lumina.usb.UsbTransportException
+import com.lumina.work.CubeLut
+import com.lumina.work.CubeParser
+import com.lumina.work.FilterCatalog
+import com.lumina.work.FilterEntry
+import com.lumina.work.FilterSelection
+import com.lumina.work.ImportedLut
+import com.lumina.work.LutPresets
 import com.lumina.work.WorkFiles
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 
 /**
  * M1 升级：探针控制器 = 连接监视 → 授权 → 会话 → 相机清单 → 勾选队列 → Ingest 复制。
@@ -62,6 +71,10 @@ class ProbeController(
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val mainThread = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
+
+    /** 与 [io] 同一条线程的协程入口：滤镜台要从 Compose 等结果，但读写 Master/DB 仍必须和
+     *  ingest/Pass 排在同一个队列里（不能让 Dispatchers.IO 另开一路并发碰 masterStore）。 */
+    private val ioDispatcher = io.asCoroutineDispatcher()
     private var session: PtpSession? = null
 
     /** M5 遥控：独立线程，蓝牙/Wi-Fi 连接可能阻塞数十秒，不能占着 USB 的 io。 */
@@ -994,6 +1007,9 @@ class ProbeController(
     /**
      * 查看器单步：滤镜建议（2026-11-15 起只保留这一项；标注/文案步骤全产品停用）。
      * prompt 取卡库第一张卡的滤镜建议步骤，缺省用内置模板。
+     *
+     * TODO(M3-08)：滤镜台接管了「滤镜」按钮后，这个入口暂时没有 UI 调用方——等把「AI 挑一个」
+     * 接回滤镜台（跑完建议后自动选中命中的预设）再决定保留还是删；别删着删着丢了 prompt 拼装。
      */
     fun runFilterSuggestion(name: String) {
         io.execute {
@@ -1131,6 +1147,83 @@ class ProbeController(
         out.writeBytes(bytes)
         return rel
     }
+
+    // ── M3-07 滤镜台 ────────────────────────────────────────────────────────
+
+    /** 滤镜台目录：内置 12 支 + 用户导入 .cube（库读失败只少一段，不让整屏空掉）。 */
+    suspend fun filterCatalog(): List<FilterEntry> = withContext(ioDispatcher) {
+        val rows = runCatching {
+            db.lutLibraryDao().all().map { ImportedLut(it.id, it.name, it.relPath) }
+        }.getOrElse { e ->
+            logEvents(listOf("filter: lut_library read fail ${e.javaClass.simpleName}"))
+            emptyList()
+        }
+        FilterCatalog.all(rows)
+    }
+
+    /** 滤镜条目 → LUT 数据：内置取内存预设，导入读 .cube 重新解析；坏档 null（不猜）。 */
+    suspend fun filterLut(entry: FilterEntry): CubeLut? = withContext(ioDispatcher) {
+        runCatching {
+            if (entry.isBuiltin) {
+                LutPresets.all.getOrNull(entry.builtinIndex)?.lut
+            } else {
+                val rel = entry.lutRelPath ?: return@runCatching null
+                CubeParser.parse(File(appContext.filesDir, rel).readText())
+            }
+        }.getOrElse { e ->
+            logEvents(listOf("filter: lut load fail ${entry.id} ${e.javaClass.simpleName}: ${e.message}"))
+            null
+        }
+    }
+
+    /** 开屏默认选中：这张最近一次 AI 滤镜建议命中的那支预设（没有就 null = 无滤镜）。
+     *  resultsDao.recent() 是 createdAtMs 降序，所以取第一条命中，不是最后一条。 */
+    suspend fun suggestedFilterEntry(name: String): FilterEntry? = withContext(ioDispatcher) {
+        val text = runCatching {
+            resultsDao.recent().firstOrNull { it.name == name && it.kind == "filter_suggest" }?.text
+        }.getOrNull()
+        if (text.isNullOrBlank()) return@withContext null
+        val preset = LutPresets.pickFor(text) ?: return@withContext null
+        FilterCatalog.builtins().getOrNull(LutPresets.indexOf(preset))
+    }
+
+    /** 滤镜台保存：所选滤镜 + 强度渲染成 Work，覆盖这张的 `_w.jpg`；返回 Work 相对路径。
+     *  定位用 [masterRelPath]（不是文件名）——同名不同日期各有一张时，名字会命中错的那张。
+     *  覆盖是既有语义（一张 Master 一支滤镜成片，见 WorkFiles 注释）。 */
+    suspend fun saveFilterWork(masterRelPath: String, selection: FilterSelection): String? =
+        withContext(ioDispatcher) {
+            val entry = selection.entry
+            val row = masterStore.snapshot().firstOrNull { it.relPath == masterRelPath } ?: run {
+                logEvents(listOf("filter: save fail, master not found $masterRelPath"))
+                return@withContext null
+            }
+            val name = row.origFileName
+            val src = fileOfRowOrMaster(row.relPath) ?: run {
+                logEvents(listOf("filter: save fail, file missing ${row.relPath}"))
+                return@withContext null
+            }
+            val lut = filterLut(entry) ?: return@withContext null
+            val bytes = com.lumina.work.WorkRendererGpu(appContext, log = { l ->
+                logEvents(listOf(l))
+                android.util.Log.i("Lumina.UI", l)
+            }).bytes(src, lut, selection.strength) ?: run {
+                logEvents(listOf("filter: render null ${entry.id} @${selection.percent}%"))
+                return@withContext null
+            }
+            val rel = WorkFiles.lutRelPath(row.dateKey, name)
+            val out = File(appContext.filesDir, rel)
+            out.parentFile?.mkdirs()
+            out.writeBytes(bytes)
+            // 同名 Work 内容已变：缓存账要跟着失效，否则查看器还显示上一版
+            ThumbCache.remove(rel)
+            lastGalleryItems = buildGalleryItems()
+            // 只翻图库一列（别走 emit：保留式合并会把其它页的字段冲掉）
+            val next = lastEmitted.get().copy(galleryItems = lastGalleryItems)
+            lastEmitted.set(next)
+            mainThread.post { onState(next) }
+            logEvents(listOf("filter: work saved $rel (${entry.id} @${selection.percent}%)"))
+            rel
+        }
 
     /** 打开应用时的网络监听：回网 + 队列非空 → 补跑横幅 */
     fun watchNetwork() {
@@ -1576,6 +1669,11 @@ class ProbeController(
                 val candidate = it.relPath.replaceAfterLast('.', "JPG")
                 java.io.File(appContext.filesDir, candidate).takeIf { f -> f.exists() }?.let { _ -> candidate }
             } else null
+            val base = it.origFileName.substringBeforeLast('.')
+            val work = appContext.filesDir.walkTopDown()
+                .firstOrNull { f -> f.isFile && f.name == "${base}_g.jpg" }
+                ?: appContext.filesDir.walkTopDown()
+                    .firstOrNull { f -> f.isFile && f.name == "${base}_w.jpg" }
             GalleryItem(
                 relPath = it.relPath, name = it.origFileName,
                 dateKey = it.dateKey, sizeBytes = it.sizeBytes,
@@ -1583,11 +1681,9 @@ class ProbeController(
                 smartCount = mine.size,
                 smartTexts = mine.map { r -> "${r.kind}：${r.text}" },
                 // M4-01：Work 层双约定——_g.jpg（生成式真身）优先于 _w.jpg（LUT 对照）
-                workRelPath = (appContext.filesDir.walkTopDown()
-                    .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_g.jpg" }
-                    ?: appContext.filesDir.walkTopDown()
-                        .firstOrNull { f -> f.isFile && f.name == "${it.origFileName.substringBeforeLast('.')}_w.jpg" })
-                    ?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
+                workRelPath = work?.let { f -> f.relativeTo(appContext.filesDir).invariantSeparatorsPath },
+                // 同一路径的 Work 被滤镜台重写时，mtime 变 → Compose 的 produceState 才会重解码
+                workRev = work?.lastModified() ?: 0L,
             )
         }
     }
@@ -3207,6 +3303,8 @@ data class GalleryItem(
     val smartTexts: List<String> = emptyList(),
     /** Work 成片（智能滤镜渲染预览） */
     val workRelPath: String? = null,
+    /** Work 文件的 mtime：同一路径被重写后靠它触发重解码（0 = 无 Work） */
+    val workRev: Long = 0L,
 )
 
 /** 相机页的可勾对象（UI 直接消费）。 */

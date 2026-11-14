@@ -142,6 +142,8 @@ val Accent = Color(0xFFC9A24B)
 val AccentDeep = Color(0xFFE4C77E)
 val CardBg = Color(0xFF171814)
 val Lightbox = Color(0xFF201F19)
+/** 缩略图名称压角用的遮罩（0xD9 = 85% 黑） */
+val ThumbScrim = Color(0xD9000000)
 
 /** JPEG 判定（Master 图库/Pass 入队/收尾覆盖三处口径统一；GLOSSARY 惯例：仅此一处判断）。 */
 internal fun isJpegName(name: String): Boolean {
@@ -849,7 +851,7 @@ private fun GalleryCell(
             }
             else -> {
                 val src = gi.workRelPath ?: gi.relPath
-                val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src) {
+                val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src, key2 = gi.workRev) {
                     val hit = ThumbCache.get<android.graphics.Bitmap>(src)
                     if (hit != null) { value = hit; return@produceState }
                     value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1060,6 +1062,8 @@ private fun GalleryViewerOverlay(
 ) {
     val items = state.galleryItems
     var shareItem by remember { mutableStateOf<GalleryItem?>(null) }
+    // M3-07：滤镜台（查看器底栏「滤镜」进入；盖在整个查看器之上）
+    var studioItem by remember { mutableStateOf<GalleryItem?>(null) }
     // M3-06：查看器内的单张删除（与多选底栏同款确认弹窗）
     var deleteTarget by remember { mutableStateOf<GalleryItem?>(null) }
     val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { items.size })
@@ -1125,10 +1129,13 @@ private fun GalleryViewerOverlay(
             }
             ViewerToolbar(
                 gi = items.getOrNull(pagerState.currentPage),
-                controller = controller,
                 passStatus = state.passStatus,
                 onShare = { shareItem = items.getOrNull(pagerState.currentPage) },
+                onFilter = { studioItem = items.getOrNull(pagerState.currentPage) },
             )
+        }
+        studioItem?.let { gi ->
+            FilterStudioOverlay(gi = gi, controller = controller, onClose = { studioItem = null })
         }
     }
     shareItem?.let { gi ->
@@ -1285,7 +1292,7 @@ private fun ViewerImage(gi: GalleryItem) {
         return
     }
     val src = gi.workRelPath ?: gi.relPath
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src) {
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, key1 = src, key2 = gi.workRev) {
         val hit = ThumbCache.get<android.graphics.Bitmap>(src)
         if (hit != null) { value = hit; return@produceState }
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1317,9 +1324,9 @@ private fun ViewerImage(gi: GalleryItem) {
 @Composable
 private fun ViewerToolbar(
     gi: GalleryItem?,
-    controller: ProbeController,
     passStatus: String = "",
     onShare: () -> Unit = {},
+    onFilter: () -> Unit = {},
 ) {
     if (gi == null) return
     // 只显示单步滤镜建议的状态；别的页面写进 passStatus 的文案（补跑横幅等）不在这里冒头
@@ -1346,7 +1353,8 @@ private fun ViewerToolbar(
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            ViewerAction("滤镜", "filter") { controller.runFilterSuggestion(gi.name) }
+            // M3-07：滤镜台（原来这里直接跑一次 AI 滤镜建议就出片，无法手动试）
+            ViewerAction("滤镜", "filter") { onFilter() }
             ViewerAction("分享", "share") { onShare() }
         }
         if (filterStatus != null) {

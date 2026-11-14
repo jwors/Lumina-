@@ -6,8 +6,13 @@ import jp.co.cyberagent.android.gpuimage.filter.GPUImageTwoInputFilter
  * M3-02：3D LUT 三线性插值 shader（GPUImage two-input 槽位：0=原图 1=图集）。
  * 图集契约见 LutAtlas：x = g*N + r，y = b；坐标自原图 rgb 演算，8 邻域三线性。
  * 设备侧专用（GL 依赖不可 JVM 测；几何/数值逻辑全部在 LutAtlas/CubeParser 层先行验证）。
+ *
+ * M3-07：strength = 滤镜强度（0..1），输出与原图线性混合——"强度"是滤镜的参数（见 GLOSSARY）。
  */
-class Lut3DFilter(lut: CubeLut) : GPUImageTwoInputFilter(FRAGMENT_SHADER) {
+class Lut3DFilter(
+    lut: CubeLut,
+    strength: Float = STRENGTH_FULL,
+) : GPUImageTwoInputFilter(FRAGMENT_SHADER) {
 
     companion object {
         private val FRAGMENT_SHADER = """
@@ -18,6 +23,7 @@ varying highp vec2 textureCoordinate;
 uniform sampler2D inputImageTexture;
 uniform sampler2D inputImageTexture2;
 uniform float uLutSize;
+uniform float uStrength;
 
 vec3 sampleLut(vec3 base) {
     float n = uLutSize;
@@ -45,12 +51,17 @@ void main() {
     vec3 highB = mix(lowG2, highG2, fr.y);
 
     vec3 outColor = mix(lowB, highB, fr.z);
-    gl_FragColor = vec4(outColor, 1.0);
+    // 强度：0 = 原图，1 = 全强度 LUT（截图的滑杆就映射到这里）
+    gl_FragColor = vec4(mix(c, outColor, uStrength), 1.0);
 }
 """.trimIndent()
+
+        /** 全强度（默认，与 M3-02 行为等价）。 */
+        const val STRENGTH_FULL = 1f
     }
 
     private val lutSize: Float
+    private val strength: Float = strength.coerceIn(0f, 1f)
 
     init {
         lutSize = lut.size.toFloat()
@@ -62,5 +73,7 @@ void main() {
         // GPUImage 2.1.0 无名字 uniform 便捷 API：惯例 = 自取位置（基类 getProgram() 公共）
         val loc = android.opengl.GLES20.glGetUniformLocation(getProgram(), "uLutSize")
         if (loc >= 0) setFloat(loc, lutSize)
+        val locS = android.opengl.GLES20.glGetUniformLocation(getProgram(), "uStrength")
+        if (locS >= 0) setFloat(locS, strength)
     }
 }
