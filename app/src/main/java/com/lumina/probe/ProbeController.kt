@@ -64,6 +64,11 @@ class ProbeController(
     @Volatile private var remoteState = RemoteUi()
     private var remoteScanGeneration = 0
 
+    // M6-02 定时/间隔：计划器 + 250ms ticker（只在主线程跑）
+    private var intervalPlan: com.lumina.remote.IntervalPlan? = null
+    private var intervalDone = 0
+    private var intervalInFlight = false
+
     private val db = AppDatabase.get(appContext)
     private val inventoryStore = RoomInventoryStore(db.masterInventoryDao())
     private val queueDao = db.ingestQueueDao()
@@ -177,6 +182,9 @@ class ProbeController(
     /** 主动断开无线相机（保留已保存的 SSID/密码）。 */
     fun remoteDisconnect() {
         mainThread.removeCallbacks(remoteTicker)
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        intervalInFlight = false
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -195,6 +203,9 @@ class ProbeController(
 
     fun closeRemote() {
         mainThread.removeCallbacks(remoteTicker)
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        intervalInFlight = false
         remoteIo.execute {
             runCatching { remoteSession?.close() }
             remoteSession = null
@@ -318,9 +329,102 @@ class ProbeController(
         }
     }
 
-    /** 点参数卡调档：光圈/快门/ISO 循环到下一个常用档位，写完回读。 */
-    fun remoteCycleParam(code: Int) {
+    /** 开始定时/间隔拍摄（delay 秒后首张，之后每 interval 秒一张，共 count 张）。 */
+    fun remoteStartInterval(delaySeconds: Int, intervalSeconds: Int, count: Int) {
         if (remoteState.stage != RemoteStage.READY) return
+        val delay = delaySeconds.coerceIn(0, 3600)
+        val every = intervalSeconds.coerceIn(1, 3600)
+        val total = count.coerceIn(1, 999)
+        mainThread.removeCallbacks(intervalTicker)
+        intervalDone = 0
+        intervalInFlight = false
+        intervalPlan = com.lumina.remote.IntervalPlan(
+            startAt = System.currentTimeMillis() + delay * 1000L,
+            intervalMs = every * 1000L,
+            count = total,
+        )
+        remoteState = remoteState.copy(
+            status = if (delay > 0) "定时 ${delay}s 后开始" else "间隔拍摄中 0/$total",
+            interval = IntervalUi(
+                running = true,
+                done = 0,
+                count = total,
+                nextInSeconds = if (delay > 0) delay else 0,
+            ),
+            error = null,
+        )
+        emitRemote()
+        appendRemoteLog("间隔开始：delay=${delay}s interval=${every}s count=$total")
+        mainThread.post(intervalTicker)
+    }
+
+    fun remoteStopInterval() = stopInterval("间隔已停止")
+
+    fun remoteClearInterval() {
+        remoteState = remoteState.copy(interval = null)
+        emitRemote()
+    }
+
+    private fun stopInterval(message: String) {
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        intervalInFlight = false
+        val current = remoteState.interval
+        remoteState = remoteState.copy(
+            status = message,
+            interval = current?.copy(running = false, nextInSeconds = null, message = message),
+        )
+        emitRemote()
+    }
+
+    /** 250ms 一拍：到点就提交一次快门（remoteIo），同一时刻只允许一张在途。 */
+    private val intervalTicker = object : Runnable {
+        override fun run() {
+            val plan = intervalPlan ?: return
+            if (remoteState.stage != RemoteStage.READY) {
+                stopInterval("已断开")
+                return
+            }
+            val now = System.currentTimeMillis()
+            val due = plan.dueIndex(now)
+            if (intervalDone < due && !intervalInFlight) {
+                intervalInFlight = true
+                remoteIo.execute {
+                    val result = runCatching { remoteSessionOrCreate().capture() }
+                    mainThread.post {
+                        intervalInFlight = false
+                        result.onSuccess { at ->
+                            intervalDone++
+                            remoteState = remoteState.copy(
+                                status = "间隔拍摄中 $intervalDone/${plan.count}",
+                                shotCount = remoteState.shotCount + 1,
+                                lastShotMs = at,
+                                interval = remoteState.interval?.copy(done = intervalDone),
+                            )
+                            emitRemote()
+                            if (intervalDone >= plan.count) stopInterval("间隔完成（${plan.count} 张）")
+                        }.onFailure { e ->
+                            stopInterval("间隔拍摄失败：${e.message}")
+                        }
+                    }
+                }
+            }
+            val nextAt = plan.shotAt(intervalDone)
+            val nextIn = if (intervalDone < plan.count) {
+                ((nextAt - now).coerceAtLeast(0) / 1000).toInt()
+            } else {
+                null
+            }
+            remoteState = remoteState.copy(
+                interval = remoteState.interval?.copy(done = intervalDone, nextInSeconds = nextIn),
+            )
+            emitRemote()
+            mainThread.postDelayed(this, 250)
+        }
+    }
+
+    /** 点参数卡调档：光圈/快门/ISO 循环到下一个常用档位，写完回读。 */
+    fun remoteCycleParam(code: Int) {        if (remoteState.stage != RemoteStage.READY) return
         val current = remoteState.params?.raw?.get(code) ?: return
         val type = CameraParamsReader.typeOf(code) ?: return
         val preset = when (code) {
@@ -350,6 +454,9 @@ class ProbeController(
     }
 
     private fun applyRemoteOutcome(outcome: com.lumina.remote.RemoteConnectOutcome) {
+        mainThread.removeCallbacks(intervalTicker)
+        intervalPlan = null
+        intervalInFlight = false
         val params = if (outcome.ok) {
             runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
         } else {
@@ -2386,6 +2493,17 @@ data class RemoteUi(
     val lastShotMs: Long? = null,
     /** 最近几行协议日志（真机排障用） */
     val log: List<String> = emptyList(),
+    /** M6-02：定时/间隔拍摄状态（null=未启用） */
+    val interval: IntervalUi? = null,
+)
+
+/** 定时/间隔拍摄的 UI 快照。 */
+data class IntervalUi(
+    val running: Boolean,
+    val done: Int,
+    val count: Int,
+    val nextInSeconds: Int? = null,
+    val message: String? = null,
 )
 
 /** 设置页 WebDAV 表单数据（password 不回显，只回显 presence）。 */

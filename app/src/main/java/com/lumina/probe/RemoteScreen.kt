@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -169,6 +171,101 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
         Spacer(Modifier.width(12.dp))
         ShutterButton(busy = state.status == "拍摄中…") { controller.remoteCapture() }
     }
+    IntervalSection(state, controller)
+}
+
+/** M6-02：定时/间隔拍摄的折叠面板 + 运行进度。 */
+@Composable
+private fun IntervalSection(state: RemoteUi, controller: ProbeController) {
+    val interval = state.interval
+    if (interval != null && (interval.running || interval.message != null)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (interval.running) "间隔拍摄 ${interval.done}/${interval.count}"
+                    else interval.message ?: "间隔结束",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (interval.running) AccentDeep else CreamFaint,
+                )
+                if (interval.running) {
+                    Text(
+                        "下一张 ${interval.nextInSeconds ?: 0}s",
+                        fontSize = 10.sp,
+                        color = CreamFaint,
+                    )
+                }
+            }
+            Text(
+                if (interval.running) "停止" else "清除",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (interval.running) WarnBrown else CreamFaint,
+                modifier = Modifier
+                    .clickable {
+                        if (interval.running) controller.remoteStopInterval()
+                        else controller.remoteClearInterval()
+                    }
+                    .padding(6.dp),
+            )
+        }
+        return
+    }
+
+    var open by remember { mutableStateOf(false) }
+    var delay by remember { mutableStateOf("2") }
+    var every by remember { mutableStateOf("5") }
+    var count by remember { mutableStateOf("3") }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp)
+            .clickable { open = !open },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("定时 / 间隔拍摄", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(if (open) "收起" else "设置", fontSize = 11.sp, color = CreamFaint)
+    }
+    if (!open) return
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        NumberField(delay, "延时s", Modifier.weight(1f)) { delay = it }
+        NumberField(every, "间隔s", Modifier.weight(1f)) { every = it }
+        NumberField(count, "张数", Modifier.weight(1f)) { count = it }
+    }
+    Spacer(Modifier.height(6.dp))
+    PillButton("开始间隔拍摄", filled = true) {
+        controller.remoteStartInterval(
+            delay.toIntOrNull() ?: 2,
+            every.toIntOrNull() ?: 5,
+            count.toIntOrNull() ?: 3,
+        )
+    }
+}
+
+@Composable
+private fun NumberField(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    onChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { if (it.length <= 3 && it.all(Char::isDigit)) onChange(it) },
+        label = { Text(label, fontSize = 9.sp) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier,
+    )
 }
 
 @Composable
