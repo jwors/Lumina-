@@ -13,15 +13,13 @@
 ## 验收
 
 - [x] 单测：帧头解析（有效/截断/非 JPEG）
-- [ ] 真机：Z30 取景出现画面，手挡镜头画面变化
+- [x] 真机：Z30 取景出现画面（2026-11-14 15:33，0x9203 帧 16KB，截图见 `ui-bug.jpg`）
 - [ ] 真机：点按画面后相机对焦框移动并合焦
-- [x] 看门狗：连续 12 帧失败提示、40 帧停止
-- [x] 离开相机页/断开自动 EndLiveView
+- [x] 看门狗：连续 12 帧失败提示、40 帧停止；新增 NotLiveView 自动重连（最多 2 次）
+- [x] 离开相机页/断开自动 EndLiveView（日志 0x9202）
 
-## 证据
+## 真机日志（2026-11-14 15:33）
 
-- `NikonLiveView.extractJpeg` 找 `FF D8 FF`，头长度不写死；`NikonLiveViewTest` 4 例。
-- 控制器 150ms ticker（单帧在途），Bitmap 存入 `RemoteUi.liveView`；点按归一化坐标 → 帧像素 → `ChangeAfArea` + `AfDrive`。
-- 取景画面按帧宽高比显示（`aspectRatio`），不再拉伸。
-- 单测 201 全绿；APK 已装。
-- **真机待验收**：StartLiveView 是否需先 ChangeCameraMode、0x9203 帧头格式、ChangeAfArea 坐标口径，均需 Z30 开 Wi-Fi 后按日志收口。
+- `0x9201` OK，`0x9203` 连续出帧（data≈16KB），约 23 秒后相机开始回 `0xA00B = NotLiveView`。
+- 现已改为：连续 12 帧失败先 `EndLiveView + StartLiveView` 重连（最多 2 次），40 帧仍失败才停。
+- 触控 AF 未触发：日志里没有 `0x9205/0x90C1`，待点按验证。

@@ -79,6 +79,7 @@ class ProbeController(
     private var liveViewOn = false
     private var liveViewInFlight = false
     private var liveViewFailures = 0
+    private var liveViewRestarts = 0
 
     // M6-05 包围：一次性循环跑在 remoteIo 上，bracketAbort 供停止
     @Volatile private var bracketAbort = false
@@ -342,8 +343,17 @@ class ProbeController(
         remoteState = remoteState.copy(status = "拍摄中…")
         emitRemote()
         remoteIo.execute {
-            val result = runCatching {
+            var result = runCatching {
                 remoteSessionOrCreate().captureWithDownload(remoteState.autoDownload)
+            }
+            if (result.isFailure &&
+                (result.exceptionOrNull() as? com.lumina.ptp.PtpResponseException)?.code ==
+                com.lumina.ptp.RespCode.DEVICE_BUSY
+            ) {
+                Thread.sleep(400)
+                result = runCatching {
+                    remoteSessionOrCreate().captureWithDownload(remoteState.autoDownload)
+                }
             }
             result.onSuccess { shot ->
                 val savedName = shot.downloaded?.let { d ->
@@ -612,6 +622,7 @@ class ProbeController(
     private fun startLiveViewInternal() {
         liveViewOn = true
         liveViewFailures = 0
+        liveViewRestarts = 0
         remoteState = remoteState.copy(liveViewOn = true, status = "实时取景启动…")
         emitRemote()
         remoteIo.execute {
@@ -638,6 +649,7 @@ class ProbeController(
         liveViewOn = false
         liveViewInFlight = false
         liveViewFailures = 0
+        liveViewRestarts = 0
         mainThread.removeCallbacks(liveViewTicker)
         remoteState = remoteState.copy(liveViewOn = false, liveView = null, status = message)
         emitRemote()
@@ -687,12 +699,23 @@ class ProbeController(
                             emitRemote()
                         } else {
                             liveViewFailures++
-                            if (liveViewFailures == 12) {
-                                val n = liveViewFailures
-                                remoteState = remoteState.copy(status = "取景中断：连续 $n 帧失败")
-                                emitRemote()
-                            } else if (liveViewFailures >= 40) {
-                                stopLiveViewInternal("取景中断，已停止")
+                            when {
+                                liveViewFailures == 12 && liveViewRestarts < 2 -> {
+                                    liveViewRestarts++
+                                    liveViewFailures = 0
+                                    remoteState = remoteState.copy(status = "取景中断，正在重连…")
+                                    emitRemote()
+                                    remoteIo.execute {
+                                        runCatching { remoteSessionOrCreate().stopLiveView() }
+                                        runCatching { remoteSessionOrCreate().startLiveView() }
+                                    }
+                                }
+                                liveViewFailures == 12 -> {
+                                    val n = liveViewFailures
+                                    remoteState = remoteState.copy(status = "取景中断：连续 $n 帧失败")
+                                    emitRemote()
+                                }
+                                liveViewFailures >= 40 -> stopLiveViewInternal("取景中断，已停止")
                             }
                         }
                     }

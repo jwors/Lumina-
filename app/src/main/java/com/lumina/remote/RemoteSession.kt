@@ -216,42 +216,71 @@ class RemoteSession(
         prefs.edit().putBoolean("autoDownload", enabled).apply()
     }
 
-    /** 快门 + 可选回传：先枚举 handle，拍完只取新出现的 JPEG。 */
+    /** 快门 + 可选回传：先记下最大的 JPEG handle，拍完只取更大的新图。 */
     fun captureWithDownload(auto: Boolean = isAutoDownload()): CaptureDownload {
-        val before = if (auto) snapshotHandles() else emptySet()
+        val before = if (auto) newestJpegHandle() else null
         val at = capture()
         val downloaded = if (auto && before != null) downloadNewJpeg(before) else null
         return CaptureDownload(at, downloaded)
     }
 
-    /** 枚举对象句柄；相机不支持 storage=0xFFFFFFFF 时返回 null（跳过回传）。 */
-    private fun snapshotHandles(): Set<Long>? = runCatching {
+    /**
+     * 枚举 Z30 的目录层级（存储 → DCIM → 100NZ30 → 文件），取最大 JPEG handle。
+     * 不能只发 parent=0xFFFFFFFF：Z30 只回根目录（实测 1 个 handle），新照片在子目录里。
+     * 只对候选 handle 的头部做 GetObjectInfo，避免为整张卡每张照片发一次事务。
+     */
+    private fun newestJpegHandle(): Long? {
         val s = session ?: return null
-        s.getObjectHandles(PtpSession.DEFAULT_STORAGE, 0, PtpSession.PARENT_ALL).toSet()
-    }.getOrNull()
+        return runCatching {
+            val storages = runCatching { s.listStorage().map { it.id } }
+                .getOrDefault(emptyList())
+                .ifEmpty { listOf(PtpSession.DEFAULT_STORAGE) }
+            val candidates = LinkedHashSet<Long>()
+            for (storage in storages) {
+                var roots = runCatching { s.getObjectHandles(storage, 0, 0) }.getOrDefault(emptyList())
+                if (roots.isEmpty()) {
+                    roots = runCatching {
+                        s.getObjectHandles(storage, 0, PtpSession.PARENT_ALL)
+                    }.getOrDefault(emptyList())
+                }
+                candidates.addAll(roots)
+                for (root in roots) {
+                    val level1 = runCatching { s.getObjectHandles(storage, 0, root) }.getOrDefault(emptyList())
+                    candidates.addAll(level1)
+                    for (folder in level1) {
+                        candidates.addAll(
+                            runCatching { s.getObjectHandles(storage, 0, folder) }.getOrDefault(emptyList()),
+                        )
+                    }
+                }
+            }
+            candidates.sortedDescending().take(32).firstOrNull { handle ->
+                val info = runCatching { s.getObjectInfo(handle) }.getOrNull()
+                info != null && !info.isFolder &&
+                    info.format == com.lumina.ptp.ObjectFormat.EXIF_JPEG
+            }
+        }.getOrNull()
+    }
 
-    private fun downloadNewJpeg(before: Set<Long>): DownloadedJpeg? {
+    private fun downloadNewJpeg(beforeMax: Long): DownloadedJpeg? {
         val s = session ?: return null
         val started = System.currentTimeMillis()
         val deadline = started + 8_000
         while (System.currentTimeMillis() < deadline) {
-            val handles = runCatching {
-                s.getObjectHandles(PtpSession.DEFAULT_STORAGE, 0, PtpSession.PARENT_ALL)
-            }.getOrDefault(emptyList())
-            val candidates = handles.filter { it !in before }.mapNotNull { handle ->
-                runCatching { ObjectCandidate(handle, s.getObjectInfo(handle)) }.getOrNull()
-            }
-            val pick = AutoDownload.pickNewestJpeg(candidates)
-            if (pick != null) {
-                val bytes = runCatching { s.getObject(pick.handle) }.getOrNull()
-                if (bytes != null && (pick.info.sizeBytes <= 0 || bytes.size.toLong() == pick.info.sizeBytes)) {
-                    log("回传 h=${pick.handle} ${pick.info.fileName} ${bytes.size}B ${System.currentTimeMillis() - started}ms")
-                    return DownloadedJpeg(pick.info.fileName, bytes, pick.info.captureEpochMillis)
+            val handle = newestJpegHandle()
+            if (handle != null && handle > beforeMax) {
+                val info = runCatching { s.getObjectInfo(handle) }.getOrNull()
+                if (info != null && !info.isFolder && info.format == com.lumina.ptp.ObjectFormat.EXIF_JPEG) {
+                    val bytes = runCatching { s.getObject(handle) }.getOrNull()
+                    if (bytes != null && (info.sizeBytes <= 0 || bytes.size.toLong() == info.sizeBytes)) {
+                        log("回传 h=$handle ${info.fileName} ${bytes.size}B ${System.currentTimeMillis() - started}ms")
+                        return DownloadedJpeg(info.fileName, bytes, info.captureEpochMillis)
+                    }
                 }
             }
-            Thread.sleep(400)
+            Thread.sleep(500)
         }
-        log("回传超时（已知 ${before.size} 个 handle）：未发现新 JPEG")
+        log("回传超时（before=$beforeMax）：未发现新 JPEG")
         return null
     }
 

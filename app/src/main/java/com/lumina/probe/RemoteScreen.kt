@@ -13,12 +13,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,6 +64,8 @@ internal fun WirelessCameraCard(
             .fillMaxWidth()
             .background(CardBg, RoundedCornerShape(16.dp))
             .border(1.dp, DividerCream, RoundedCornerShape(16.dp))
+            .heightIn(max = 560.dp)
+            .verticalScroll(rememberScrollState())
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

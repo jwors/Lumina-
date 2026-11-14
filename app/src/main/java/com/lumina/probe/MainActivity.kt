@@ -1359,7 +1359,13 @@ private fun CameraPage(
             )
             Spacer(Modifier.height(12.dp))
         }
-        Text(state.connectionText, fontSize = 13.sp, color = CreamFaint)
+        val remote = state.remote
+        val header = when {
+            remote?.stage == RemoteStage.READY -> "无线相机已连接"
+            remote != null && remote.stage != RemoteStage.IDLE -> remote.status
+            else -> state.connectionText
+        }
+        Text(header, fontSize = 13.sp, color = CreamFaint)
         Spacer(Modifier.height(10.dp))
         // M5：无线相机（Wi-Fi 参数 + 快门）直接嵌在相机页
         WirelessCameraCard(state.remote, controller, onWirelessConnect)
