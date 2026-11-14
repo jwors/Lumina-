@@ -11,6 +11,7 @@ gradle-project-cache/
 debug.keystore
 *.apk
 lumina_*.png
+logo_*.png
 captures/
 .externalNativeBuild/
 .cxx/
