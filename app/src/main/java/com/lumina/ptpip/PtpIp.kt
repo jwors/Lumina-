@@ -57,6 +57,7 @@ object PtpIp {
         0x1004, // GetStorageIDs
         0x1007, // GetObjectHandles
         0x1008, // GetObjectInfo
+        0x1009, // GetObject
         0x1014, // GetDevicePropDesc
         0x1015, // GetDevicePropValue
         0x9203, // Nikon GetLiveViewImage

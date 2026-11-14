@@ -15,6 +15,7 @@ object OpCode {
     const val GET_STORAGE_IDS = 0x1004
     const val GET_OBJECT_HANDLES = 0x1007
     const val GET_OBJECT_INFO = 0x1008
+    const val GET_OBJECT = 0x1009
 
     /** 标准快门（15740）：参数 storageID + objectFormat。Z 系用 Nikon 0x9207。 */
     const val INITIATE_CAPTURE = 0x100E

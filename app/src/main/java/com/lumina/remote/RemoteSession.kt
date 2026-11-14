@@ -24,6 +24,19 @@ data class RemoteConnectOutcome(
     val ok: Boolean get() = failure == null && manualWifiSsid == null
 }
 
+/** 拍后回传下载到的 JPEG。 */
+data class DownloadedJpeg(
+    val fileName: String,
+    val bytes: ByteArray,
+    val captureMs: Long?,
+)
+
+/** 一次快门 + 可选的拍后回传。 */
+data class CaptureDownload(
+    val capturedAt: Long,
+    val downloaded: DownloadedJpeg?,
+)
+
 /**
  * 遥控会话编排：BLE 配对唤醒 → 加入相机热点 → PTP-IP 连相机 → 读参数/按快门。
  *
@@ -193,6 +206,53 @@ class RemoteSession(
             log("读参数失败：${e.message}")
             CameraParams()
         }
+    }
+
+    // ---------- M6-04 拍后回传 ----------
+
+    fun isAutoDownload(): Boolean = prefs.getBoolean("autoDownload", true)
+
+    fun setAutoDownload(enabled: Boolean) {
+        prefs.edit().putBoolean("autoDownload", enabled).apply()
+    }
+
+    /** 快门 + 可选回传：先枚举 handle，拍完只取新出现的 JPEG。 */
+    fun captureWithDownload(): CaptureDownload {
+        val auto = isAutoDownload()
+        val before = if (auto) snapshotHandles() else emptySet()
+        val at = capture()
+        val downloaded = if (auto && before != null) downloadNewJpeg(before) else null
+        return CaptureDownload(at, downloaded)
+    }
+
+    /** 枚举对象句柄；相机不支持 storage=0xFFFFFFFF 时返回 null（跳过回传）。 */
+    private fun snapshotHandles(): Set<Long>? = runCatching {
+        val s = session ?: return null
+        s.getObjectHandles(PtpSession.DEFAULT_STORAGE, 0, PtpSession.PARENT_ALL).toSet()
+    }.getOrNull()
+
+    private fun downloadNewJpeg(before: Set<Long>): DownloadedJpeg? {
+        val s = session ?: return null
+        val deadline = System.currentTimeMillis() + 8_000
+        while (System.currentTimeMillis() < deadline) {
+            val handles = runCatching {
+                s.getObjectHandles(PtpSession.DEFAULT_STORAGE, 0, PtpSession.PARENT_ALL)
+            }.getOrDefault(emptyList())
+            val candidates = handles.filter { it !in before }.mapNotNull { handle ->
+                runCatching { ObjectCandidate(handle, s.getObjectInfo(handle)) }.getOrNull()
+            }
+            val pick = AutoDownload.pickNewestJpeg(candidates)
+            if (pick != null) {
+                val bytes = runCatching { s.getObject(pick.handle) }.getOrNull()
+                if (bytes != null && (pick.info.sizeBytes <= 0 || bytes.size.toLong() == pick.info.sizeBytes)) {
+                    log("回传 ${pick.info.fileName} ${bytes.size}B")
+                    return DownloadedJpeg(pick.info.fileName, bytes, pick.info.captureEpochMillis)
+                }
+            }
+            Thread.sleep(400)
+        }
+        log("回传超时：未发现新 JPEG")
+        return null
     }
 
     /** 写一个属性并回读；返回相机实际生效的原始值（可能被夹取）。 */

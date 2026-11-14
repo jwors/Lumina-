@@ -174,9 +174,13 @@ class ProbeController(
                 stage = RemoteStage.IDLE,
                 status = "先在相机上打开 Wi-Fi",
                 savedSsid = savedRemoteSsid(),
+                autoDownload = savedAutoDownload(),
             )
         } else {
-            remoteState.copy(savedSsid = remoteState.savedSsid ?: savedRemoteSsid())
+            remoteState.copy(
+                savedSsid = remoteState.savedSsid ?: savedRemoteSsid(),
+                autoDownload = savedAutoDownload(),
+            )
         }
         emitRemote()
     }
@@ -203,6 +207,7 @@ class ProbeController(
             stage = RemoteStage.IDLE,
             status = "已断开",
             savedSsid = savedRemoteSsid(),
+            autoDownload = savedAutoDownload(),
         )
         emitRemote()
     }
@@ -210,6 +215,10 @@ class ProbeController(
     private fun savedRemoteSsid(): String? =
         appContext.getSharedPreferences("lumina_remote", Context.MODE_PRIVATE)
             .getString("ssid", null)?.removeSuffix("_SnapBridge")
+
+    private fun savedAutoDownload(): Boolean =
+        appContext.getSharedPreferences("lumina_remote", Context.MODE_PRIVATE)
+            .getBoolean("autoDownload", true)
 
     fun closeRemote() {
         mainThread.removeCallbacks(remoteTicker)
@@ -322,14 +331,24 @@ class ProbeController(
         remoteState = remoteState.copy(status = "拍摄中…")
         emitRemote()
         remoteIo.execute {
-            val result = runCatching { remoteSessionOrCreate().capture() }
-            result.onSuccess { at ->
+            val result = runCatching { remoteSessionOrCreate().captureWithDownload() }
+            result.onSuccess { shot ->
+                val savedName = shot.downloaded?.let { d ->
+                    runCatching { saveDownloadedJpeg(d) }
+                        .onFailure { appendRemoteLog("回传入库失败：${it.message}") }
+                        .getOrNull()
+                }
                 val params = runCatching { remoteSessionOrCreate().readParams() }.getOrNull()
+                val extra = when {
+                    !remoteState.autoDownload -> ""
+                    savedName != null -> " · 已回传 $savedName"
+                    else -> " · 未回传"
+                }
                 remoteState = remoteState.copy(
                     stage = RemoteStage.READY,
-                    status = "已拍摄 · ${REMOTE_TIME_FMT.format(Instant.ofEpochMilli(at))}",
+                    status = "已拍摄$extra",
                     shotCount = remoteState.shotCount + 1,
-                    lastShotMs = at,
+                    lastShotMs = shot.capturedAt,
                     params = params ?: remoteState.params,
                 )
             }.onFailure { e ->
@@ -340,6 +359,43 @@ class ProbeController(
             }
             emitRemote()
         }
+    }
+
+    /** 回传的 JPEG 落到 Master（非破坏：同名冲突加序号，不覆盖已有 Master）。 */
+    private fun saveDownloadedJpeg(d: com.lumina.remote.DownloadedJpeg): String {
+        var name = d.fileName
+        var rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, null, name)
+        var n = 1
+        while (masterStore.findByRelPath(rel) != null || masterStore.fileOf(rel).exists()) {
+            val dot = d.fileName.lastIndexOf('.')
+            name = if (dot > 0) {
+                d.fileName.substring(0, dot) + "_$n" + d.fileName.substring(dot)
+            } else {
+                d.fileName + "_$n"
+            }
+            rel = com.lumina.master.MasterPaths.relativePath(d.captureMs, null, name)
+            n++
+        }
+        val file = masterStore.fileOf(rel)
+        file.parentFile?.mkdirs()
+        file.writeBytes(d.bytes)
+        return when (val r = masterStore.register(d.captureMs, null, name, d.bytes.size.toLong())) {
+            is com.lumina.master.MasterStore.RegisterResult.Registered,
+            is com.lumina.master.MasterStore.RegisterResult.AlreadyPresent,
+            -> name
+            is com.lumina.master.MasterStore.RegisterResult.MissingFile ->
+                throw IllegalStateException(r.reason)
+        }
+    }
+
+    fun remoteToggleAutoDownload() {
+        val next = !remoteState.autoDownload
+        remoteState = remoteState.copy(
+            autoDownload = next,
+            status = if (next) "拍后回传已开" else "拍后回传已关",
+        )
+        emitRemote()
+        remoteIo.execute { runCatching { remoteSessionOrCreate().setAutoDownload(next) } }
     }
 
     /** 开始定时/间隔拍摄（delay 秒后首张，之后每 interval 秒一张，共 count 张）。 */
@@ -2598,6 +2654,8 @@ data class RemoteUi(
     /** M6-03：实时取景开/关与最新一帧 */
     val liveViewOn: Boolean = false,
     val liveView: Bitmap? = null,
+    /** M6-04：拍后自动回传 JPEG */
+    val autoDownload: Boolean = true,
 )
 
 /** 定时/间隔拍摄的 UI 快照。 */

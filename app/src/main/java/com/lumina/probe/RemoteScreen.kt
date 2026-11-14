@@ -177,6 +177,24 @@ private fun ReadyBody(state: RemoteUi, controller: ProbeController) {
         Spacer(Modifier.width(12.dp))
         ShutterButton(busy = state.status == "拍摄中…") { controller.remoteCapture() }
     }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("拍后回传 JPEG", fontSize = 11.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (state.autoDownload) "开" else "关",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (state.autoDownload) Accent else CreamFaint,
+            modifier = Modifier
+                .clickable { controller.remoteToggleAutoDownload() }
+                .padding(6.dp),
+        )
+    }
     LiveViewSection(state, controller)
     IntervalSection(state, controller)
 }

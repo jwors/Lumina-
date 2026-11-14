@@ -151,4 +151,23 @@ class DevicePropsTest {
         }
         assertEquals("setDevicePropValue requires Ready, state=Closed", ex.message)
     }
+
+    @Test
+    fun `getObject returns the raw payload`() {
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+        val t = FakeTransport(
+            listOf(
+                resp(RespCode.OK, 0),
+                dataPack(OpCode.GET_OBJECT, 1, jpeg),
+                resp(RespCode.OK, 1),
+            ),
+        )
+        val s = PtpSession(t)
+        s.open()
+        assertArrayEquals(jpeg, s.getObject(42))
+        assertArrayEquals(
+            encodeRequest(OpCode.GET_OBJECT, 1, longArrayOf(42)),
+            t.observedWrites().last(),
+        )
+    }
 }

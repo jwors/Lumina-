@@ -86,6 +86,12 @@ class PtpSession(
         return parseObjectInfo(data)
     }
 
+    /** GetObject (0x1009)：整对象数据（JPEG/NEF）。大文件由调用方决定是否分段。 */
+    fun getObject(handle: Long): ByteArray {
+        check(state == State.Open || state == State.Ready) { "getObject requires session, state=$state" }
+        return sendWithPayload(OpCode.GET_OBJECT, longArrayOf(handle))
+    }
+
     /**
      * GetDevicePropDesc (0x1014)：相机自报属性类型 + 当前值 + 可选值形态（范围/枚举）。
      * 需要写参数时用它拿允许范围。
@@ -183,10 +189,10 @@ class PtpSession(
         const val MAX_STORAGE_COUNT = 255
 
         /**
-         * 容器长度声明上限：M0 数据集全在 MB 级内；4 MiB 挡住谎报天文数字 OOM。
-         * M1 进入文件数据阶段（单张 NEF ~50MB）时按需上调并补测试。
+         * 容器长度声明上限：M6 进入整对象回传（JPEG 常见 5–15MB），32 MiB 留余量；
+         * NEF 整档回传后续若走分段/流式再接。
          */
-        const val MAX_CONTAINER_BYTES = 4 shl 20
+        const val MAX_CONTAINER_BYTES = 32 shl 20
 
         /** 全宽读 stage：必须 ≥ 真实 USB 包上限（USB2 bulk 512B），4K 兼容 USB3。 */
         const val READ_STAGE_SIZE = 4096
