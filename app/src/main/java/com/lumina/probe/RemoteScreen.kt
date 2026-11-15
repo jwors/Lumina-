@@ -3,7 +3,6 @@ package com.lumina.probe
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumina.ptp.CameraProp
 import com.lumina.remote.CameraParams
+import com.lumina.ui.feedback.LuminaHaptic
+import com.lumina.ui.feedback.luminaClickable
 
 /**
  * 文字动作（断开/开/关/设置）：至少 48dp 触控区 + 14sp，别再让用户点细字。
@@ -58,7 +59,7 @@ private fun TextAction(
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-            .clickable { onClick() }
+            .luminaClickable(pressScale = 0.9f, haptic = LuminaHaptic.Tick) { onClick() }
             .padding(horizontal = 10.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -244,7 +245,7 @@ private fun BracketSection(state: RemoteUi, controller: ProbeController) {
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
-            .clickable { open = !open },
+            .luminaClickable(pressScale = 1f, haptic = LuminaHaptic.Tick) { open = !open },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("包围拍摄", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
@@ -365,7 +366,7 @@ private fun IntervalSection(state: RemoteUi, controller: ProbeController) {
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
-            .clickable { open = !open },
+            .luminaClickable(pressScale = 1f, haptic = LuminaHaptic.Tick) { open = !open },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("定时 / 间隔拍摄", fontSize = 13.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
@@ -426,8 +427,8 @@ private fun ParamsRow(params: CameraParams?, onCycle: (Int) -> Unit) {
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .luminaClickable(enabled = isAdjustable, haptic = LuminaHaptic.Tick) { code?.let(onCycle) }
                     .background(Lightbox, RoundedCornerShape(8.dp))
-                    .clickable(enabled = isAdjustable) { code?.let(onCycle) }
                     .padding(vertical = 10.dp, horizontal = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -454,10 +455,17 @@ private fun ShutterButton(busy: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(62.dp)
+            .luminaClickable(
+                enabled = !busy,
+                pressScale = 0.9f,
+                haptic = LuminaHaptic.Confirm,
+                magnetic = true,
+                shape = CircleShape,
+                rippleColor = CardBg,
+            ) { onClick() }
             .border(3.dp, if (busy) CreamFaint else Accent, CircleShape)
             .padding(6.dp)
-            .background(if (busy) CreamFaint else Accent, CircleShape)
-            .clickable(enabled = !busy) { onClick() },
+            .background(if (busy) CreamFaint else Accent, CircleShape),
     )
 }
 
@@ -487,8 +495,10 @@ private fun DeviceRows(state: RemoteUi, controller: ProbeController) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 3.dp)
+                .luminaClickable(pressScale = 0.985f, haptic = LuminaHaptic.Tap) {
+                    controller.remoteConnect(device.address)
+                }
                 .background(Lightbox, RoundedCornerShape(10.dp))
-                .clickable { controller.remoteConnect(device.address) }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -511,7 +521,7 @@ private fun ManualWifiSection(controller: ProbeController) {
         fontSize = 13.sp,
         color = CreamFaint,
         modifier = Modifier
-            .clickable { open = !open }
+            .luminaClickable(haptic = LuminaHaptic.Tick) { open = !open }
             .defaultMinSize(minHeight = 48.dp)
             .padding(vertical = 12.dp),
     )

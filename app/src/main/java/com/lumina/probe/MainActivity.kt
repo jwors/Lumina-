@@ -32,9 +32,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.lumina.ui.feedback.LuminaCheck
+import com.lumina.ui.feedback.LuminaHaptic
+import com.lumina.ui.feedback.LuminaSwitch
+import com.lumina.ui.feedback.LuminaUiPrefs
+import com.lumina.ui.feedback.luminaClickable
 import com.lumina.ui.theme.LuminaTheme
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -58,13 +62,11 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
@@ -104,6 +106,7 @@ import java.time.LocalDate
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LuminaUiPrefs.init(this)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = FilmBackground.toArgb()
         window.navigationBarColor = FilmBackground.toArgb()
@@ -212,8 +215,8 @@ fun AppScaffold(state: ProbeUiState, controller: ProbeController) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .luminaClickable(pressScale = 0.99f, haptic = LuminaHaptic.Tick) { controller.runCatchUp() }
                     .background(PillActive)
-                    .clickable { controller.runCatchUp() }
                     .padding(horizontal = 20.dp, vertical = 9.dp),
             ) {
                 Text(banner, fontSize = 12.5.sp, color = AccentDeep, fontWeight = FontWeight.SemiBold)
@@ -301,7 +304,7 @@ private fun LuminaTabBar(current: String, onSelect: (String) -> Unit) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { onSelect(key) }
+                        .luminaClickable(pressScale = 0.9f, haptic = LuminaHaptic.Tick) { onSelect(key) }
                         .padding(vertical = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -377,8 +380,8 @@ private fun RunFloatingChip(run: CardRunUi, onOpen: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .luminaClickable(pressScale = 0.99f, haptic = LuminaHaptic.Tick) { onOpen() }
             .background(AccentDeep)
-            .clickable { onOpen() }
             .padding(horizontal = 20.dp, vertical = 10.dp),
     ) {
         Column {
@@ -514,7 +517,7 @@ private fun SaveSheetView(run: CardRunUi, controller: ProbeController) {
                 "暂不保存",
                 fontSize = 14.sp, color = SageText, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .clickable { controller.dismissCardRun() }
+                    .luminaClickable(haptic = LuminaHaptic.Tap) { controller.dismissCardRun() }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             )
             Spacer(Modifier.weight(1f))
@@ -542,8 +545,8 @@ private fun SaveOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .luminaClickable(pressScale = 0.985f, haptic = LuminaHaptic.Tap) { onSelect() }
             .background(if (selected) PillActive else DividerCream.copy(alpha = 0.4f))
-            .clickable { onSelect() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -582,9 +585,17 @@ internal fun PillButton(
     Box(
         modifier = Modifier
             .defaultMinSize(minHeight = 48.dp)
+            .luminaClickable(
+                enabled = enabled,
+                pressScale = if (filled) 0.94f else 0.96f,
+                haptic = LuminaHaptic.Tap,
+                magnetic = filled && enabled,
+                shape = RoundedCornerShape(22.dp),
+                rippleColor = if (filled) CardBg else AccentDeep,
+            ) { onClick() }
             .background(bg, RoundedCornerShape(22.dp))
-            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = fg)
     }
@@ -595,9 +606,16 @@ internal fun PillButton(
 private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .luminaClickable(
+                pressScale = 0.9f,
+                haptic = LuminaHaptic.Tick,
+                magnetic = true,
+                shape = RoundedCornerShape(999.dp),
+                rippleColor = if (selected) CardBg else AccentDeep,
+            ) { onClick() }
             .background(if (selected) Accent else PillActive, RoundedCornerShape(999.dp))
-            .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
@@ -680,8 +698,10 @@ private fun GalleryPage(
                 color = AccentDeep,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
+                    .luminaClickable(pressScale = 0.94f, haptic = LuminaHaptic.Tick) {
+                        controller.loadSmartFeed(); viewFeed = !viewFeed
+                    }
                     .background(PillActive, RoundedCornerShape(999.dp))
-                    .clickable { controller.loadSmartFeed(); viewFeed = !viewFeed }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             )
             Modifier.weight(1f).let { Spacer(modifier = it) }
@@ -782,13 +802,24 @@ private fun GalleryPage(
 private fun RoundIcon(icon: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(34.dp)
-            .background(CardBg, RoundedCornerShape(50))
-            .border(1.dp, DividerCream, RoundedCornerShape(50))
-            .clickable { onClick() },
+            .size(48.dp)
+            .luminaClickable(
+                pressScale = 0.88f,
+                haptic = LuminaHaptic.Tick,
+                magnetic = true,
+                shape = RoundedCornerShape(50),
+            ) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(icon, fontSize = 15.sp, color = InkTeal)
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(CardBg, RoundedCornerShape(50))
+                .border(1.dp, DividerCream, RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(icon, fontSize = 15.sp, color = InkTeal)
+        }
     }
 }
 
@@ -836,8 +867,12 @@ private fun GalleryCell(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .background(CardBg)
-            .clickable { onOpen() },
+            .luminaClickable(
+                pressScale = 0.985f,
+                haptic = LuminaHaptic.None,
+                pressOverlay = Color.Black.copy(alpha = 0.08f),
+            ) { onOpen() }
+            .background(CardBg),
     ) {
         when {
             isUntouchable -> {
@@ -896,28 +931,16 @@ private fun GalleryCell(
                     .padding(horizontal = 3.dp, vertical = 1.dp),
             )
         }
-        // 勾选圈（顶左；圈可点，格身打开查看器）
-        Box(
+        // 勾选圈（顶左；圈可点，格身打开查看器）。选片是正向动作：金色粒子在圈心迸发一次。
+        LuminaCheck(
+            checked = checked,
+            onCheckedChange = { onCheck() },
+            burst = true,
+            visualSize = 22.dp,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(4.dp)
-                .size(22.dp)
-                .background(
-                    if (checked) Accent else Color(0x33FFFFFF),
-                    RoundedCornerShape(50),
-                )
-                .border(
-                    1.5.dp,
-                    if (checked) Accent else Color(0xE6FFFFFF),
-                    RoundedCornerShape(50),
-                )
-                .clickable { onCheck() },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (checked) {
-                Text("✓", fontSize = 12.sp, color = CardBg, fontWeight = FontWeight.Bold)
-            }
-        }
+                .padding(2.dp),
+        )
     }
 }
 
@@ -952,14 +975,14 @@ private fun GallerySelectBar(
                 "取消",
                 fontSize = 13.sp, color = SageText, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .clickable { controller.clearPassSelection() }
+                    .luminaClickable(haptic = LuminaHaptic.Tick) { controller.clearPassSelection() }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
             Text(
                 if (allSelected) "清空全选" else "全选 JPEG",
                 fontSize = 12.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .clickable {
+                    .luminaClickable(haptic = LuminaHaptic.Tick) {
                         if (allSelected) {
                             controller.clearPassSelection()
                         } else {
@@ -979,8 +1002,12 @@ private fun GallerySelectBar(
             Box(
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
+                    .luminaClickable(
+                        pressScale = 0.94f,
+                        haptic = LuminaHaptic.Reject,
+                        shape = RoundedCornerShape(999.dp),
+                    ) { onDelete() }
                     .border(1.dp, WarnBrown.copy(alpha = 0.45f), RoundedCornerShape(999.dp))
-                    .clickable { onDelete() }
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1034,7 +1061,7 @@ private fun ConfirmDeleteMastersDialog(
                 fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WarnBrown,
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
-                    .clickable { onConfirm() }
+                    .luminaClickable(haptic = LuminaHaptic.Reject) { onConfirm() }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         },
@@ -1044,7 +1071,7 @@ private fun ConfirmDeleteMastersDialog(
                 fontSize = 14.sp, color = SageText,
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
-                    .clickable { onDismiss() }
+                    .luminaClickable(haptic = LuminaHaptic.Tap) { onDismiss() }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         },
@@ -1079,7 +1106,7 @@ private fun GalleryViewerOverlay(
                     fontSize = 18.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .clickable { onClose() }
+                        .luminaClickable(haptic = LuminaHaptic.Tap) { onClose() }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 )
                 Text(
@@ -1093,7 +1120,7 @@ private fun GalleryViewerOverlay(
                         "⋯",
                         fontSize = 18.sp, color = InkTeal,
                         modifier = Modifier
-                            .clickable { menuOpen = true }
+                            .luminaClickable(haptic = LuminaHaptic.Tick) { menuOpen = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                     androidx.compose.material3.DropdownMenu(
@@ -1195,8 +1222,10 @@ private fun ShareSheetBody(gi: GalleryItem, controller: ProbeController) {
                 if (mode == ShareMode.POSTER) "原比例档 →" else "4:5 zine 海报 →",
                 fontSize = 13.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
+                    .luminaClickable(pressScale = 0.94f, haptic = LuminaHaptic.Tick) {
+                        mode = if (mode == ShareMode.POSTER) ShareMode.ORIGINAL else ShareMode.POSTER
+                    }
                     .background(PillActive, RoundedCornerShape(14.dp))
-                    .clickable { mode = if (mode == ShareMode.POSTER) ShareMode.ORIGINAL else ShareMode.POSTER }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
@@ -1371,7 +1400,7 @@ private fun ViewerToolbar(
 private fun ViewerAction(label: String, icon: String, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .clickable { onClick() }
+            .luminaClickable(pressScale = 0.9f, haptic = LuminaHaptic.Tap) { onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1498,7 +1527,7 @@ private fun CameraPage(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .padding(top = 8.dp)
-                    .clickable { controller.retryPermission() },
+                    .luminaClickable(haptic = LuminaHaptic.Tick) { controller.retryPermission() },
             )
         }
 
@@ -1523,7 +1552,7 @@ private fun CameraPage(
                 fontWeight = FontWeight.Bold,
                 color = InkTeal,
                 modifier = Modifier
-                    .clickable { newestFirst = !newestFirst }
+                    .luminaClickable(haptic = LuminaHaptic.Tick) { newestFirst = !newestFirst }
                     .padding(6.dp),
             )
             Modifier.weight(1f).let { Spacer(modifier = it) }
@@ -1533,7 +1562,7 @@ private fun CameraPage(
                 fontSize = 16.sp,
                 color = InkTeal,
                 modifier = Modifier
-                    .clickable {
+                    .luminaClickable(haptic = LuminaHaptic.Tick) {
                         collapsedDays =
                             if (collapsedDays.isNotEmpty()) emptySet()
                             else state.cameraItems.map { it.dateKey }.toSet()
@@ -1549,7 +1578,7 @@ private fun CameraPage(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 16.dp, bottom = 4.dp)
-                            .clickable {
+                            .luminaClickable(pressScale = 1f, haptic = LuminaHaptic.Tick) {
                                 collapsedDays =
                                     if (collapsed) collapsedDays - dateKey
                                     else collapsedDays + dateKey
@@ -1579,7 +1608,7 @@ private fun CameraPage(
                                 fontSize = 12.sp,
                                 color = InkTeal,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable {
+                                modifier = Modifier.luminaClickable(haptic = LuminaHaptic.Tick) {
                                     controller.toggleDay(dateKey, !dayAllChecked)
                                 },
                             )
@@ -1613,9 +1642,17 @@ private fun CameraPage(
             val enabled = state.engineReady && n > 0
             Box(
                 modifier = Modifier
+                    .luminaClickable(
+                        enabled = enabled,
+                        pressScale = 0.94f,
+                        haptic = LuminaHaptic.Tap,
+                        magnetic = enabled,
+                        shape = RoundedCornerShape(999.dp),
+                        rippleColor = CardBg,
+                    ) { controller.startIngest() }
                     .background(if (enabled) Accent else DividerCream, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .clickable(enabled = enabled) { controller.startIngest() },
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     if (state.engineReady) "导出 $n 个" else "未连接相机",
@@ -1631,7 +1668,7 @@ private fun CameraPage(
                     color = InkTeal,
                     modifier = Modifier
                         .padding(start = 16.dp)
-                        .clickable { controller.retryFailed() },
+                        .luminaClickable(haptic = LuminaHaptic.Tick) { controller.retryFailed() },
                 )
             }
         }
@@ -1708,7 +1745,12 @@ private fun CameraRow(
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(checked = checked, onCheckedChange = { onToggle() })
+            // 相机页是批量勾选：只做视觉勾选动画，不振动，避免连点 20 张嗡嗡响。
+            LuminaCheck(
+                checked = checked,
+                onCheckedChange = { onToggle() },
+                hapticOnToggle = false,
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(obj.name, fontSize = 14.sp, color = InkTeal)
                 state.ingestProgress?.statuses?.get(obj.name)?.let { status ->
@@ -1721,7 +1763,7 @@ private fun CameraRow(
                                     fontSize = 11.sp,
                                     color = InkTeal,
                                     fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.clickable { controller.retryOne(obj) },
+                                    modifier = Modifier.luminaClickable(haptic = LuminaHaptic.Tick) { controller.retryOne(obj) },
                                 )
                             }
                         }
@@ -1788,10 +1830,15 @@ private fun RecipePage(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .background(Accent, RoundedCornerShape(999.dp))
-                    .clickable {
+                    .luminaClickable(
+                        pressScale = 0.92f,
+                        haptic = LuminaHaptic.Tick,
+                        shape = RoundedCornerShape(999.dp),
+                        rippleColor = CardBg,
+                    ) {
                         importLauncher.launch(arrayOf("application/json", "text/*"))
                     }
+                    .background(Accent, RoundedCornerShape(999.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
                 Text("卡片", fontSize = 12.sp,
@@ -1800,8 +1847,10 @@ private fun RecipePage(
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
+                    .luminaClickable(pressScale = 0.92f, haptic = LuminaHaptic.Tick) {
+                        skillLauncher.launch(arrayOf("text/*", "text/markdown"))
+                    }
                     .background(PillActive)
-                    .clickable { skillLauncher.launch(arrayOf("text/*", "text/markdown")) }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text("SKILL", fontSize = 12.sp,
@@ -1810,14 +1859,14 @@ private fun RecipePage(
             Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .background(PillActive)
-                    .clickable {
+                    .luminaClickable(pressScale = 0.92f, haptic = LuminaHaptic.Tick) {
                         albumLauncher.launch(
                             androidx.activity.result.PickVisualMediaRequest(
                                 androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
                             ),
                         )
                     }
+                    .background(PillActive)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text("⤵ 相册", fontSize = 12.sp,
@@ -1918,7 +1967,7 @@ private fun RecipePage(
                     fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WarnBrown,
                     modifier = Modifier
                         .defaultMinSize(minHeight = 48.dp)
-                        .clickable {
+                        .luminaClickable(haptic = LuminaHaptic.Reject) {
                             controller.deleteCard(card.cardId)
                             pendingDelete = null
                         }
@@ -1931,7 +1980,7 @@ private fun RecipePage(
                     fontSize = 14.sp, color = SageText,
                     modifier = Modifier
                         .defaultMinSize(minHeight = 48.dp)
-                        .clickable { pendingDelete = null }
+                        .luminaClickable(haptic = LuminaHaptic.Tap) { pendingDelete = null }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             },
@@ -2026,9 +2075,9 @@ private fun CardTile(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
+            .luminaClickable(pressScale = 0.985f, haptic = LuminaHaptic.None, shape = RoundedCornerShape(14.dp)) { onClick() }
             .background(CardBg, RoundedCornerShape(14.dp))
             .border(1.dp, DividerCream, RoundedCornerShape(14.dp))
-            .clickable { onClick() }
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2057,13 +2106,13 @@ private fun CardTile(
                 Text(
                     "导出",
                     fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onExport() },
+                    modifier = Modifier.luminaClickable(haptic = LuminaHaptic.Tick) { onExport() },
                 )
                 Spacer(Modifier.width(14.dp))
                 Text(
                     "删除",
                     fontSize = 11.sp, color = WarnBrown, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onDelete() },
+                    modifier = Modifier.luminaClickable(haptic = LuminaHaptic.Reject) { onDelete() },
                 )
             }
         }
@@ -2143,6 +2192,37 @@ private fun SettingsPage(
         SettingsPanel {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    Text("触感反馈", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                    Text(
+                        "按钮、开关与选片的轻触反馈；关闭后不影响任何操作",
+                        fontSize = 11.5.sp, color = CreamFaint,
+                    )
+                }
+                LuminaSwitch(
+                    checked = LuminaUiPrefs.hapticsEnabled,
+                    onCheckedChange = { LuminaUiPrefs.updateHaptics(it) },
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("减弱动效", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
+                    Text(
+                        "关闭按压回弹、粒子与磁吸；系统动画时长为 0 时同样生效",
+                        fontSize = 11.5.sp, color = CreamFaint,
+                    )
+                }
+                LuminaSwitch(
+                    checked = LuminaUiPrefs.reducedMotion,
+                    onCheckedChange = { LuminaUiPrefs.updateReducedMotion(it) },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+
+        SettingsPanel {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text("云处理总开关", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InkTeal)
                     Text(
                         if (state.cloudEnabled) "开启中：联网模型仅用于你配置的 API 域" else "关闭中：所有云端请求挂起（回网也不跑）",
@@ -2150,16 +2230,9 @@ private fun SettingsPage(
                         color = if (state.cloudEnabled) Accent else CreamFaint,
                     )
                 }
-                Switch(
+                LuminaSwitch(
                     checked = state.cloudEnabled,
                     onCheckedChange = { controller.setCloudEnabled(it) },
-                    colors = androidx.compose.material3.SwitchDefaults.colors(
-                        checkedThumbColor = CardBg,
-                        checkedTrackColor = Accent,
-                        uncheckedThumbColor = CreamFaint,
-                        uncheckedTrackColor = DividerCream,
-                        uncheckedBorderColor = Color.Transparent,
-                    ),
                 )
             }
 
@@ -2178,13 +2251,18 @@ private fun SettingsPage(
                     fontWeight = FontWeight.SemiBold,
                     color = if (active) CardBg else AccentDeep,
                     modifier = Modifier
-                        .background(if (active) Accent else CardBg, RoundedCornerShape(999.dp))
-                        .border(1.dp, if (active) Accent else DividerCream, RoundedCornerShape(999.dp))
-                        .clickable {
+                        .luminaClickable(
+                            pressScale = 0.9f,
+                            haptic = LuminaHaptic.Tick,
+                            shape = RoundedCornerShape(999.dp),
+                            rippleColor = if (active) CardBg else AccentDeep,
+                        ) {
                             templateName = t.name
                             baseUrl = t.baseUrl
                             model = t.model
                         }
+                        .background(if (active) Accent else CardBg, RoundedCornerShape(999.dp))
+                        .border(1.dp, if (active) Accent else DividerCream, RoundedCornerShape(999.dp))
                         .padding(horizontal = 11.dp, vertical = 6.dp),
                 )
             }
@@ -2209,7 +2287,7 @@ private fun SettingsPage(
                     if (showKey) "隐藏" else "显示",
                     fontSize = 11.sp, color = Accent, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clickable { showKey = !showKey }
+                        .luminaClickable(haptic = LuminaHaptic.Tick) { showKey = !showKey }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 )
             },
@@ -2226,16 +2304,23 @@ private fun SettingsPage(
         Spacer(Modifier.height(16.dp))
         Box(
             modifier = Modifier
-                .background(Accent, RoundedCornerShape(999.dp))
-                .padding(horizontal = 24.dp, vertical = 11.dp)
-                .clickable {
+                .luminaClickable(
+                    pressScale = 0.94f,
+                    haptic = LuminaHaptic.Tap,
+                    magnetic = true,
+                    shape = RoundedCornerShape(999.dp),
+                    rippleColor = CardBg,
+                ) {
                     if (baseUrl.isBlank() || model.isBlank()) {
                         saved = "base_url 与 model 不能为空"
                     } else {
                         controller.saveLlmConfig(baseUrl, apiKey, model, templateName, state.cloudEnabled)
                         saved = "已保存 ✓"
                     }
-                },
+                }
+                .background(Accent, RoundedCornerShape(999.dp))
+                .padding(horizontal = 24.dp, vertical = 11.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Text("保存配置", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = CardBg)
         }
@@ -2247,12 +2332,18 @@ private fun SettingsPage(
         // 连接测试：真实 ping 一次 chat.completions（文本 only，无图）
         Box(
             modifier = Modifier
+                .luminaClickable(
+                    enabled = state.cloudEnabled,
+                    pressScale = 0.94f,
+                    haptic = LuminaHaptic.Tap,
+                    shape = RoundedCornerShape(999.dp),
+                ) { controller.testLlmConnection() }
                 .background(
                     if (state.cloudEnabled) PillActive else DividerCream,
                     RoundedCornerShape(999.dp),
                 )
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-                .clickable(enabled = state.cloudEnabled) { controller.testLlmConnection() },
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 if (state.cloudEnabled) "测试连接 LLM" else "先开云处理总开关",
@@ -2383,19 +2474,12 @@ private fun SettingsPage(
                     fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
                 )
             }
-            Switch(
+            LuminaSwitch(
                 checked = watermarkOff,
                 onCheckedChange = {
                     watermarkOff = it
                     com.lumina.imagegen.ImageGenPrefs.setWatermarkEnabled(ctx, !it)
                 },
-                colors = androidx.compose.material3.SwitchDefaults.colors(
-                    checkedThumbColor = CardBg,
-                    checkedTrackColor = Accent,
-                    uncheckedThumbColor = CreamFaint,
-                    uncheckedTrackColor = DividerCream,
-                    uncheckedBorderColor = Color.Transparent,
-                ),
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -2408,19 +2492,12 @@ private fun SettingsPage(
                     fontSize = 10.5.sp, lineHeight = 15.sp, color = CreamFaint,
                 )
             }
-            Switch(
+            LuminaSwitch(
                 checked = hybrid,
                 onCheckedChange = {
                     hybrid = it
                     com.lumina.imagegen.HybridPrefs.setEnabled(ctx, it)
                 },
-                colors = androidx.compose.material3.SwitchDefaults.colors(
-                    checkedThumbColor = CardBg,
-                    checkedTrackColor = Accent,
-                    uncheckedThumbColor = CreamFaint,
-                    uncheckedTrackColor = DividerCream,
-                    uncheckedBorderColor = Color.Transparent,
-                ),
             )
         }
         Spacer(Modifier.height(10.dp))

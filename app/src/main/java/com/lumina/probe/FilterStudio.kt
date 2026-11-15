@@ -50,6 +50,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumina.ui.feedback.LuminaHaptic
+import com.lumina.ui.feedback.luminaClickable
 import com.lumina.work.CubeLut
 import com.lumina.work.FilterCatalog
 import com.lumina.work.FilterCategory
@@ -171,7 +173,9 @@ internal fun FilterStudioOverlay(
                 Text(
                     "✕",
                     fontSize = 19.sp, color = InkTeal, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onClose() }.padding(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .luminaClickable(pressScale = 0.9f, haptic = LuminaHaptic.Tick) { onClose() }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                 )
                 Spacer(Modifier.size(4.dp))
                 Text(
@@ -185,7 +189,11 @@ internal fun FilterStudioOverlay(
                     fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold,
                     color = if (selection == null || saving) CreamFaint else Accent,
                     modifier = Modifier
-                        .clickable(enabled = selection != null && !saving) { save() }
+                        .luminaClickable(
+                            enabled = selection != null && !saving,
+                            pressScale = 0.94f,
+                            haptic = LuminaHaptic.Tap,
+                        ) { save() }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 )
             }
@@ -322,8 +330,12 @@ private fun CategoryChip(label: String, active: Boolean, onClick: () -> Unit) {
         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
         color = if (active) AccentDeep else SageText,
         modifier = Modifier
+            .luminaClickable(
+                pressScale = 0.92f,
+                haptic = LuminaHaptic.Tick,
+                shape = RoundedCornerShape(14.dp),
+            ) { onClick() }
             .background(if (active) PillActive else Color.Transparent, RoundedCornerShape(14.dp))
-            .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 7.dp),
     )
 }
@@ -335,10 +347,14 @@ private fun FilterThumb(entry: FilterEntry, bitmap: Bitmap?, active: Boolean, on
     Box(
         modifier = Modifier
             .size(THUMB_DP.dp)
+            .luminaClickable(
+                pressScale = 0.96f,
+                haptic = LuminaHaptic.Tap,
+                shape = shape,
+            ) { onClick() }
             .clip(shape)
             .background(PillActive)
-            .border(2.dp, if (active) Accent else Color.Transparent, shape)
-            .clickable { onClick() },
+            .border(2.dp, if (active) Accent else Color.Transparent, shape),
     ) {
         if (bitmap != null) {
             Image(
