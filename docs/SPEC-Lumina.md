@@ -32,8 +32,8 @@ App 检测网络 → 自动补跑队列: LLM 标注/文案 → 智能选滤镜 �
 - Android USB Host + OTG 线直连 Z30，PTP/MTP 协议；M0 里程碑先验证"发现相机→列出存储内容"
 - 导出动作 = 把相机存储内对象**逐张独立复制**到应用私有存储（Master），保留原文件名（M1 grilling 修订 2026-11-04：原"NEF+JPEG 成对"不再强制，NEF 与 JPEG 各自独立勾选）
 - 按拍摄日期分组浏览卡内容；支持全选/勾选
-- Wi-Fi PTP-IP 为 Phase 2；蓝牙批量导出**明确不做**（ADR-0003）
-- M5 起增加**无线遥控**：BLE 仅配对/唤醒相机热点，镜头参数与快门走 PTP-IP（ADR-0006）；遥控不改变"照片只走 USB/PTP 搬运"的边界
+- Wi-Fi PTP-IP 只用于遥控与拍后单张 JPEG 回传（ADR-0007）；蓝牙批量导出**明确不做**（ADR-0003）
+- M5 起增加**无线遥控**：BLE 仅配对/唤醒相机热点，镜头参数、取景与快门走 PTP-IP（ADR-0006）。**全量 Ingest 仍只走 USB**；Wi-Fi 只允许"拍后回传本次快门产生的一张 JPEG"作为即时副本，不做全卡浏览/批量下载/NEF 回传（ADR-0007，M6-04）
 
 ### 3.2 图库（Master 浏览）
 - 按日期分组，统计张数/体积
@@ -84,7 +84,7 @@ App 检测网络 → 自动补跑队列: LLM 标注/文案 → 智能选滤镜 �
 | 层 | 选择 |
 |---|---|
 | 平台 | Android 8.0+，Kotlin + Jetpack Compose（ADR-0001） |
-| 相机协议 | USB Host + PTP/MTP（M0 验证）；NP 二期 PTP-IP |
+| 相机协议 | USB Host + PTP/MTP（全量 Ingest）；Wi-Fi PTP-IP（遥控 + 拍后单张 JPEG，ADR-0006/0007） |
 | 本地存储 | 应用私有目录 + Room（Master/Work/队列/卡片元数据） |
 | 处理管线 | COIL + Android Bitmap/ColorMatrix for LUT 应用；生成式走云端 API |
 | 网络 | Retrofit/OkHttp（OpenAI 格式）；sardine 或手写轻 WebDAV 客户端 |

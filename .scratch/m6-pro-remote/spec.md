@@ -1,7 +1,7 @@
 # M6 · 遥控进阶（参数/间隔/取景/回传/包围）
 
 > Status: in-progress（01–06 代码+单测完成；07 真机验收待 Z30 开 Wi-Fi）
-> 上游：`docs/SPEC-Lumina.md` §3.1、`docs/adr/0006`、`.scratch/m5-remote/`
+> 上游：`docs/SPEC-Lumina.md` §3.1、`docs/adr/0006`、`docs/adr/0007`、`.scratch/m5-remote/`
 > 参考：ZRelay 3.0.87 真机 APK 静态盘点（只取协议事实与功能清单，不搬代码）
 
 ## Problem Statement
@@ -40,7 +40,7 @@ M5 已经打通「相机 Wi-Fi + PTP-IP」：镜头参数只读、手机按快�
 - **写参数必须回读校验**；相机拒绝/夹取值要在 UI 明说（参考 ZRelay 的 "Camera clamped shutter"）。
 - 不支持的属性灰掉，不猜。
 - 实时取景默认关；开启时保持屏幕常亮与前台，退出即 EndLiveView。
-- 自动回传只回传本次快门产生的 JPEG（RAW 后续单独开关）。
+- 自动回传只回传本次快门产生的 JPEG（RAW 后续单独开关）；这是即时副本，不是全量 Ingest（ADR-0007：不做全卡 Wi-Fi 批量/NEF）。
 - 每个尼康私有码先在真机 probe（`m6-remote.log` 记录请求/响应），未确认的不进生产路径。
 
 ## Testing Decisions
@@ -51,6 +51,7 @@ M5 已经打通「相机 Wi-Fi + PTP-IP」：镜头参数只读、手机按快�
 ## Out of Scope
 
 - 视频录制、B 门长曝（先不做）
+- Wi-Fi 全卡 Ingest / 批量下载 / NEF 回传（ADR-0007：只做拍后单张 JPEG）
 - 云创配方服务端抓取/账号体系
 - iOS、多相机并发
 - 相机固件升级

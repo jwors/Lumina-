@@ -30,5 +30,6 @@
 - `AutoDownload.pickNewestJpeg` 跳过 NEF/目录取最大 handle；`AutoDownloadTest` 3 例。
 - `PtpSession.getObject` 单测；`captureWithDownload` 先枚举 handle → 拍 → 8 秒内轮询新 JPEG → `getObject` → Master 入库。
 - 相机页「拍后回传 JPEG 开/关」；入库同名加 `_1` 序号。
+- 边界见 ADR-0007：这是即时副本，不是全量 Ingest；不做全卡 Wi-Fi 浏览/批量/NEF 回传。
 - 单测 190 全绿；APK 已装。
 - **真机待验收**：Z30 是否支持 `storage=0xFFFFFFFF` 的 GetObjectHandles、JPEG 字节一致性。定时/间隔拍摄目前只按快门、不回传（避免连拍把 Wi-Fi 拖死）。

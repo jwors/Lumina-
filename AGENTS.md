@@ -11,7 +11,7 @@ Lumina：徒步摄影者用 Android 应用（尼康 Z30 → 手机导出）。**
 - 词汇表：`GLOSSARY.md`（Ingest / Master 等，写代码前先对齐词义）
 - 产品规格：`docs/SPEC-Lumina.md`（里程碑 M0..M5 边界）
 - UI 反馈规范：`docs/UI-FEEDBACK.md`（按钮手感 / 触感 / 减弱动效；改按钮先查）
-- 原则性 ADR：`docs/adr/`（0001 平台选型、0003 拒绝蓝牙传图、0005 权限姿态、0006 BLE 配对 + Wi-Fi PTP 遥控）
+- 原则性 ADR：`docs/adr/`（0001 平台选型、0003 拒绝蓝牙传图、0005 权限姿态、0006 BLE 配对 + Wi-Fi PTP 遥控、0007 Wi-Fi 回传不是 Ingest）
 
 ## 构建与测试（本机环境缓存）
 
